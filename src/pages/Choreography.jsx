@@ -4,31 +4,11 @@ import { useApp } from '../context/AppContext'
 import { generateId } from '../utils/helpers'
 import { decodeAudioFile, extractWaveform, crossCorrelateSync, formatTimestamp } from '../utils/audioSync'
 import { detectBeats, getCurrentBeatInfo } from '../utils/beatDetection'
-import { saveFile, loadFile, loadLocalFile, findFirstExistingMediaUrl } from '../utils/fileStorage'
-import { saveStateToBackend } from '../utils/backendApi'
+import { saveFile, saveLocalFile, loadFile, loadLocalFile } from '../utils/fileStorage'
+import { saveStateToBackend, listMediaFromBackend } from '../utils/backendApi'
 import styles from './Choreography.module.css'
-
-const REPO_MUSIC_CANDIDATES = [
-  '/media/choreo-music.mp3',
-  '/media/choreo-music.wav',
-  '/media/choreo-music.m4a',
-  '/media/Mia & Isla Modern Duet 2025_26.mp3',
-]
-
-const REPO_VIDEO_CANDIDATES = [
-  '/media/choreo-video.mp4',
-  '/media/choreo-video.mov',
-  '/media/choreo-video.webm',
-  '/media/WhatsApp Video 2026-02-10 at 17.39.11.mp4',
-]
-
-const PREFERRED_MUSIC_URL = '/media/Mia%20%26%20Isla%20Modern%20Duet%202025_26.mp3'
-const PREFERRED_VIDEO_URL = '/media/WhatsApp%20Video%202026-02-10%20at%2017.39.11.mp4'
-
-function getFileNameFromUrl(url) {
-  const raw = url.split('?')[0].split('/').pop() || ''
-  return decodeURIComponent(raw)
-}
+import VideoAnnotationLayer from '../components/VideoAnnotationLayer'
+import annotationStyles from '../components/VideoAnnotationLayer.module.css'
 
 function toDisplayFileName(name, maxLength = 34) {
   if (!name) return 'Not loaded'
@@ -41,41 +21,12 @@ function toDisplayFileName(name, maxLength = 34) {
   return `${base.slice(0, maxBase)}…${ext}`
 }
 
-async function downloadBlobWithProgress(url, onProgress) {
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(`Failed to download file: ${response.status}`)
-  }
-
-  const total = Number(response.headers.get('content-length') || 0)
-  const contentType = response.headers.get('content-type') || 'application/octet-stream'
-
-  if (!response.body) {
-    const blob = await response.blob()
-    onProgress?.(100)
-    return new Blob([blob], { type: contentType })
-  }
-
-  const reader = response.body.getReader()
-  const chunks = []
-  let loaded = 0
-
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) break
-    if (value) {
-      chunks.push(value)
-      loaded += value.length
-      if (total > 0) {
-        onProgress?.(Math.min(100, Math.round((loaded / total) * 100)))
-      } else {
-        onProgress?.(null)
-      }
-    }
-  }
-
-  onProgress?.(100)
-  return new Blob(chunks, { type: contentType })
+function formatFileSize(size) {
+  const bytes = Number(size || 0)
+  if (!Number.isFinite(bytes) || bytes <= 0) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 // Keyword → emoji map for instruction auto-suggestions
@@ -247,7 +198,19 @@ export default function Choreography() {
   const [seekPreviewTime, setSeekPreviewTime] = useState(null)
   const [videoDownloadProgress, setVideoDownloadProgress] = useState(null)
   const [isVideoDownloading, setIsVideoDownloading] = useState(false)
+  const [mediaPickerOpen, setMediaPickerOpen] = useState(false)
+  const [mediaPickerType, setMediaPickerType] = useState('audio')
+  const [mediaPickerItems, setMediaPickerItems] = useState([])
+  const [mediaPickerLoading, setMediaPickerLoading] = useState(false)
+  const [mediaPickerError, setMediaPickerError] = useState('')
+  const [mediaPickerSelectingId, setMediaPickerSelectingId] = useState('')
+  const musicPickerInputRef = useRef(null)
+  const videoPickerInputRef = useRef(null)
   const isLiveVideoPlayback = !!liveVideoUrl
+
+  // Feedback annotation mode
+  const [feedbackMode, setFeedbackMode] = useState(false)
+  const videoAnnotations = choreography.videoAnnotations || []
 
   useEffect(() => {
     if (isKidLiveView && liveVideoUrl) {
@@ -294,6 +257,41 @@ export default function Choreography() {
     }
   }, [dispatch])
 
+  const closeMediaPicker = useCallback(() => {
+    setMediaPickerOpen(false)
+    setMediaPickerError('')
+    setMediaPickerSelectingId('')
+  }, [])
+
+  const openMediaPicker = useCallback(async (type) => {
+    const normalizedType = type === 'video' ? 'video' : 'audio'
+    setMediaPickerType(normalizedType)
+    setMediaPickerOpen(true)
+    setMediaPickerError('')
+    setMediaPickerItems([])
+    setMediaPickerLoading(true)
+    try {
+      const items = await listMediaFromBackend(normalizedType)
+      setMediaPickerItems(items)
+    } catch (err) {
+      setMediaPickerError(err?.message || 'Could not load media list')
+    } finally {
+      setMediaPickerLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!mediaPickerOpen) return
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        closeMediaPicker()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [mediaPickerOpen, closeMediaPicker])
+
   // Beat detection
   const [beatData, setBeatData] = useState(null) // { bpm, firstBeat, beats[], eightCounts[] }
   const [showBeats, setShowBeats] = useState(true)
@@ -337,44 +335,12 @@ export default function Choreography() {
           await applyMusicBlob(localMusic.blob, localMusic.meta?.fileName || 'choreo-music.mp3', localMusic.meta?.duration || 0)
           resolvedMusic = true
         } else {
-          // Prefer bundled music from /public/media, cache it locally before use.
-          const preferredMusicOk = await fetch(PREFERRED_MUSIC_URL, { method: 'HEAD' })
-            .then((res) => res.ok)
-            .catch(() => false)
-          const bundledMusicUrl = preferredMusicOk
-            ? PREFERRED_MUSIC_URL
-            : await findFirstExistingMediaUrl(REPO_MUSIC_CANDIDATES)
-
-          if (bundledMusicUrl) {
-            try {
-              const response = await fetch(bundledMusicUrl)
-              const blob = await response.blob()
-              const fileName = getFileNameFromUrl(bundledMusicUrl) || 'choreo-music.mp3'
-              const file = new File([blob], fileName, {
-                type: blob.type || 'audio/mpeg',
-              })
-
-              await saveFile('choreo-music', file, {
-                fileName,
-                type: file.type,
-                size: file.size,
-              })
-
-              if (!cancelled) {
-                await applyMusicBlob(blob, fileName)
-                resolvedMusic = true
-              }
-            } catch (err) {
-              console.warn('Could not pre-download bundled music:', err)
-            }
-          }
-
-          // Final fallback: load from backend/local and ensure local cache for next run.
+          // Final fallback: load from Supabase and cache locally for next run.
           if (!cancelled && !resolvedMusic) {
             const music = await loadFile('choreo-music')
             if (music?.blob) {
               try {
-                await saveFile('choreo-music', music.blob, music.meta || {})
+                await saveLocalFile('choreo-music', music.blob, music.meta || {})
               } catch (cacheErr) {
                 console.warn('Could not cache fetched music locally:', cacheErr)
               }
@@ -399,7 +365,7 @@ export default function Choreography() {
             const sessionVideo = await loadFile(liveVideoStorageKey)
             if (sessionVideo?.blob && !cancelled) {
               try {
-                await saveFile(liveVideoStorageKey, sessionVideo.blob, sessionVideo.meta || {})
+                await saveLocalFile(liveVideoStorageKey, sessionVideo.blob, sessionVideo.meta || {})
               } catch (cacheErr) {
                 console.warn('Could not cache rehearsal video locally:', cacheErr)
               }
@@ -408,58 +374,14 @@ export default function Choreography() {
               resolvedVideo = true
             }
           } else {
-            // If bundled video exists, pre-download it and cache it locally before use.
-            const preferredVideoOk = await fetch(PREFERRED_VIDEO_URL, { method: 'HEAD' })
-              .then((res) => res.ok)
-              .catch(() => false)
-            const bundledVideoUrl = preferredVideoOk
-              ? PREFERRED_VIDEO_URL
-              : await findFirstExistingMediaUrl(REPO_VIDEO_CANDIDATES)
-
-            if (bundledVideoUrl) {
-              try {
-                if (!cancelled) {
-                  setIsVideoDownloading(true)
-                  setVideoDownloadProgress(0)
-                }
-
-                const blob = await downloadBlobWithProgress(bundledVideoUrl, (progress) => {
-                  if (!cancelled) setVideoDownloadProgress(progress)
-                })
-
-                const fileName = getFileNameFromUrl(bundledVideoUrl) || 'choreo-video.mp4'
-                const file = new File([blob], fileName, {
-                  type: blob.type || 'video/mp4',
-                })
-
-                await saveFile(liveVideoStorageKey, file, {
-                  fileName,
-                  type: file.type,
-                  size: file.size,
-                })
-
-                if (!cancelled) {
-                  setLiveVideoUrl(URL.createObjectURL(blob))
-                  setVideoFileName(fileName)
-                  resolvedVideo = true
-                }
-              } catch (err) {
-                console.warn('Could not pre-download bundled video:', err)
-              } finally {
-                if (!cancelled) {
-                  setIsVideoDownloading(false)
-                }
-              }
-            }
-
-            // Final fallback: load from backend/local and ensure local cache for next run.
+            // Final fallback: load from Supabase and cache locally for next run.
             if (!cancelled && !resolvedVideo) {
               setIsVideoDownloading(true)
               setVideoDownloadProgress(null)
               const video = await loadFile(liveVideoStorageKey)
               if (video?.blob) {
                 try {
-                  await saveFile(liveVideoStorageKey, video.blob, video.meta || {})
+                  await saveLocalFile(liveVideoStorageKey, video.blob, video.meta || {})
                 } catch (cacheErr) {
                   console.warn('Could not cache fetched video locally:', cacheErr)
                 }
@@ -488,24 +410,25 @@ export default function Choreography() {
     return () => { cancelled = true }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ========== MUSIC FILE UPLOAD ==========
-  const handleMusicUpload = async (e) => {
-    const file = e.target.files?.[0]
+  const applyMusicFile = useCallback(async (file) => {
     if (!file) return
 
-    // Create object URL for playback
-    const url = URL.createObjectURL(file)
-    setAudioUrl(url)
-    setMusicFileName(file.name)
-
-    // Decode for waveform
     try {
+      const url = URL.createObjectURL(file)
       const audioBuffer = await decodeAudioFile(file)
+      await saveFile('choreo-music', file, {
+        fileName: file.name,
+        type: file.type,
+        size: file.size,
+        duration: audioBuffer.duration,
+      })
+
+      setAudioUrl(url)
+      setMusicFileName(file.name)
       const peaks = extractWaveform(audioBuffer, 800)
       setWaveformData(peaks)
       setDuration(audioBuffer.duration)
 
-      // Beat detection
       try {
         const bd = detectBeats(audioBuffer)
         setBeatData(bd)
@@ -514,23 +437,13 @@ export default function Choreography() {
         console.warn('Beat detection failed:', err)
       }
 
-      // Cache waveform in localStorage
       localStorage.setItem('choreo-waveform', JSON.stringify(peaks))
-
-      // Persist file to IndexedDB
-      await saveFile('choreo-music', file, {
-        fileName: file.name,
-        type: file.type,
-        size: file.size,
-        duration: audioBuffer.duration,
-      })
 
       dispatch({
         type: 'UPDATE_CHOREOGRAPHY_VERSION',
         payload: { routineId, versionId: selectedVersion?.id, updates: { musicUrl: url, musicFileName: file.name, duration: audioBuffer.duration } },
       })
 
-      // If a live video already exists, auto-sync this new song with it
       if (liveVideoUrl) {
         try {
           const videoResp = await fetch(liveVideoUrl)
@@ -542,8 +455,21 @@ export default function Choreography() {
         }
       }
     } catch (err) {
-      console.warn('Could not decode audio:', err)
+      console.warn('Could not apply music change:', err)
+      throw err
     }
+  }, [dispatch, liveVideoUrl, routineId, runSyncAnalysis, selectedVersion?.id])
+
+  // ========== MUSIC FILE UPLOAD ==========
+  const handleMusicUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      await applyMusicFile(file)
+    } catch (err) {
+      alert(err?.message || 'Could not save song. Check connection and try again.')
+    }
+    if (e.target) e.target.value = ''
   }
 
   // ========== WAVEFORM DRAWING ==========
@@ -681,23 +607,20 @@ export default function Choreography() {
     if (audioRef.current) audioRef.current.playbackRate = rate
   }
 
-  // ========== LIVE MODE VIDEO ==========
-  const handleVideoUpload = async (e) => {
-    const file = e.target.files?.[0]
+  const applyVideoFile = useCallback(async (file) => {
     if (!file) return
+
+    await saveFile(liveVideoStorageKey, file, {
+      fileName: file.name,
+      type: file.type,
+      size: file.size,
+    })
 
     const url = URL.createObjectURL(file)
     setLiveVideoUrl(url)
     setVideoFileName(file.name)
     setLiveTime(0)
     setLiveIsPlaying(false)
-
-    // Persist to IndexedDB
-    await saveFile(liveVideoStorageKey, file, {
-      fileName: file.name,
-      type: file.type,
-      size: file.size,
-    })
 
     if (sessionId) {
       dispatch({
@@ -715,7 +638,6 @@ export default function Choreography() {
       })
     }
 
-    // Auto-run sync analysis if music is loaded
     if (audioUrl) {
       try {
         const musicResp = await fetch(audioUrl)
@@ -725,6 +647,67 @@ export default function Choreography() {
       } catch (err) {
         console.warn('Sync failed:', err)
       }
+    }
+  }, [audioUrl, dispatch, liveVideoStorageKey, routineId, runSyncAnalysis, selectedVersion?.id, sessionId])
+
+  // ========== LIVE MODE VIDEO ==========
+  const handleVideoUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      await applyVideoFile(file)
+    } catch (err) {
+      alert(err?.message || 'Could not save video. Check connection and try again.')
+    }
+    if (e.target) e.target.value = ''
+  }
+
+  const handlePickerUploadClick = () => {
+    if (mediaPickerType === 'video') {
+      videoPickerInputRef.current?.click()
+    } else {
+      musicPickerInputRef.current?.click()
+    }
+    closeMediaPicker()
+  }
+
+  const handlePickExistingMedia = async (item) => {
+    if (!item?.id && !item?.key) return
+    setMediaPickerError('')
+    setMediaPickerSelectingId(item.id || item.key)
+    try {
+      const candidateKeys = Array.from(new Set([
+        item.key,
+        item.id,
+        item.id ? String(item.id).replace(/^files\//, '') : '',
+        item.storagePath ? String(item.storagePath).replace(/^files\//, '') : '',
+      ].filter(Boolean)))
+
+      let stored = null
+      for (const key of candidateKeys) {
+        stored = await loadFile(key)
+        if (stored?.blob) break
+      }
+
+      if (!stored?.blob) {
+        throw new Error('Could not load selected file')
+      }
+
+      const fileName = item.fileName || stored.meta?.fileName || item.id || item.key
+      const fileType = item.type || stored.meta?.type || stored.meta?.contentType || stored.blob.type || (mediaPickerType === 'video' ? 'video/mp4' : 'audio/mpeg')
+      const pickedFile = new File([stored.blob], fileName, { type: fileType })
+
+      if (mediaPickerType === 'video') {
+        await applyVideoFile(pickedFile)
+      } else {
+        await applyMusicFile(pickedFile)
+      }
+
+      closeMediaPicker()
+    } catch (err) {
+      setMediaPickerError(err?.message || 'Could not use selected media')
+    } finally {
+      setMediaPickerSelectingId('')
     }
   }
 
@@ -944,7 +927,7 @@ export default function Choreography() {
       }
 
       if (uploadedCount === 0) {
-        setManualSyncMessage('Synced state. 0 browser-local files found. To upload project folder files, run npm run sync:storage.')
+        setManualSyncMessage('Synced state. 0 browser-local files found to upload.')
       } else {
         setManualSyncMessage(`Synced state and ${uploadedCount} local file${uploadedCount === 1 ? '' : 's'} to backend storage.`)
       }
@@ -1700,6 +1683,45 @@ export default function Choreography() {
           <div className={styles['live-top-gradient']} />
           <div className={styles['live-bottom-gradient']} />
 
+          {/* Video annotation layer — feedback bubbles + tap overlay */}
+          {isLiveVideoPlayback && (
+            <VideoAnnotationLayer
+              videoRef={liveVideoRef}
+              annotations={videoAnnotations}
+              currentTime={isLiveVideoPlayback ? liveTime : currentTime}
+              isPlaying={liveIsPlaying}
+              feedbackMode={feedbackMode}
+              onPause={() => {
+                const video = liveVideoRef.current
+                if (video) video.pause()
+                const audio = audioRef.current
+                if (liveAudioMode === 'music' && audio) audio.pause()
+              }}
+              onAddAnnotation={(ann) => {
+                const updated = [...videoAnnotations, ann]
+                dispatch({
+                  type: 'UPDATE_CHOREOGRAPHY_VERSION',
+                  payload: {
+                    routineId,
+                    versionId: selectedVersion?.id,
+                    updates: { videoAnnotations: updated },
+                  },
+                })
+              }}
+              onDeleteAnnotation={(annId) => {
+                const updated = videoAnnotations.filter(a => a.id !== annId)
+                dispatch({
+                  type: 'UPDATE_CHOREOGRAPHY_VERSION',
+                  payload: {
+                    routineId,
+                    versionId: selectedVersion?.id,
+                    updates: { videoAnnotations: updated },
+                  },
+                })
+              }}
+            />
+          )}
+
           {isVideoDownloading && (
             <div className={styles['video-download-status']}>
               ⬇️ Caching video locally...
@@ -1726,16 +1748,24 @@ export default function Choreography() {
                 >
                   ✕ Exit
                 </button>
-                <label className={styles['live-upload-btn']} title={musicFileName || 'No song loaded'}>
+                <button
+                  type="button"
+                  className={styles['live-upload-btn']}
+                  title={musicFileName || 'No song loaded'}
+                  onClick={() => openMediaPicker('audio')}
+                >
                   <span className={styles['live-upload-text']}>🎵 {displayMusicName}</span>
                   <span className={styles['live-upload-pencil']} aria-hidden="true">✏️</span>
-                  <input type="file" accept="audio/*" onChange={handleMusicUpload} style={{ display: 'none' }} />
-                </label>
-                <label className={styles['live-upload-btn']} title={videoFileName || 'No video loaded'}>
+                </button>
+                <button
+                  type="button"
+                  className={styles['live-upload-btn']}
+                  title={videoFileName || 'No video loaded'}
+                  onClick={() => openMediaPicker('video')}
+                >
                   <span className={styles['live-upload-text']}>🎥 {displayVideoName}</span>
                   <span className={styles['live-upload-pencil']} aria-hidden="true">✏️</span>
-                  <input type="file" accept="video/*" onChange={handleVideoUpload} style={{ display: 'none' }} />
-                </label>
+                </button>
                 <button
                   className={styles['live-sync-btn']}
                   onClick={handleLiveResync}
@@ -1748,6 +1778,99 @@ export default function Choreography() {
                   {formatTimestamp(isLiveVideoPlayback ? liveTime : currentTime)} / {formatTimestamp(liveTotalDuration)}
                 </span>
               </div>
+
+              <input
+                ref={musicPickerInputRef}
+                type="file"
+                accept="audio/*"
+                onChange={handleMusicUpload}
+                style={{ display: 'none' }}
+              />
+              <input
+                ref={videoPickerInputRef}
+                type="file"
+                accept="video/*"
+                onChange={handleVideoUpload}
+                style={{ display: 'none' }}
+              />
+
+              {mediaPickerOpen && (
+                <div
+                  className={styles['media-picker-overlay']}
+                  onClick={closeMediaPicker}
+                  role="presentation"
+                >
+                  <div
+                    className={styles['media-picker-dialog']}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={mediaPickerType === 'video' ? 'Choose video source' : 'Choose song source'}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className={styles['media-picker-header']}>
+                      <h3>{mediaPickerType === 'video' ? '🎥 Change Video' : '🎵 Change Song'}</h3>
+                      <button
+                        type="button"
+                        className={styles['media-picker-close']}
+                        onClick={closeMediaPicker}
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      className={styles['media-picker-upload']}
+                      onClick={handlePickerUploadClick}
+                    >
+                      {mediaPickerType === 'video' ? '📁 Upload new video' : '📁 Upload new song'}
+                    </button>
+
+                    <div className={styles['media-picker-subtitle']}>
+                      Or pick existing media
+                    </div>
+
+                    {mediaPickerLoading ? (
+                      <div className={styles['media-picker-loading']}>Loading media…</div>
+                    ) : (
+                      <div className={styles['media-picker-list']}>
+                        {mediaPickerItems.length === 0 ? (
+                          <div className={styles['media-picker-empty']}>
+                            No existing {mediaPickerType === 'video' ? 'videos' : 'songs'} found.
+                          </div>
+                        ) : (
+                          mediaPickerItems.map((item) => {
+                            const isSelecting = mediaPickerSelectingId === item.id
+                            const sizeLabel = formatFileSize(item.size)
+                            return (
+                              <button
+                                type="button"
+                                key={item.id}
+                                className={styles['media-picker-item']}
+                                onClick={() => handlePickExistingMedia(item)}
+                                disabled={isSelecting}
+                              >
+                                <span className={styles['media-picker-item-name']}>
+                                  {mediaPickerType === 'video' ? '🎥' : '🎵'} {toDisplayFileName(item.fileName || item.id, 42)}
+                                </span>
+                                <span className={styles['media-picker-item-meta']}>
+                                  {isSelecting ? 'Loading…' : (sizeLabel || 'Existing file')}
+                                </span>
+                              </button>
+                            )
+                          })
+                        )}
+                      </div>
+                    )}
+
+                    {mediaPickerError && (
+                      <div className={styles['media-picker-error']}>
+                        {mediaPickerError}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </>
           )}
 
@@ -1866,6 +1989,16 @@ export default function Choreography() {
                       />
                     )
                   })}
+                  {/* Annotation dots on progress bar */}
+                  {liveTotalDuration > 0 && videoAnnotations.map((ann) => (
+                    <div
+                      key={ann.id}
+                      className={annotationStyles['annotation-progress-dot']}
+                      style={{ left: `${(ann.timestamp / liveTotalDuration) * 100}%` }}
+                      title={`${ann.emoji || ''} ${ann.text || ''} @ ${formatTimestamp(ann.timestamp)}`}
+                      onClick={(e) => { e.stopPropagation(); seekLive(ann.timestamp) }}
+                    />
+                  ))}
                 </>
               )}
             </div>
@@ -1913,10 +2046,15 @@ export default function Choreography() {
                       </button>
                     </div>
                   )}
-                  <label className={styles['live-change-video']}>
-                    {liveVideoUrl ? '🎥 Change' : '📹 Load Video'}
-                    <input type="file" accept="video/*" onChange={handleVideoUpload} style={{ display: 'none' }} />
-                  </label>
+                  {isLiveVideoPlayback && (
+                    <button
+                      className={`${annotationStyles['feedback-toggle']} ${feedbackMode ? annotationStyles['feedback-toggle-active'] : ''}`}
+                      onClick={() => setFeedbackMode(f => !f)}
+                      title={feedbackMode ? 'Exit feedback mode' : 'Tap video to leave feedback'}
+                    >
+                      {feedbackMode ? '💬 Feedback ON' : '💬 Feedback'}
+                    </button>
+                  )}
                   <button
                     className={`${styles['live-edit-toggle']} ${liveEditOpen ? styles.active : ''}`}
                     onClick={() => setLiveEditOpen(!liveEditOpen)}
@@ -1924,6 +2062,26 @@ export default function Choreography() {
                   >
                     ✏️ Edit
                   </button>
+                  {/* Version picker in live controls */}
+                  {versions.length > 1 && (
+                    <select
+                      className={styles['live-version-select']}
+                      value={selectedVersionId || ''}
+                      onChange={(e) => {
+                        const nextId = e.target.value
+                        setSelectedVersionId(nextId)
+                        if (sessionId) {
+                          dispatch({ type: 'SET_REHEARSAL_VERSION', payload: { sessionId, choreographyVersionId: nextId } })
+                        }
+                      }}
+                    >
+                      {versions.map((v, i) => (
+                        <option key={v.id} value={v.id}>
+                          v{i + 1}{v.label ? ` — ${v.label}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </>
               )}
             </div>
@@ -1933,13 +2091,41 @@ export default function Choreography() {
           {!isKidLiveView && liveEditOpen && (
             <div className={styles['live-edit-panel']}>
               <div className={styles['live-edit-header']}>
-                <span>🎵 Song Instructions</span>
+                <span>🎵 Choreography</span>
                 <div className={styles['live-edit-header-actions']}>
+                  {/* Version selector */}
+                  {versions.length > 0 && (
+                    <select
+                      className={styles['live-edit-version-select']}
+                      value={selectedVersionId || ''}
+                      onChange={(e) => {
+                        const nextId = e.target.value
+                        setSelectedVersionId(nextId)
+                        if (sessionId) {
+                          dispatch({ type: 'SET_REHEARSAL_VERSION', payload: { sessionId, choreographyVersionId: nextId } })
+                        }
+                      }}
+                    >
+                      {versions.map((v, i) => (
+                        <option key={v.id} value={v.id}>
+                          v{i + 1}{v.label ? ` — ${v.label}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {isAdmin && (
+                    <button
+                      className={styles['live-edit-new-version']}
+                      onClick={() => handleCreateVersion('clone')}
+                      title="Save current choreography as a new version"
+                    >
+                      + Save as New Version
+                    </button>
+                  )}
                   <label className={styles['offbeat-toggle']}>
                     <input type="checkbox" checked={showOffBeats} onChange={(e) => setShowOffBeats(e.target.checked)} />
                     Off-beats
                   </label>
-                  <span className={styles['live-edit-autosave']}>Auto-save</span>
                   <button className={styles['live-edit-save']} onClick={() => { setLiveEditOpen(false); rangeStartRef.current = null; dragEndRef.current = null; isDraggingRef.current = false; setRangeStartPos(null); setDragEndPos(null); setIsDragging(false) }}>Done</button>
                   <button className={styles['live-edit-close']} onClick={() => { setLiveEditOpen(false); rangeStartRef.current = null; dragEndRef.current = null; isDraggingRef.current = false; setRangeStartPos(null); setDragEndPos(null); setIsDragging(false) }}>✕</button>
                 </div>
