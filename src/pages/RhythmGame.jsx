@@ -104,6 +104,32 @@ export default function RhythmGame() {
     }
   }
 
+  function endGame() {
+    if (audioRef.current) {
+      audioRef.current.pause()
+    }
+    cancelAnimationFrame(gameLoopRef.current)
+    setGameState('ended')
+
+    const totalNotes = notesRef.current.length
+    const accuracy = totalNotes > 0 ? Math.round(((perfects + goods) / totalNotes) * 100) : 0
+
+    dispatch({
+      type: 'ADD_RHYTHM_SCORE',
+      payload: {
+        id: `score-${Date.now()}`,
+        date: new Date().toISOString().split('T')[0],
+        score: Math.round(scoreRef.current),
+        accuracy,
+        perfects,
+        goods,
+        misses,
+        maxCombo,
+        bpm,
+      },
+    })
+  }
+
   // Key handler
   useEffect(() => {
     if (gameState !== 'playing') return
@@ -290,32 +316,6 @@ export default function RhythmGame() {
       window.removeEventListener('resize', resize)
     }
   }, [gameState, hitFeedback, promptLeadMs])
-
-  const endGame = () => {
-    if (audioRef.current) {
-      audioRef.current.pause()
-    }
-    cancelAnimationFrame(gameLoopRef.current)
-    setGameState('ended')
-
-    const totalNotes = notesRef.current.length
-    const accuracy = totalNotes > 0 ? Math.round(((perfects + goods) / totalNotes) * 100) : 0
-
-    dispatch({
-      type: 'ADD_RHYTHM_SCORE',
-      payload: {
-        id: `score-${Date.now()}`,
-        date: new Date().toISOString().split('T')[0],
-        score: Math.round(scoreRef.current),
-        accuracy,
-        perfects,
-        goods,
-        misses,
-        maxCombo,
-        bpm,
-      },
-    })
-  }
 
   const topScores = [...state.rhythmScores]
     .sort((a, b) => b.score - a.score)

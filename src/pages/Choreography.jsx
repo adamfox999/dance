@@ -182,7 +182,9 @@ export default function Choreography() {
               const peaks = extractWaveform(buf, 800)
               setWaveformData(peaks)
               localStorage.setItem('choreo-waveform', JSON.stringify(peaks))
-            } catch {}
+            } catch (err) {
+              console.warn('Could not rebuild waveform from saved music:', err)
+            }
           }
           // Restore cached beats
           const cachedBeats = localStorage.getItem('choreo-beats')
@@ -194,7 +196,9 @@ export default function Choreography() {
               const bd = detectBeats(buf)
               setBeatData(bd)
               localStorage.setItem('choreo-beats', JSON.stringify(bd))
-            } catch {}
+            } catch (err) {
+              console.warn('Could not rebuild beat data from saved music:', err)
+            }
           }
         } else if (!cancelled) {
           const bundledMusicUrl = await findFirstExistingMediaUrl(REPO_MUSIC_CANDIDATES)
@@ -218,7 +222,9 @@ export default function Choreography() {
                 const bd = detectBeats(audioBuffer)
                 setBeatData(bd)
                 localStorage.setItem('choreo-beats', JSON.stringify(bd))
-              } catch {}
+              } catch (err) {
+                console.warn('Could not detect beats for bundled music:', err)
+              }
             } catch (err) {
               console.warn('Could not decode bundled music:', err)
             }
