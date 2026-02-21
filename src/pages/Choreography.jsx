@@ -30,6 +30,17 @@ function getFileNameFromUrl(url) {
   return decodeURIComponent(raw)
 }
 
+function toDisplayFileName(name, maxLength = 34) {
+  if (!name) return 'Not loaded'
+  if (name.length <= maxLength) return name
+  const dotIdx = name.lastIndexOf('.')
+  if (dotIdx <= 0) return `${name.slice(0, maxLength - 1)}…`
+  const ext = name.slice(dotIdx)
+  const base = name.slice(0, dotIdx)
+  const maxBase = Math.max(6, maxLength - ext.length - 1)
+  return `${base.slice(0, maxBase)}…${ext}`
+}
+
 async function downloadBlobWithProgress(url, onProgress) {
   const response = await fetch(url)
   if (!response.ok) {
@@ -204,6 +215,7 @@ export default function Choreography() {
 
   // Live mode video
   const [liveVideoUrl, setLiveVideoUrl] = useState('')
+  const [videoFileName, setVideoFileName] = useState(choreography.videoFileName || '')
   const liveVideoRef = useRef(null)
   const [liveIsPlaying, setLiveIsPlaying] = useState(false)
   const [liveTime, setLiveTime] = useState(0)
@@ -223,6 +235,13 @@ export default function Choreography() {
     }
   }, [isKidLiveView, liveVideoUrl])
 
+  const getSafeSyncOffset = useCallback(() => {
+    const total = liveVideoRef.current?.duration || liveDuration || duration || 0
+    if (!Number.isFinite(total) || total <= 0) return syncOffset
+    const maxPositive = Math.max(0, total - 0.2)
+    return Math.max(-20, Math.min(syncOffset, maxPositive))
+  }, [syncOffset, liveDuration, duration])
+
   const runSyncAnalysis = useCallback(async (musicFile, videoFile) => {
     if (!musicFile || !videoFile) return
     setSyncing(true)
@@ -235,7 +254,17 @@ export default function Choreography() {
       const result = crossCorrelateSync(musicBuf, videoBuf)
       setSyncResult(result)
       if (routineId && selectedVersion?.id) {
-        dispatch({ type: 'UPDATE_CHOREOGRAPHY_VERSION', payload: { routineId, versionId: selectedVersion.id, updates: { videoSyncOffset: result.offsetMs } } })
+        dispatch({
+          type: 'UPDATE_CHOREOGRAPHY_VERSION',
+          payload: {
+            routineId,
+            versionId: selectedVersion.id,
+            updates: {
+              videoSyncOffset: result.offsetMs,
+              videoSyncConfidence: result.confidence,
+            },
+          },
+        })
       }
     } catch (err) {
       console.warn('Sync failed:', err)
@@ -255,24 +284,16 @@ export default function Choreography() {
     let cancelled = false
     const restore = async () => {
       try {
-        // Prefer bundled music from /public/media first
-        const preferredMusicOk = await fetch(PREFERRED_MUSIC_URL, { method: 'HEAD' })
-          .then((res) => res.ok)
-          .catch(() => false)
-        const bundledMusicUrl = preferredMusicOk
-          ? PREFERRED_MUSIC_URL
-          : await findFirstExistingMediaUrl(REPO_MUSIC_CANDIDATES)
-        if (bundledMusicUrl && !cancelled) {
-          setAudioUrl(bundledMusicUrl)
-          setMusicFileName(getFileNameFromUrl(bundledMusicUrl))
+        const applyMusicBlob = async (blob, fileName = 'choreo-music.mp3', durationFromMeta = 0) => {
+          const url = URL.createObjectURL(blob)
+          setAudioUrl(url)
+          setMusicFileName(fileName)
+          if (durationFromMeta) setDuration(durationFromMeta)
 
           try {
-            const response = await fetch(bundledMusicUrl)
-            const blob = await response.blob()
-            const file = new File([blob], getFileNameFromUrl(bundledMusicUrl), {
+            const audioBuffer = await decodeAudioFile(new File([blob], fileName || 'music.mp3', {
               type: blob.type || 'audio/mpeg',
-            })
-            const audioBuffer = await decodeAudioFile(file)
+            }))
             const peaks = extractWaveform(audioBuffer, 800)
             setWaveformData(peaks)
             setDuration(audioBuffer.duration)
@@ -283,45 +304,63 @@ export default function Choreography() {
               setBeatData(bd)
               localStorage.setItem('choreo-beats', JSON.stringify(bd))
             } catch (err) {
-              console.warn('Could not detect beats for bundled music:', err)
+              console.warn('Could not detect beats for music:', err)
             }
           } catch (err) {
-            console.warn('Could not decode bundled music:', err)
+            console.warn('Could not decode music:', err)
           }
+        }
+
+        let resolvedMusic = false
+        const localMusic = await loadLocalFile('choreo-music')
+        if (localMusic?.blob && !cancelled) {
+          await applyMusicBlob(localMusic.blob, localMusic.meta?.fileName || 'choreo-music.mp3', localMusic.meta?.duration || 0)
+          resolvedMusic = true
         } else {
-          // Fallback to previously uploaded music
-          const music = await loadFile('choreo-music')
-          if (music && !cancelled) {
-            const url = URL.createObjectURL(music.blob)
-            setAudioUrl(url)
-            setMusicFileName(music.meta.fileName || '')
-            setDuration(music.meta.duration || 0)
+          // Prefer bundled music from /public/media, cache it locally before use.
+          const preferredMusicOk = await fetch(PREFERRED_MUSIC_URL, { method: 'HEAD' })
+            .then((res) => res.ok)
+            .catch(() => false)
+          const bundledMusicUrl = preferredMusicOk
+            ? PREFERRED_MUSIC_URL
+            : await findFirstExistingMediaUrl(REPO_MUSIC_CANDIDATES)
 
-            const cached = localStorage.getItem('choreo-waveform')
-            if (cached) {
-              setWaveformData(JSON.parse(cached))
-            } else {
-              try {
-                const buf = await decodeAudioFile(new File([music.blob], 'music'))
-                const peaks = extractWaveform(buf, 800)
-                setWaveformData(peaks)
-                localStorage.setItem('choreo-waveform', JSON.stringify(peaks))
-              } catch (err) {
-                console.warn('Could not rebuild waveform from saved music:', err)
+          if (bundledMusicUrl) {
+            try {
+              const response = await fetch(bundledMusicUrl)
+              const blob = await response.blob()
+              const fileName = getFileNameFromUrl(bundledMusicUrl) || 'choreo-music.mp3'
+              const file = new File([blob], fileName, {
+                type: blob.type || 'audio/mpeg',
+              })
+
+              await saveFile('choreo-music', file, {
+                fileName,
+                type: file.type,
+                size: file.size,
+              })
+
+              if (!cancelled) {
+                await applyMusicBlob(blob, fileName)
+                resolvedMusic = true
               }
+            } catch (err) {
+              console.warn('Could not pre-download bundled music:', err)
             }
+          }
 
-            const cachedBeats = localStorage.getItem('choreo-beats')
-            if (cachedBeats) {
-              setBeatData(JSON.parse(cachedBeats))
-            } else {
+          // Final fallback: load from backend/local and ensure local cache for next run.
+          if (!cancelled && !resolvedMusic) {
+            const music = await loadFile('choreo-music')
+            if (music?.blob) {
               try {
-                const buf = await decodeAudioFile(new File([music.blob], 'music'))
-                const bd = detectBeats(buf)
-                setBeatData(bd)
-                localStorage.setItem('choreo-beats', JSON.stringify(bd))
-              } catch (err) {
-                console.warn('Could not rebuild beat data from saved music:', err)
+                await saveFile('choreo-music', music.blob, music.meta || {})
+              } catch (cacheErr) {
+                console.warn('Could not cache fetched music locally:', cacheErr)
+              }
+              if (!cancelled) {
+                await applyMusicBlob(music.blob, music.meta?.fileName || 'choreo-music.mp3', music.meta?.duration || 0)
+                resolvedMusic = true
               }
             }
           }
@@ -332,6 +371,7 @@ export default function Choreography() {
         const localVideo = await loadLocalFile('choreo-video')
         if (localVideo?.blob && !cancelled) {
           setLiveVideoUrl(URL.createObjectURL(localVideo.blob))
+          setVideoFileName(localVideo.meta?.fileName || '')
           resolvedVideo = true
         } else {
           // If bundled video exists, pre-download it and cache it locally before use.
@@ -366,6 +406,7 @@ export default function Choreography() {
 
               if (!cancelled) {
                 setLiveVideoUrl(URL.createObjectURL(blob))
+                setVideoFileName(fileName)
                 resolvedVideo = true
               }
             } catch (err) {
@@ -390,6 +431,7 @@ export default function Choreography() {
               }
               if (!cancelled) {
                 setLiveVideoUrl(URL.createObjectURL(video.blob))
+                setVideoFileName(video.meta?.fileName || '')
                 resolvedVideo = true
               }
             }
@@ -611,6 +653,7 @@ export default function Choreography() {
 
     const url = URL.createObjectURL(file)
     setLiveVideoUrl(url)
+    setVideoFileName(file.name)
     setLiveTime(0)
     setLiveIsPlaying(false)
 
@@ -619,6 +662,11 @@ export default function Choreography() {
       fileName: file.name,
       type: file.type,
       size: file.size,
+    })
+
+    dispatch({
+      type: 'UPDATE_CHOREOGRAPHY_VERSION',
+      payload: { routineId, versionId: selectedVersion?.id, updates: { videoFileName: file.name } },
     })
 
     // Auto-run sync analysis if music is loaded
@@ -650,7 +698,10 @@ export default function Choreography() {
       const video = liveVideoRef.current
       if (video && !video.paused) {
         audio.currentTime = target
-        audio.play().catch(() => {})
+        audio.play().catch(() => {
+          setLiveAudioMode('video')
+          video.muted = false
+        })
       }
     } else if (Math.abs(audio.currentTime - target) > 0.25) {
       audio.currentTime = target
@@ -670,11 +721,14 @@ export default function Choreography() {
           if (musicTarget >= 0) {
             // Music should already be playing at this video position
             audio.currentTime = musicTarget
-            audio.play().catch(() => {})
+            audio.play().catch(() => {
+              setLiveAudioMode('video')
+              video.muted = false
+            })
           }
           // If musicTarget < 0, music hasn't started yet — syncLiveAudio will auto-start it
         }
-        video.play()
+        video.play().catch(() => {})
       }
     } else {
       // music-only fallback
@@ -703,7 +757,10 @@ export default function Choreography() {
         if (musicTarget >= 0) {
           audio.currentTime = musicTarget
           audio.playbackRate = playbackRate
-          audio.play().catch(() => {})
+          audio.play().catch(() => {
+            setLiveAudioMode('video')
+            video.muted = false
+          })
         }
         // If musicTarget < 0, syncLiveAudio will auto-start when the time comes
       }
@@ -1210,7 +1267,17 @@ export default function Choreography() {
   const nudgeOffset = (delta) => {
     const newOffset = (choreography.videoSyncOffset || 0) + delta
     if (routineId && selectedVersion?.id) {
-      dispatch({ type: 'UPDATE_CHOREOGRAPHY_VERSION', payload: { routineId, versionId: selectedVersion.id, updates: { videoSyncOffset: newOffset } } })
+      dispatch({
+        type: 'UPDATE_CHOREOGRAPHY_VERSION',
+        payload: {
+          routineId,
+          versionId: selectedVersion.id,
+          updates: {
+            videoSyncOffset: newOffset,
+            videoSyncConfidence: null,
+          },
+        },
+      })
     }
   }
 
@@ -1233,6 +1300,20 @@ export default function Choreography() {
   const liveProgressLeft = liveTotalDuration > 0
     ? `${(liveProgressTime / liveTotalDuration) * 100}%`
     : '0%'
+  const displayMusicName = toDisplayFileName(musicFileName)
+  const displayVideoName = toDisplayFileName(videoFileName)
+  const hasSyncResult = Number.isFinite(Number(choreography.videoSyncOffset)) || (!!syncResult && !syncResult.error)
+  const syncOffsetMs = Math.round(syncResult?.offsetMs ?? choreography.videoSyncOffset ?? 0)
+  const syncConfidence = syncResult?.error
+    ? null
+    : (Number.isFinite(syncResult?.confidence)
+      ? syncResult.confidence
+      : (Number.isFinite(choreography.videoSyncConfidence) ? choreography.videoSyncConfidence : null))
+  const syncLabel = syncing
+    ? '⏳ Syncing...'
+    : (hasSyncResult
+      ? `✅ Synced • ${syncOffsetMs}ms${syncConfidence != null ? ` • ${(syncConfidence * 100).toFixed(0)}%` : ''}`
+      : '🔗 Tap to Sync')
 
   return (
     <div className={styles['choreo-page']}>
@@ -1244,6 +1325,8 @@ export default function Choreography() {
           preload="auto"
           onEnded={handleAudioEnded}
           onLoadedMetadata={(e) => {
+            e.target.muted = false
+            e.target.volume = 1
             if (!duration) setDuration(e.target.duration)
           }}
         />
@@ -1529,28 +1612,27 @@ export default function Choreography() {
                   ✕ Exit
                 </button>
                 <label className={styles['live-upload-btn']}>
-                  {audioUrl ? '🎵 Change Song' : '🎵 Load Song'}
+                  ✏️ {audioUrl ? 'Change Song' : 'Load Song'}
                   <input type="file" accept="audio/*" onChange={handleMusicUpload} style={{ display: 'none' }} />
                 </label>
+                <span className={styles['live-media-name']} title={musicFileName || 'No song loaded'}>
+                  🎵 {displayMusicName}
+                </span>
                 <label className={styles['live-upload-btn']}>
-                  {liveVideoUrl ? '🎥 Change Video' : '📹 Load Video'}
+                  ✏️ {liveVideoUrl ? 'Change Video' : 'Load Video'}
                   <input type="file" accept="video/*" onChange={handleVideoUpload} style={{ display: 'none' }} />
                 </label>
+                <span className={styles['live-media-name']} title={videoFileName || 'No video loaded'}>
+                  🎥 {displayVideoName}
+                </span>
                 <button
                   className={styles['live-sync-btn']}
                   onClick={handleLiveResync}
                   disabled={!audioUrl || !liveVideoUrl || syncing}
-                  title={!audioUrl || !liveVideoUrl ? 'Load both song and video first' : 'Re-analyse sync'}
+                  title={!audioUrl || !liveVideoUrl ? 'Load both song and video first' : 'Click to re-sync and refresh offset/confidence'}
                 >
-                  {syncing ? '⏳ Syncing...' : '🔗 Sync Now'}
+                  {syncLabel}
                 </button>
-                {(syncResult || choreography.videoSyncOffset) && (
-                  <span className={styles['live-sync-status']}>
-                    {syncResult?.error
-                      ? 'Sync failed'
-                      : `Offset ${Math.round(choreography.videoSyncOffset || 0)}ms`}
-                  </span>
-                )}
                 <span className={styles['live-time-display']}>
                   {formatTimestamp(isLiveVideoPlayback ? liveTime : currentTime)} / {formatTimestamp(liveTotalDuration)}
                 </span>
