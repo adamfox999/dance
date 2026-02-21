@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useReducer, useEffect, useState } from 'react'
 import { defaultState } from '../data/defaultState'
 import { checkForNewStickers } from '../utils/milestones'
-import { supabase } from '../utils/supabaseClient'
+import { supabase, hasSupabaseConfig } from '../utils/supabaseClient'
 
 const AppContext = createContext(null)
 
@@ -206,6 +206,11 @@ export function AppProvider({ children }) {
 
   // Load from Supabase on mount
   useEffect(() => {
+    if (!hasSupabaseConfig || !supabase) {
+      setIsLoading(false)
+      return
+    }
+
     async function fetchState() {
       try {
         const { data, error } = await supabase
@@ -238,6 +243,8 @@ export function AppProvider({ children }) {
     } catch (e) {
       console.warn("Failed to save state to localStorage:", e)
     }
+
+    if (!hasSupabaseConfig || !supabase) return
 
     // Debounce Supabase saves to avoid too many requests
     const saveToSupabase = async () => {
