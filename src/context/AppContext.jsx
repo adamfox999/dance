@@ -7,6 +7,50 @@ const AppContext = createContext(null)
 const ADMIN_PIN = '6789'
 const ADMIN_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
 
+function normalizeVersion(version = {}, index = 0) {
+  return {
+    id: version.id || `cv-${Date.now()}-${index}`,
+    label: version.label || version.versionName || `v${index + 1}`,
+    createdAt: version.createdAt || version.date || new Date().toISOString(),
+    musicUrl: version.musicUrl || '',
+    musicFileName: version.musicFileName || '',
+    duration: version.duration || 0,
+    songInstructions: Array.isArray(version.songInstructions) ? version.songInstructions : [],
+    cues: Array.isArray(version.cues) ? version.cues : [],
+    videoSyncOffset: version.videoSyncOffset || 0,
+    videoSyncConfidence: Number.isFinite(version.videoSyncConfidence) ? version.videoSyncConfidence : null,
+    videoFileName: version.videoFileName || '',
+  }
+}
+
+function normalizeRoutine(routine = {}, index = 0) {
+  const versions = Array.isArray(routine.choreographyVersions) && routine.choreographyVersions.length
+    ? routine.choreographyVersions.map((version, versionIndex) => normalizeVersion(version, versionIndex))
+    : [normalizeVersion({}, 0)]
+
+  return {
+    ...routine,
+    id: routine.id || `routine-${Date.now()}-${index}`,
+    choreographyVersions: versions,
+  }
+}
+
+function normalizeSession(session = {}) {
+  return {
+    ...session,
+    type: session.type || 'practice',
+    status: session.status || (session.completedAt ? 'completed' : 'scheduled'),
+    routineId: session.routineId || null,
+    disciplineId: session.disciplineId || null,
+    choreographyVersionId: session.choreographyVersionId || null,
+    rehearsalVideoKey: session.rehearsalVideoKey || '',
+    rehearsalVideoName: session.rehearsalVideoName || '',
+    scheduledAt: session.scheduledAt || session.date || new Date().toISOString().split('T')[0],
+    completedAt: session.completedAt || null,
+    islaReflection: session.islaReflection || { feeling: '', note: '', goals: [] },
+  }
+}
+
 function mergeStateWithDefaults(inputState) {
   const base = { ...defaultState, ...(inputState || {}) }
   return {
@@ -14,9 +58,9 @@ function mergeStateWithDefaults(inputState) {
     settings: { ...defaultState.settings, ...(base.settings || {}) },
     islaProfile: { ...defaultState.islaProfile, ...(base.islaProfile || {}) },
     disciplines: base.disciplines?.length ? base.disciplines : defaultState.disciplines,
-    routines: base.routines || [],
+    routines: (base.routines || []).map((routine, index) => normalizeRoutine(routine, index)),
     shows: base.shows || [],
-    sessions: base.sessions || [],
+    sessions: (base.sessions || []).map(normalizeSession),
     stickers: base.stickers || [],
     practiceLog: base.practiceLog || [],
   }
@@ -43,12 +87,13 @@ function migrateOldState(inputState) {
       disciplineId: null,
       choreographyVersions: [{
         id: `cv-migrated-${Date.now()}`,
-        versionName: 'Original',
-        date: new Date().toISOString().split('T')[0],
+        label: 'Original',
+        createdAt: new Date().toISOString(),
         musicUrl: oldChoreo.musicUrl || '',
         musicFileName: oldChoreo.musicFileName || '',
         duration: oldChoreo.duration || 0,
         songInstructions: oldChoreo.songInstructions || [],
+        cues: oldChoreo.cues || [],
         videoSyncOffset: oldChoreo.videoSyncOffset || 0,
       }],
       practiceVideos: [],
@@ -58,7 +103,7 @@ function migrateOldState(inputState) {
 
   // Convert old sessions — add routineId/disciplineId fields
   if (inputState.sessions) {
-    migrated.sessions = inputState.sessions.map(s => ({
+    migrated.sessions = inputState.sessions.map(s => normalizeSession({
       ...s,
       routineId: s.routineId || null,
       disciplineId: s.disciplineId || null,
@@ -113,7 +158,17 @@ function appReducer(state, action) {
   switch (action.type) {
     // ---- Sessions ----
     case "ADD_SESSION":
-      return { ...state, sessions: [...state.sessions, action.payload] }
+      return { ...state, sessions: [...state.sessions, normalizeSession(action.payload)] }
+
+    case "SCHEDULE_REHEARSAL":
+      return {
+        ...state,
+        sessions: [...state.sessions, normalizeSession({
+          ...action.payload,
+          type: 'practice',
+          status: 'scheduled',
+        })],
+      }
 
     case "UPDATE_SESSION":
       return {
@@ -127,6 +182,46 @@ function appReducer(state, action) {
       return {
         ...state,
         sessions: state.sessions.filter((s) => s.id !== action.payload),
+      }
+
+    case "SET_REHEARSAL_VERSION":
+      return {
+        ...state,
+        sessions: state.sessions.map((session) =>
+          session.id === action.payload.sessionId
+            ? { ...session, choreographyVersionId: action.payload.choreographyVersionId || null }
+            : session
+        ),
+      }
+
+    case "COMPLETE_REHEARSAL":
+      return {
+        ...state,
+        sessions: state.sessions.map((session) =>
+          session.id === action.payload.sessionId
+            ? {
+                ...session,
+                status: 'completed',
+                completedAt: action.payload.completedAt || new Date().toISOString(),
+              }
+            : session
+        ),
+      }
+
+    case "ATTACH_REHEARSAL_VIDEO":
+      return {
+        ...state,
+        sessions: state.sessions.map((session) =>
+          session.id === action.payload.sessionId
+            ? {
+                ...session,
+                rehearsalVideoKey: action.payload.rehearsalVideoKey || session.rehearsalVideoKey || '',
+                rehearsalVideoName: action.payload.rehearsalVideoName || session.rehearsalVideoName || '',
+                status: 'completed',
+                completedAt: session.completedAt || new Date().toISOString(),
+              }
+            : session
+        ),
       }
 
     // ---- Isla's self-reflection on a session ----

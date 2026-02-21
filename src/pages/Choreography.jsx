@@ -141,16 +141,24 @@ export default function Choreography() {
   const requestedView = searchParams.get('view') === 'kid' ? 'kid' : 'adult'
   const isKidLiveView = requestedView === 'kid'
   const isLiveOnly = searchParams.get('live') === 'true'
+  const sessionId = searchParams.get('sessionId')
+  const activeSession = sessionId ? (state.sessions || []).find((session) => session.id === sessionId) : null
+  const liveVideoStorageKey = sessionId ? `rehearsal-video-${sessionId}` : 'choreo-video'
 
   // Modes: 'edit' | 'live'
   const [mode, setMode] = useState((isKidLiveView || isLiveOnly) ? 'live' : 'edit')
 
   // Keep selectedVersionId in sync when versions change
   useEffect(() => {
-    if (versions.length && !versions.find(v => v.id === selectedVersionId)) {
-      setSelectedVersionId(versions[versions.length - 1]?.id || null)
+    const preferredVersionId = activeSession?.choreographyVersionId || versions[versions.length - 1]?.id || null
+    if (!selectedVersionId && preferredVersionId) {
+      setSelectedVersionId(preferredVersionId)
+      return
     }
-  }, [versions, selectedVersionId])
+    if (versions.length && !versions.find(v => v.id === selectedVersionId)) {
+      setSelectedVersionId(preferredVersionId)
+    }
+  }, [versions, selectedVersionId, activeSession?.choreographyVersionId])
 
   useEffect(() => {
     if (isKidLiveView || isLiveOnly) {
@@ -158,6 +166,18 @@ export default function Choreography() {
       setLiveEditOpen(false)
     }
   }, [isKidLiveView, isLiveOnly])
+
+  useEffect(() => {
+    if (!sessionId || !selectedVersionId) return
+    if (activeSession?.choreographyVersionId) return
+    dispatch({
+      type: 'SET_REHEARSAL_VERSION',
+      payload: {
+        sessionId,
+        choreographyVersionId: selectedVersionId,
+      },
+    })
+  }, [sessionId, selectedVersionId, activeSession?.choreographyVersionId, dispatch])
 
   // Guard: if routine not found, redirect home
   useEffect(() => {
@@ -368,75 +388,90 @@ export default function Choreography() {
 
         // Video restore is local-first to avoid network lag during playback.
         let resolvedVideo = false
-        const localVideo = await loadLocalFile('choreo-video')
+        const localVideo = await loadLocalFile(liveVideoStorageKey)
         if (localVideo?.blob && !cancelled) {
           setLiveVideoUrl(URL.createObjectURL(localVideo.blob))
-          setVideoFileName(localVideo.meta?.fileName || '')
+          setVideoFileName(localVideo.meta?.fileName || activeSession?.rehearsalVideoName || '')
           resolvedVideo = true
         } else {
-          // If bundled video exists, pre-download it and cache it locally before use.
-          const preferredVideoOk = await fetch(PREFERRED_VIDEO_URL, { method: 'HEAD' })
-            .then((res) => res.ok)
-            .catch(() => false)
-          const bundledVideoUrl = preferredVideoOk
-            ? PREFERRED_VIDEO_URL
-            : await findFirstExistingMediaUrl(REPO_VIDEO_CANDIDATES)
-
-          if (bundledVideoUrl) {
-            try {
-              if (!cancelled) {
-                setIsVideoDownloading(true)
-                setVideoDownloadProgress(0)
+          // For rehearsal-linked playback, only use the rehearsal video key.
+          if (sessionId) {
+            const sessionVideo = await loadFile(liveVideoStorageKey)
+            if (sessionVideo?.blob && !cancelled) {
+              try {
+                await saveFile(liveVideoStorageKey, sessionVideo.blob, sessionVideo.meta || {})
+              } catch (cacheErr) {
+                console.warn('Could not cache rehearsal video locally:', cacheErr)
               }
+              setLiveVideoUrl(URL.createObjectURL(sessionVideo.blob))
+              setVideoFileName(sessionVideo.meta?.fileName || activeSession?.rehearsalVideoName || '')
+              resolvedVideo = true
+            }
+          } else {
+            // If bundled video exists, pre-download it and cache it locally before use.
+            const preferredVideoOk = await fetch(PREFERRED_VIDEO_URL, { method: 'HEAD' })
+              .then((res) => res.ok)
+              .catch(() => false)
+            const bundledVideoUrl = preferredVideoOk
+              ? PREFERRED_VIDEO_URL
+              : await findFirstExistingMediaUrl(REPO_VIDEO_CANDIDATES)
 
-              const blob = await downloadBlobWithProgress(bundledVideoUrl, (progress) => {
-                if (!cancelled) setVideoDownloadProgress(progress)
-              })
+            if (bundledVideoUrl) {
+              try {
+                if (!cancelled) {
+                  setIsVideoDownloading(true)
+                  setVideoDownloadProgress(0)
+                }
 
-              const fileName = getFileNameFromUrl(bundledVideoUrl) || 'choreo-video.mp4'
-              const file = new File([blob], fileName, {
-                type: blob.type || 'video/mp4',
-              })
+                const blob = await downloadBlobWithProgress(bundledVideoUrl, (progress) => {
+                  if (!cancelled) setVideoDownloadProgress(progress)
+                })
 
-              await saveFile('choreo-video', file, {
-                fileName,
-                type: file.type,
-                size: file.size,
-              })
+                const fileName = getFileNameFromUrl(bundledVideoUrl) || 'choreo-video.mp4'
+                const file = new File([blob], fileName, {
+                  type: blob.type || 'video/mp4',
+                })
 
-              if (!cancelled) {
-                setLiveVideoUrl(URL.createObjectURL(blob))
-                setVideoFileName(fileName)
-                resolvedVideo = true
+                await saveFile(liveVideoStorageKey, file, {
+                  fileName,
+                  type: file.type,
+                  size: file.size,
+                })
+
+                if (!cancelled) {
+                  setLiveVideoUrl(URL.createObjectURL(blob))
+                  setVideoFileName(fileName)
+                  resolvedVideo = true
+                }
+              } catch (err) {
+                console.warn('Could not pre-download bundled video:', err)
+              } finally {
+                if (!cancelled) {
+                  setIsVideoDownloading(false)
+                }
               }
-            } catch (err) {
-              console.warn('Could not pre-download bundled video:', err)
-            } finally {
+            }
+
+            // Final fallback: load from backend/local and ensure local cache for next run.
+            if (!cancelled && !resolvedVideo) {
+              setIsVideoDownloading(true)
+              setVideoDownloadProgress(null)
+              const video = await loadFile(liveVideoStorageKey)
+              if (video?.blob) {
+                try {
+                  await saveFile(liveVideoStorageKey, video.blob, video.meta || {})
+                } catch (cacheErr) {
+                  console.warn('Could not cache fetched video locally:', cacheErr)
+                }
+                if (!cancelled) {
+                  setLiveVideoUrl(URL.createObjectURL(video.blob))
+                  setVideoFileName(video.meta?.fileName || '')
+                  resolvedVideo = true
+                }
+              }
               if (!cancelled) {
                 setIsVideoDownloading(false)
               }
-            }
-          }
-
-          // Final fallback: load from backend/local and ensure local cache for next run.
-          if (!cancelled && !resolvedVideo) {
-            setIsVideoDownloading(true)
-            setVideoDownloadProgress(null)
-            const video = await loadFile('choreo-video')
-            if (video?.blob) {
-              try {
-                await saveFile('choreo-video', video.blob, video.meta || {})
-              } catch (cacheErr) {
-                console.warn('Could not cache fetched video locally:', cacheErr)
-              }
-              if (!cancelled) {
-                setLiveVideoUrl(URL.createObjectURL(video.blob))
-                setVideoFileName(video.meta?.fileName || '')
-                resolvedVideo = true
-              }
-            }
-            if (!cancelled) {
-              setIsVideoDownloading(false)
             }
           }
         }
@@ -658,16 +693,27 @@ export default function Choreography() {
     setLiveIsPlaying(false)
 
     // Persist to IndexedDB
-    await saveFile('choreo-video', file, {
+    await saveFile(liveVideoStorageKey, file, {
       fileName: file.name,
       type: file.type,
       size: file.size,
     })
 
-    dispatch({
-      type: 'UPDATE_CHOREOGRAPHY_VERSION',
-      payload: { routineId, versionId: selectedVersion?.id, updates: { videoFileName: file.name } },
-    })
+    if (sessionId) {
+      dispatch({
+        type: 'ATTACH_REHEARSAL_VIDEO',
+        payload: {
+          sessionId,
+          rehearsalVideoKey: liveVideoStorageKey,
+          rehearsalVideoName: file.name,
+        },
+      })
+    } else {
+      dispatch({
+        type: 'UPDATE_CHOREOGRAPHY_VERSION',
+        payload: { routineId, versionId: selectedVersion?.id, updates: { videoFileName: file.name } },
+      })
+    }
 
     // Auto-run sync analysis if music is loaded
     if (audioUrl) {
@@ -887,7 +933,7 @@ export default function Choreography() {
 
       await saveStateToBackend(localState)
 
-      const localFileKeys = ['choreo-music', 'choreo-video']
+      const localFileKeys = ['choreo-music', liveVideoStorageKey]
       let uploadedCount = 0
 
       for (const key of localFileKeys) {
@@ -907,6 +953,43 @@ export default function Choreography() {
       setManualSyncMessage('Sync failed. Check backend env vars/policies and try again.')
     } finally {
       setManualSyncing(false)
+    }
+  }
+
+  const handleCreateVersion = (mode = 'clone') => {
+    if (!routineId) return
+    const nextVersionNumber = versions.length + 1
+    const clonedInstructions = mode === 'clone' ? JSON.parse(JSON.stringify(selectedVersion?.songInstructions || [])) : []
+    const clonedCues = mode === 'clone' ? JSON.parse(JSON.stringify(selectedVersion?.cues || [])) : []
+
+    const version = {
+      id: generateId('cv'),
+      label: mode === 'clone' ? `v${nextVersionNumber} amendment` : `v${nextVersionNumber} blank`,
+      createdAt: new Date().toISOString(),
+      musicUrl: mode === 'clone' ? (selectedVersion?.musicUrl || '') : '',
+      musicFileName: mode === 'clone' ? (selectedVersion?.musicFileName || '') : '',
+      duration: mode === 'clone' ? (selectedVersion?.duration || 0) : 0,
+      songInstructions: clonedInstructions,
+      cues: clonedCues,
+      videoSyncOffset: mode === 'clone' ? (selectedVersion?.videoSyncOffset || 0) : 0,
+      videoSyncConfidence: null,
+      videoFileName: '',
+    }
+
+    dispatch({
+      type: 'ADD_CHOREOGRAPHY_VERSION',
+      payload: { routineId, version },
+    })
+    setSelectedVersionId(version.id)
+
+    if (sessionId) {
+      dispatch({
+        type: 'SET_REHEARSAL_VERSION',
+        payload: {
+          sessionId,
+          choreographyVersionId: version.id,
+        },
+      })
     }
   }
 
@@ -1339,18 +1422,50 @@ export default function Choreography() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', fontSize: '1.3rem', cursor: 'pointer', padding: 0 }}>←</button>
               <h1>🎶 {routine?.name || 'Choreography'}</h1>
-              {versions.length > 1 && (
-                <select
-                  value={selectedVersionId || ''}
-                  onChange={(e) => setSelectedVersionId(e.target.value)}
-                  style={{ fontSize: '0.85rem', padding: '4px 8px', borderRadius: 6 }}
-                >
-                  {versions.map((v, i) => (
-                    <option key={v.id} value={v.id}>
-                      v{i + 1}{v.label ? ` — ${v.label}` : ''} {v.createdAt ? `(${new Date(v.createdAt).toLocaleDateString()})` : ''}
-                    </option>
-                  ))}
-                </select>
+              {versions.length > 0 && (
+                <>
+                  <select
+                    value={selectedVersionId || ''}
+                    onChange={(e) => {
+                      const nextVersionId = e.target.value
+                      setSelectedVersionId(nextVersionId)
+                      if (sessionId) {
+                        dispatch({
+                          type: 'SET_REHEARSAL_VERSION',
+                          payload: {
+                            sessionId,
+                            choreographyVersionId: nextVersionId,
+                          },
+                        })
+                      }
+                    }}
+                    style={{ fontSize: '0.85rem', padding: '4px 8px', borderRadius: 6 }}
+                  >
+                    {versions.map((v, i) => (
+                      <option key={v.id} value={v.id}>
+                        v{i + 1}{v.label ? ` — ${v.label}` : ''} {v.createdAt ? `(${new Date(v.createdAt).toLocaleDateString()})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {isAdmin && (
+                    <>
+                      <button
+                        className={styles['sync-btn']}
+                        onClick={() => handleCreateVersion('clone')}
+                        style={{ padding: '4px 10px' }}
+                      >
+                        + New from Previous
+                      </button>
+                      <button
+                        className={styles['sync-btn']}
+                        onClick={() => handleCreateVersion('blank')}
+                        style={{ padding: '4px 10px', background: 'var(--gray-600)' }}
+                      >
+                        + New Blank
+                      </button>
+                    </>
+                  )}
+                </>
               )}
             </div>
             <p className={styles.subtitle}>
@@ -1611,20 +1726,16 @@ export default function Choreography() {
                 >
                   ✕ Exit
                 </button>
-                <label className={styles['live-upload-btn']}>
-                  ✏️ {audioUrl ? 'Change Song' : 'Load Song'}
+                <label className={styles['live-upload-btn']} title={musicFileName || 'No song loaded'}>
+                  <span className={styles['live-upload-text']}>🎵 {displayMusicName}</span>
+                  <span className={styles['live-upload-pencil']} aria-hidden="true">✏️</span>
                   <input type="file" accept="audio/*" onChange={handleMusicUpload} style={{ display: 'none' }} />
                 </label>
-                <span className={styles['live-media-name']} title={musicFileName || 'No song loaded'}>
-                  🎵 {displayMusicName}
-                </span>
-                <label className={styles['live-upload-btn']}>
-                  ✏️ {liveVideoUrl ? 'Change Video' : 'Load Video'}
+                <label className={styles['live-upload-btn']} title={videoFileName || 'No video loaded'}>
+                  <span className={styles['live-upload-text']}>🎥 {displayVideoName}</span>
+                  <span className={styles['live-upload-pencil']} aria-hidden="true">✏️</span>
                   <input type="file" accept="video/*" onChange={handleVideoUpload} style={{ display: 'none' }} />
                 </label>
-                <span className={styles['live-media-name']} title={videoFileName || 'No video loaded'}>
-                  🎥 {displayVideoName}
-                </span>
                 <button
                   className={styles['live-sync-btn']}
                   onClick={handleLiveResync}

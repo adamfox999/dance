@@ -10,6 +10,51 @@
   margin-bottom: 20px;
 }
 
+.schedule-box {
+  max-width: 400px;
+  background: white;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.schedule-box h3 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--gray-600);
+}
+
+.schedule-empty {
+  font-size: 0.78rem;
+  color: var(--gray-500);
+}
+
+.schedule-controls {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.schedule-controls input,
+.schedule-controls select {
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  background: white;
+}
+
+.schedule-controls button {
+  border-radius: var(--radius-full);
+  background: var(--purple-500);
+  color: white;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 8px 12px;
+}
+
 /* ===== MONTH NAV ===== */
 .month-nav {
   display: flex;
@@ -149,6 +194,15 @@
   border-radius: var(--radius);
   background: white;
   box-shadow: var(--shadow);
+}
+
+.upcoming-live-btn {
+  border-radius: var(--radius-full);
+  background: var(--gray-100);
+  color: var(--gray-700);
+  padding: 5px 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
 }
 
 .upcoming-icon {

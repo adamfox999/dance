@@ -1,10 +1,31 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
+import { generateId } from '../utils/helpers'
 import styles from './Timeline.module.css'
 
 function formatDate(dateStr) {
   return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+function formatRehearsalTitle(dateStr) {
+  const date = new Date(dateStr)
+  if (Number.isNaN(date.getTime())) return 'Rehearsal'
+
+  const day = date.getDate()
+  const month = date.toLocaleDateString('en-GB', { month: 'long' })
+  const mod100 = day % 100
+  const suffix = (mod100 >= 11 && mod100 <= 13)
+    ? 'th'
+    : day % 10 === 1
+      ? 'st'
+      : day % 10 === 2
+        ? 'nd'
+        : day % 10 === 3
+          ? 'rd'
+          : 'th'
+
+  return `${day}${suffix} ${month} rehearsal`
 }
 
 function isPast(dateStr) {
@@ -30,6 +51,8 @@ export default function Timeline() {
   const [reflectingSession, setReflectingSession] = useState(null)
   const [feeling, setFeeling] = useState('')
   const [note, setNote] = useState('')
+  const [scheduleDate, setScheduleDate] = useState(() => new Date(Date.now() + 86400000).toISOString().split('T')[0])
+  const [scheduleVersionId, setScheduleVersionId] = useState('')
 
   // Determine what we're showing a timeline for
   const isDiscipline = type === 'discipline'
@@ -37,6 +60,7 @@ export default function Timeline() {
 
   const discipline = isDiscipline ? state.disciplines.find(d => d.id === id) : null
   const routine = isRoutine ? state.routines.find(r => r.id === id) : null
+  const routineVersions = routine?.choreographyVersions || []
 
   const title = isDiscipline
     ? `${discipline?.icon || ''} ${discipline?.name || 'Discipline'}`
@@ -105,6 +129,13 @@ export default function Timeline() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!isRoutine) return
+    if (!scheduleVersionId && routineVersions.length) {
+      setScheduleVersionId(routineVersions[routineVersions.length - 1].id)
+    }
+  }, [isRoutine, scheduleVersionId, routineVersions])
+
   const handleSubmitReflection = (sessionId) => {
     if (!feeling && !note) return
     dispatch({
@@ -124,6 +155,38 @@ export default function Timeline() {
       type: 'SET_ELEMENT_STATUS',
       payload: { disciplineId: id, elementId, status },
     })
+  }
+
+  const handleScheduleRehearsal = () => {
+    if (!isRoutine || !routine || !scheduleDate) return
+    const versionId = scheduleVersionId || routineVersions[routineVersions.length - 1]?.id || null
+
+    dispatch({
+      type: 'SCHEDULE_REHEARSAL',
+      payload: {
+        id: generateId('session'),
+        date: scheduleDate,
+        scheduledAt: scheduleDate,
+        title: `${routine.name} rehearsal`,
+        routineId: routine.id,
+        disciplineId: routine.disciplineId || null,
+        choreographyVersionId: versionId,
+        status: 'scheduled',
+      },
+    })
+  }
+
+  const getSessionVersion = (session) => {
+    if (!isRoutine || !routine) return null
+    const versions = routine.choreographyVersions || []
+    const version = versions.find((versionItem) => versionItem.id === session.choreographyVersionId)
+      || versions[versions.length - 1]
+      || null
+    if (!version) return null
+    return {
+      version,
+      versionIndex: versions.findIndex((versionItem) => versionItem.id === version.id),
+    }
   }
 
   const today = new Date().toISOString().split('T')[0]
@@ -152,6 +215,30 @@ export default function Timeline() {
           </button>
         )}
       </div>
+
+      {isRoutine && routine && (
+        <div className={styles.scheduleCard}>
+          <h3 className={styles.sectionLabel}>Schedule Practice</h3>
+          <div className={styles.scheduleRow}>
+            <input
+              type="date"
+              value={scheduleDate}
+              onChange={(e) => setScheduleDate(e.target.value)}
+            />
+            <select
+              value={scheduleVersionId}
+              onChange={(e) => setScheduleVersionId(e.target.value)}
+            >
+              {routineVersions.map((version, versionIndex) => (
+                <option key={version.id} value={version.id}>
+                  v{versionIndex + 1}{version.label ? ` — ${version.label}` : ''}
+                </option>
+              ))}
+            </select>
+            <button onClick={handleScheduleRehearsal}>+ Schedule</button>
+          </div>
+        </div>
+      )}
 
       {/* Discipline elements */}
       {isDiscipline && elements.length > 0 && (
@@ -203,16 +290,32 @@ export default function Timeline() {
                 <div className={styles.cardDate}>{formatDate(item.date)}</div>
 
                 {item.type === 'session' && (
-                  <div className={styles.cardBody} onClick={() => {
-                    if (item.data.videoUrl) {
-                      // If session has video, could open player
-                    }
-                  }}>
+                  <div
+                    className={styles.cardBody}
+                    onClick={() => {
+                      if (item.data.routineId) {
+                        navigate(`/choreography/${item.data.routineId}?live=true&sessionId=${item.data.id}`)
+                      }
+                    }}
+                    style={item.data.routineId ? { cursor: 'pointer' } : undefined}
+                  >
                     <span className={styles.cardIcon}>
                       {SESSION_ICONS[item.data.type] || '📝'}
                     </span>
                     <div className={styles.cardInfo}>
-                      <div className={styles.cardTitle}>{item.data.title}</div>
+                      <div className={styles.cardTitle}>{(item.data.title || '').trim() || formatRehearsalTitle(item.date)}</div>
+                      {(() => {
+                        const versionData = getSessionVersion(item.data)
+                        if (!versionData) return null
+                        return (
+                          <div className={styles.cardNote}>
+                            Choreo: v{versionData.versionIndex + 1}{versionData.version.label ? ` — ${versionData.version.label}` : ''}
+                          </div>
+                        )
+                      })()}
+                      {item.data.rehearsalVideoName && (
+                        <div className={styles.cardNote}>🎥 {item.data.rehearsalVideoName}</div>
+                      )}
                       {item.data.islaReflection?.feeling && (
                         <span className={styles.feelingBadge}>
                           {item.data.islaReflection.feeling}
