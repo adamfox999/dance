@@ -1,0 +1,219 @@
+.scrapbook {
+  padding: 1rem;
+  padding-bottom: 5rem;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.backBtn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  flex-shrink: 0;
+}
+
+.showName {
+  font-size: 1.4rem;
+  margin: 0;
+}
+
+.showMeta {
+  font-size: 0.8rem;
+  color: #888;
+  margin: 0.2rem 0 0;
+}
+
+.entriesGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.entryCard {
+  background: white;
+  border-radius: 1rem;
+  padding: 1rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.entryCard.note {
+  border-left: 4px solid #a855f7;
+}
+
+.entryCard.feedback {
+  border-left: 4px solid #3b82f6;
+}
+
+.entryCard.examResult {
+  border-left: 4px solid #f59e0b;
+}
+
+.entryAuthor {
+  font-size: 0.75rem;
+  color: #888;
+  margin-bottom: 0.3rem;
+}
+
+.entryContent {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.entryPhoto {
+  width: 100%;
+  border-radius: 0.5rem;
+}
+
+.entryVideo {
+  width: 100%;
+  border-radius: 0.5rem;
+}
+
+.reactions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.reactionList {
+  font-size: 1rem;
+  letter-spacing: 0.1em;
+}
+
+.reactionPicker {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.reactionBtn {
+  background: #f3f4f6;
+  border: none;
+  border-radius: 50%;
+  width: 1.8rem;
+  height: 1.8rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.1s;
+}
+
+.reactionBtn:hover {
+  transform: scale(1.2);
+}
+
+.islaActions {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.addNoteBtn {
+  flex: 1;
+  padding: 0.85rem;
+  border-radius: 1rem;
+  border: 2px dashed #d1d5db;
+  background: white;
+  font-size: 1rem;
+  cursor: pointer;
+  color: #666;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.addNoteBtn:hover {
+  border-color: #a855f7;
+  color: #a855f7;
+}
+
+.addPhotoBtn {
+  flex: 1;
+  padding: 0.85rem;
+  border-radius: 1rem;
+  border: 2px dashed #d1d5db;
+  background: white;
+  font-size: 1rem;
+  cursor: pointer;
+  color: #666;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.addPhotoBtn:hover {
+  border-color: #ec4899;
+  color: #ec4899;
+}
+
+.addPhotoBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.adminSection {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #fef3c7;
+  border-radius: 1rem;
+}
+
+.adminLabel {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #92400e;
+  margin: 0 0 0.5rem;
+}
+
+.adminButtons {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.adminButtons button {
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid #d97706;
+  background: white;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.emptyEntries {
+  text-align: center;
+  padding: 2rem;
+  color: #888;
+}
+
+.empty {
+  text-align: center;
+  padding: 3rem;
+}
+
+.empty button {
+  margin-top: 1rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid #d1d5db;
+  background: white;
+  cursor: pointer;
+}
+
+@media (prefers-color-scheme: dark) {
+  .entryCard { background: #1f2937; }
+  .addNoteBtn { background: #1f2937; border-color: #374151; color: #9ca3af; }
+  .addPhotoBtn { background: #1f2937; border-color: #374151; color: #9ca3af; }
+  .reactionBtn { background: #374151; }
+}

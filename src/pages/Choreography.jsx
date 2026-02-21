@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams, useParams } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { generateId } from '../utils/helpers'
 import { decodeAudioFile, extractWaveform, crossCorrelateSync, formatTimestamp } from '../utils/audioSync'
@@ -111,31 +111,50 @@ function suggestEmoji(text) {
 
 // Generate slot arrays for beat counter
 const BEAT_SLOTS = [1, 2, 3, 4, 5, 6, 7, 8]
-const ADULT_UNLOCK_KEY = 'adult-live-unlocked'
 
 export default function Choreography() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { state, dispatch } = useApp()
-  const choreography = state.choreography || {}
+  const { routineId } = useParams()
+  const { state, dispatch, isAdmin } = useApp()
+
+  // Find the routine from the new data model
+  const routine = state.routines?.find(r => r.id === routineId)
+  const versions = routine?.choreographyVersions || []
+  const [selectedVersionId, setSelectedVersionId] = useState(() => versions[versions.length - 1]?.id || null)
+  const selectedVersion = versions.find(v => v.id === selectedVersionId) || versions[versions.length - 1] || {}
+  // Alias so all existing code that reads `choreography.*` still works
+  const choreography = selectedVersion
+
   const promptLeadMs = Math.max(0, Math.min(600, Number(state.settings?.promptLeadMs ?? 200)))
   const requestedView = searchParams.get('view') === 'kid' ? 'kid' : 'adult'
   const isKidLiveView = requestedView === 'kid'
+  const isLiveOnly = searchParams.get('live') === 'true'
 
   // Modes: 'edit' | 'live'
-  const [mode, setMode] = useState(isKidLiveView ? 'live' : 'edit')
+  const [mode, setMode] = useState((isKidLiveView || isLiveOnly) ? 'live' : 'edit')
+
+  // Keep selectedVersionId in sync when versions change
+  useEffect(() => {
+    if (versions.length && !versions.find(v => v.id === selectedVersionId)) {
+      setSelectedVersionId(versions[versions.length - 1]?.id || null)
+    }
+  }, [versions, selectedVersionId])
 
   useEffect(() => {
-    if (requestedView === 'adult' && sessionStorage.getItem(ADULT_UNLOCK_KEY) !== 'true') {
-      navigate('/', { replace: true })
-      return
-    }
-
-    if (isKidLiveView) {
+    if (isKidLiveView || isLiveOnly) {
       setMode('live')
       setLiveEditOpen(false)
     }
-  }, [requestedView, isKidLiveView, navigate])
+  }, [isKidLiveView, isLiveOnly])
+
+  // Guard: if routine not found, redirect home
+  useEffect(() => {
+    if (!routine && state.routines?.length >= 0) {
+      // Routine was deleted or ID is invalid
+      if (routineId) navigate('/', { replace: true })
+    }
+  }, [routine, routineId, navigate, state.routines])
 
   // Audio state
   const audioRef = useRef(null)
@@ -215,7 +234,9 @@ export default function Choreography() {
       ])
       const result = crossCorrelateSync(musicBuf, videoBuf)
       setSyncResult(result)
-      dispatch({ type: 'SET_VIDEO_SYNC_OFFSET', payload: result.offsetMs })
+      if (routineId && selectedVersion?.id) {
+        dispatch({ type: 'UPDATE_CHOREOGRAPHY_VERSION', payload: { routineId, versionId: selectedVersion.id, updates: { videoSyncOffset: result.offsetMs } } })
+      }
     } catch (err) {
       console.warn('Sync failed:', err)
       setSyncResult({ offsetMs: 0, confidence: 0, error: true })
@@ -428,8 +449,8 @@ export default function Choreography() {
       })
 
       dispatch({
-        type: 'SET_CHOREOGRAPHY',
-        payload: { musicUrl: url, musicFileName: file.name, duration: audioBuffer.duration },
+        type: 'UPDATE_CHOREOGRAPHY_VERSION',
+        payload: { routineId, versionId: selectedVersion?.id, updates: { musicUrl: url, musicFileName: file.name, duration: audioBuffer.duration } },
       })
 
       // If a live video already exists, auto-sync this new song with it
@@ -691,7 +712,7 @@ export default function Choreography() {
       video.muted = false
       if (audio) audio.pause()
     }
-  }, [liveAudioMode]) // intentionally minimal deps — only fires on toggle
+  }, [liveAudioMode, liveVideoUrl, audioUrl]) // re-run whenever video/audio URL changes so mute state is always correct
 
   // Seek live mode to a specific time
   const seekLive = (time) => {
@@ -850,17 +871,17 @@ export default function Choreography() {
     const minPos = Math.min(startPos, endPos)
     const maxPos = Math.max(startPos, endPos)
     const updated = [...songInstructions, { id: newId, text, startPos: minPos, endPos: maxPos }]
-    dispatch({ type: 'SET_CHOREOGRAPHY', payload: { songInstructions: updated } })
+    dispatch({ type: 'UPDATE_CHOREOGRAPHY_VERSION', payload: { routineId, versionId: selectedVersion?.id, updates: { songInstructions: updated } } })
     return newId
   }
 
   const updateSongInstruction = (id, patch) => {
     const updated = songInstructions.map(inst => inst.id === id ? { ...inst, ...patch } : inst)
-    dispatch({ type: 'SET_CHOREOGRAPHY', payload: { songInstructions: updated } })
+    dispatch({ type: 'UPDATE_CHOREOGRAPHY_VERSION', payload: { routineId, versionId: selectedVersion?.id, updates: { songInstructions: updated } } })
   }
 
   const deleteSongInstruction = (id) => {
-    dispatch({ type: 'SET_CHOREOGRAPHY', payload: { songInstructions: songInstructions.filter(i => i.id !== id) } })
+    dispatch({ type: 'UPDATE_CHOREOGRAPHY_VERSION', payload: { routineId, versionId: selectedVersion?.id, updates: { songInstructions: songInstructions.filter(i => i.id !== id) } } })
     if (editingInstId === id) setEditingInstId(null)
   }
 
@@ -961,7 +982,7 @@ export default function Choreography() {
       if (final) {
         const latest = songInstructionsRef.current
         const updated = latest.map(inst => inst.id === final.instId ? { ...inst, startPos: final.startPos, endPos: final.endPos } : inst)
-        dispatch({ type: 'SET_CHOREOGRAPHY', payload: { songInstructions: updated } })
+        dispatch({ type: 'UPDATE_CHOREOGRAPHY_VERSION', payload: { routineId, versionId: selectedVersion?.id, updates: { songInstructions: updated } } })
         resizeFinalRef.current = null
       }
       setResizePreview(null)
@@ -1188,7 +1209,9 @@ export default function Choreography() {
 
   const nudgeOffset = (delta) => {
     const newOffset = (choreography.videoSyncOffset || 0) + delta
-    dispatch({ type: 'SET_VIDEO_SYNC_OFFSET', payload: newOffset })
+    if (routineId && selectedVersion?.id) {
+      dispatch({ type: 'UPDATE_CHOREOGRAPHY_VERSION', payload: { routineId, versionId: selectedVersion.id, updates: { videoSyncOffset: newOffset } } })
+    }
   }
 
   // ========== KEYBOARD SHORTCUTS ==========
@@ -1218,6 +1241,7 @@ export default function Choreography() {
         <audio
           ref={audioRef}
           src={audioUrl}
+          preload="auto"
           onEnded={handleAudioEnded}
           onLoadedMetadata={(e) => {
             if (!duration) setDuration(e.target.duration)
@@ -1225,29 +1249,47 @@ export default function Choreography() {
         />
       )}
 
-      {!isKidLiveView && (
+      {!isKidLiveView && !isLiveOnly && (
         <>
           {/* Header */}
           <div className={styles['choreo-header']}>
-            <h1>🎶 Choreography</h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', fontSize: '1.3rem', cursor: 'pointer', padding: 0 }}>←</button>
+              <h1>🎶 {routine?.name || 'Choreography'}</h1>
+              {versions.length > 1 && (
+                <select
+                  value={selectedVersionId || ''}
+                  onChange={(e) => setSelectedVersionId(e.target.value)}
+                  style={{ fontSize: '0.85rem', padding: '4px 8px', borderRadius: 6 }}
+                >
+                  {versions.map((v, i) => (
+                    <option key={v.id} value={v.id}>
+                      v{i + 1}{v.label ? ` — ${v.label}` : ''} {v.createdAt ? `(${new Date(v.createdAt).toLocaleDateString()})` : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
             <p className={styles.subtitle}>
               Load music &bull; Press <b>Space</b> to play &bull; Use <b>Live Mode</b> to add instructions
             </p>
-            <div className={styles['sync-row']}>
-              <button
-                className={styles['sync-btn']}
-                onClick={handleManualSync}
-                disabled={manualSyncing}
-                title="Push local browser data to Supabase"
-              >
-                {manualSyncing ? '⏳ Syncing...' : '☁️ Sync Local Data'}
-              </button>
-              {manualSyncMessage && (
-                <span className={styles['sync-status']}>
-                  {manualSyncMessage}
-                </span>
-              )}
-            </div>
+            {isAdmin && (
+              <div className={styles['sync-row']}>
+                <button
+                  className={styles['sync-btn']}
+                  onClick={handleManualSync}
+                  disabled={manualSyncing}
+                  title="Push local browser data to Supabase"
+                >
+                  {manualSyncing ? '⏳ Syncing...' : '☁️ Sync Local Data'}
+                </button>
+                {manualSyncMessage && (
+                  <span className={styles['sync-status']}>
+                    {manualSyncMessage}
+                  </span>
+                )}
+              </div>
+            )}
             {beatData && (
               <div className={styles['beat-info-bar']}>
                 <span className={styles['bpm-badge']}>♩ {beatData.bpm} BPM</span>
@@ -1437,7 +1479,6 @@ export default function Choreography() {
               playsInline
               onTimeUpdate={(e) => {
                 const t = e.target.currentTime
-                setLiveTime(t)
                 syncLiveAudio(t)
               }}
               onLoadedMetadata={(e) => setLiveDuration(e.target.duration)}
@@ -1478,7 +1519,11 @@ export default function Choreography() {
                     liveVideoRef.current?.pause()
                     audioRef.current?.pause()
                     setLiveIsPlaying(false)
-                    setMode('edit')
+                    if (isLiveOnly) {
+                      navigate('/')
+                    } else {
+                      setMode('edit')
+                    }
                   }}
                 >
                   ✕ Exit
@@ -1521,7 +1566,17 @@ export default function Choreography() {
           )}
 
           {/* Current instruction — big animated card */}
-          {liveSongInstruction ? (
+          {(!filesLoaded || isVideoDownloading) ? (
+            <div className={styles['live-cue-idle']}>
+              <span style={{ fontSize: '2.5rem' }}>⏳</span>
+              <p style={{ fontWeight: 600, marginTop: 8 }}>
+                {isVideoDownloading
+                  ? `Caching video…${typeof videoDownloadProgress === 'number' ? ` ${videoDownloadProgress}%` : ''}`
+                  : 'Loading music & video…'}
+              </p>
+              <p style={{ fontSize: '0.8rem', opacity: 0.6, marginTop: 4 }}>Almost ready!</p>
+            </div>
+          ) : liveSongInstruction ? (
             <div key={liveSongInstruction.id} className={styles['live-cue-card']}>
               <span className={styles['live-beat-move-label']}>
                 {liveSongInstruction.emoji && <span className={styles['live-inst-emoji']}>{liveSongInstruction.emoji} </span>}
@@ -1627,8 +1682,13 @@ export default function Choreography() {
               <button className={styles['live-restart-btn']} onClick={restartLive} title="Restart">
                 ⏮
               </button>
-              <button className={styles['live-play-btn']} onClick={toggleLivePlay}>
-                {(isLiveVideoPlayback ? liveIsPlaying : isPlaying) ? '⏸' : '▶️'}
+              <button
+                className={styles['live-play-btn']}
+                onClick={toggleLivePlay}
+                disabled={!filesLoaded || isVideoDownloading}
+                style={(!filesLoaded || isVideoDownloading) ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+              >
+                {(!filesLoaded || isVideoDownloading) ? '⏳' : (isLiveVideoPlayback ? liveIsPlaying : isPlaying) ? '⏸' : '▶️'}
               </button>
               {!isKidLiveView && (
                 <>

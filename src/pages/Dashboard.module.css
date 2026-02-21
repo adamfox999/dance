@@ -1,0 +1,454 @@
+.dashboard {
+  padding: 1rem;
+  padding-bottom: 5rem;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+/* Greeting */
+.greeting h1 {
+  font-size: 1.6rem;
+  margin: 0 0 0.2rem;
+}
+
+.date {
+  color: #888;
+  font-size: 0.9rem;
+  margin: 0 0 1rem;
+}
+
+/* Practice button */
+.practiceBtn {
+  width: 100%;
+  padding: 1rem;
+  border-radius: 1rem;
+  border: none;
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+  background: linear-gradient(135deg, #a855f7, #ec4899);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  transition: transform 0.15s, opacity 0.15s;
+  position: relative;
+}
+
+.practiceBtn:hover:not(:disabled) {
+  transform: scale(1.02);
+}
+
+.practiceBtn:disabled {
+  opacity: 0.85;
+  cursor: default;
+}
+
+.practiceDone {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+}
+
+.streakBadge {
+  background: rgba(255,255,255,0.25);
+  border-radius: 1rem;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+/* Focus card */
+.focusCard {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: white;
+  border-radius: 1rem;
+  padding: 1.2rem;
+  margin-bottom: 1rem;
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+.focusCard:hover {
+  transform: scale(1.02);
+}
+
+.focusLabel {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.8;
+  margin-bottom: 0.3rem;
+}
+
+.focusName {
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.focusAction {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  opacity: 0.9;
+}
+
+/* Upcoming show */
+.upcomingCard {
+  background: linear-gradient(135deg, #f59e0b, #f97316);
+  color: white;
+  border-radius: 1rem;
+  padding: 1rem 1.2rem;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+.upcomingCard:hover {
+  transform: scale(1.02);
+}
+
+.upcomingIcon {
+  font-size: 2rem;
+}
+
+.upcomingName {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.upcomingDate {
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
+/* Sections */
+.section {
+  margin-bottom: 1.5rem;
+}
+
+.sectionTitle {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 0 0 0.75rem;
+  color: #111;
+  letter-spacing: -0.01em;
+}
+
+/* Card grid */
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.75rem;
+}
+
+/* Routine cards — no cover */
+.routineCard {
+  background: white;
+  border-radius: 1rem;
+  padding: 1rem;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.10);
+  border: 1px solid rgba(0,0,0,0.07);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.routineCard:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+}
+
+.routineEmoji {
+  font-size: 2rem;
+}
+
+.routineName {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #111;
+}
+
+.routineMeta {
+  font-size: 0.75rem;
+  color: #666;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.routineAction {
+  margin-top: 0.3rem;
+  font-size: 0.8rem;
+  color: #a855f7;
+  font-weight: 600;
+}
+
+/* Routine cards — with cover photo (full-bleed) */
+.routineCardCover {
+  position: relative;
+  border-radius: 1rem;
+  overflow: hidden;
+  min-height: 180px;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.routineCardCover:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+}
+
+.routineCoverImg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+
+.routineCoverOverlay {
+  position: relative;
+  z-index: 1;
+  background: linear-gradient(to top, rgba(0,0,0,0.78) 0%, rgba(0,0,0,0.35) 60%, transparent 100%);
+  padding: 2.5rem 0.85rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.routineCoverName {
+  font-weight: 800;
+  font-size: 1rem;
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  line-height: 1.2;
+}
+
+.routineCoverMeta {
+  font-size: 0.72rem;
+  color: rgba(255,255,255,0.82);
+  display: flex;
+  gap: 0.5rem;
+}
+
+.routineCoverAction {
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  color: rgba(255,255,255,0.95);
+  font-weight: 700;
+  background: rgba(255,255,255,0.18);
+  backdrop-filter: blur(4px);
+  display: inline-block;
+  padding: 0.25rem 0.6rem;
+  border-radius: 1rem;
+  width: fit-content;
+  transition: background 0.15s;
+}
+
+.routineCoverAction:hover {
+  background: rgba(255,255,255,0.3);
+}
+
+/* Discipline cards */
+.disciplineCard {
+  background: white;
+  border-radius: 1rem;
+  padding: 1rem;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.10);
+  border: 1px solid rgba(0,0,0,0.07);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  text-align: center;
+}
+
+.disciplineCard:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+}
+
+.disciplineIcon {
+  font-size: 2.5rem;
+  margin-bottom: 0.3rem;
+}
+
+.disciplineName {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #111;
+}
+
+.disciplineGrade {
+  font-size: 0.8rem;
+  color: #555;
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+}
+
+/* Progress bar */
+.progressBar {
+  background: #e5e7eb;
+  border-radius: 0.5rem;
+  height: 0.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.progressFill {
+  background: linear-gradient(90deg, #a855f7, #ec4899);
+  height: 100%;
+  border-radius: 0.5rem;
+  transition: width 0.3s;
+}
+
+.progressText {
+  position: absolute;
+  right: 0;
+  top: -1.2rem;
+  font-size: 0.65rem;
+  color: #888;
+}
+
+/* Goals */
+.goalsList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.goalItem {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: white;
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.09);
+  border: 1px solid rgba(0,0,0,0.06);
+}
+
+.goalCheck {
+  background: none;
+  border: 2px solid #d1d5db;
+  border-radius: 50%;
+  width: 1.5rem;
+  height: 1.5rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  color: #d1d5db;
+  flex-shrink: 0;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.goalCheck:hover {
+  border-color: #22c55e;
+  color: #22c55e;
+}
+
+.goalText {
+  font-size: 0.9rem;
+}
+
+/* Achievement card */
+.achievementCard {
+  background: white;
+  border-radius: 1rem;
+  padding: 1rem 1.2rem;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.10);
+  border: 1px solid rgba(0,0,0,0.07);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+  margin-bottom: 1rem;
+  transition: transform 0.15s;
+}
+
+.achievementCard:hover {
+  transform: scale(1.02);
+}
+
+.achievementIcon {
+  font-size: 2rem;
+}
+
+.achievementLabel {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #888;
+}
+
+.achievementName {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #111;
+}
+
+.achievementArrow {
+  margin-left: auto;
+  color: #ccc;
+  font-size: 1.2rem;
+}
+
+/* Empty state */
+.emptyState {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: #888;
+}
+
+.emptyEmoji {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+}
+
+.emptyState h3 {
+  color: #333;
+  margin: 0 0 0.5rem;
+}
+
+.emptyState p {
+  font-size: 0.9rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  .sectionTitle { color: #f3f4f6; }
+  .date { color: #9ca3af; }
+  .routineName, .disciplineName, .achievementName { color: #f3f4f6; }
+  .routineMeta { color: #d1d5db; }
+  .disciplineGrade { color: #d1d5db; }
+  .goalText { color: #f3f4f6; }
+  .achievementLabel { color: #d1d5db; }
+  .achievementArrow { color: #9ca3af; }
+  .progressBar { background: #374151; }
+  .progressText { color: #d1d5db; }
+  .goalCheck {
+    border-color: #6b7280;
+    color: #6b7280;
+  }
+  .goalCheck:hover {
+    border-color: #22c55e;
+    color: #22c55e;
+  }
+  .routineCard, .disciplineCard, .goalItem, .achievementCard {
+    background: #1f2937;
+    border-color: rgba(255,255,255,0.10);
+    box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+  }
+  .routineCard:hover, .disciplineCard:hover {
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  }
+  .emptyState { color: #d1d5db; }
+  .emptyState h3 { color: #f3f4f6; }
+}

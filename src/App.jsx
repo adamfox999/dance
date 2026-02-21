@@ -1,14 +1,13 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
 import { useApp } from './context/AppContext'
+import Dashboard from './pages/Dashboard'
 import Timeline from './pages/Timeline'
-import KidTimeline from './pages/KidTimeline'
 import Choreography from './pages/Choreography'
-import RhythmGame from './pages/RhythmGame'
+import Scrapbook from './pages/Scrapbook'
 import TrophyShelf from './pages/TrophyShelf'
 import Calendar from './pages/Calendar'
 import Settings from './pages/Settings'
-import LiveViewSelect from './pages/LiveViewSelect'
 
 export default function App() {
   const { isLoading } = useApp()
@@ -20,11 +19,10 @@ export default function App() {
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<LiveViewSelect />} />
-        <Route path="/timeline" element={<Timeline />} />
-        <Route path="/kid-timeline" element={<KidTimeline />} />
-        <Route path="/choreography" element={<Choreography />} />
-        <Route path="/rhythm" element={<RhythmGame />} />
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/timeline/:type/:id" element={<Timeline />} />
+        <Route path="/choreography/:routineId" element={<Choreography />} />
+        <Route path="/show/:showId" element={<Scrapbook />} />
         <Route path="/trophies" element={<TrophyShelf />} />
         <Route path="/calendar" element={<Calendar />} />
         <Route path="/settings" element={<Settings />} />

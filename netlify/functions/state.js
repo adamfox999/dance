@@ -38,11 +38,7 @@ export async function handler(event) {
         .eq('id', 1)
         .maybeSingle()
 
-      if (danceError) {
-        return jsonResponse(500, { error: danceError.message })
-      }
-
-      if (danceData?.state_data) {
+      if (!danceError && danceData?.state_data) {
         return jsonResponse(200, { source: 'dance', danceData })
       }
 
@@ -57,6 +53,7 @@ export async function handler(event) {
       }
 
       return jsonResponse(200, {
+        warning: danceError?.message || null,
         source: appStateData?.state_data ? 'app_state' : 'none',
         appStateData,
       })
@@ -76,10 +73,6 @@ export async function handler(event) {
         .from('dance')
         .upsert(dancePayload)
 
-      if (danceError) {
-        return jsonResponse(500, { error: danceError.message })
-      }
-
       const { error: appStateError } = await supabase
         .from('app_state')
         .upsert({ id: 1, state_data: state })
@@ -88,7 +81,7 @@ export async function handler(event) {
         return jsonResponse(500, { error: appStateError.message })
       }
 
-      return jsonResponse(200, { ok: true })
+      return jsonResponse(200, { ok: true, warning: danceError?.message || null })
     }
 
     return jsonResponse(405, { error: 'Method not allowed' })

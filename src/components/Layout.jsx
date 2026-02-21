@@ -3,13 +3,10 @@ import { useApp } from '../context/AppContext'
 import { getCurrentStreak } from '../utils/milestones'
 import styles from './Layout.module.css'
 
-const adultNavItems = [
+const navItems = [
   { to: '/', icon: '🏠', label: 'Home' },
-  { to: '/timeline', icon: '🕐', label: 'Timeline' },
-  { to: '/choreography', icon: '🎼', label: 'Choreo' },
-  { to: '/rhythm', icon: '🎮', label: 'Game' },
-  { to: '/trophies', icon: '🏆', label: 'Trophies' },
   { to: '/calendar', icon: '📅', label: 'Calendar' },
+  { to: '/trophies', icon: '🏆', label: 'Trophies' },
   { to: '/settings', icon: '⚙️', label: 'Settings' },
 ]
 
@@ -17,16 +14,15 @@ export default function Layout({ children }) {
   const { state } = useApp()
   const location = useLocation()
   const streak = getCurrentStreak(state.practiceLog)
-  const navItems = adultNavItems
-  const isKidChoreoView = location.pathname === '/choreography' && new URLSearchParams(location.search).get('view') === 'kid'
+  const isLiveView = location.pathname.startsWith('/choreography/') && new URLSearchParams(location.search).get('live') === 'true'
 
   return (
     <div className={styles.layout}>
       {/* Header */}
-      {!isKidChoreoView && (
+      {!isLiveView && (
         <header className={styles.header}>
           <div className={`${styles['header-title']} sparkle-text`}>
-            {state.settings.danceName} 💃
+            Isla's Dance Journey 💃
           </div>
           {streak > 0 && (
             <div className={styles['header-streak']}>
@@ -43,7 +39,7 @@ export default function Layout({ children }) {
       </main>
 
       {/* Bottom navigation */}
-      {!isKidChoreoView && (
+      {!isLiveView && (
         <nav className={styles['bottom-nav']}>
           {navItems.map((item) => (
             <NavLink

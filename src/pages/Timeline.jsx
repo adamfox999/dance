@@ -1,191 +1,318 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
-import { formatDate, isPast, isFuture, isToday, daysUntil, getSessionIcon, generateId } from '../utils/helpers'
-import PopoutCard from '../components/PopoutCard'
-import AddSessionModal from '../components/AddSessionModal'
 import styles from './Timeline.module.css'
 
+function formatDate(dateStr) {
+  return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+function isPast(dateStr) {
+  return new Date(dateStr) < new Date(new Date().toISOString().split('T')[0])
+}
+
+const SESSION_ICONS = {
+  'solo-practice': '💪',
+  'private-lesson': '👩‍🏫',
+  'class': '🏫',
+  'show': '🎭',
+  'exam': '🎓',
+  'practice': '💪',
+  'lesson': '👩‍🏫',
+  'competition': '🏆',
+}
+
 export default function Timeline() {
+  const { type, id } = useParams()
   const { state, dispatch } = useApp()
-  const [selectedSession, setSelectedSession] = useState(null)
-  const [showAddModal, setShowAddModal] = useState(false)
-  const scrollRef = useRef(null)
+  const navigate = useNavigate()
   const nowRef = useRef(null)
+  const [reflectingSession, setReflectingSession] = useState(null)
+  const [feeling, setFeeling] = useState('')
+  const [note, setNote] = useState('')
 
-  // Sort sessions by date
-  const sortedSessions = useMemo(
-    () => [...state.sessions].sort((a, b) => new Date(a.date) - new Date(b.date)),
-    [state.sessions]
-  )
+  // Determine what we're showing a timeline for
+  const isDiscipline = type === 'discipline'
+  const isRoutine = type === 'routine'
 
-  // Find the next upcoming competition
-  const nextCompetition = useMemo(
-    () => sortedSessions.find((s) => s.type === 'competition' && isFuture(s.date)),
-    [sortedSessions]
-  )
+  const discipline = isDiscipline ? state.disciplines.find(d => d.id === id) : null
+  const routine = isRoutine ? state.routines.find(r => r.id === id) : null
 
-  // Get latest chunk ratings from the most recent rated session
-  const latestRatings = useMemo(() => {
-    const rated = sortedSessions
-      .filter((s) => s.chunkRatings && Object.keys(s.chunkRatings).length > 0)
-      .reverse()
-    return rated.length > 0 ? rated[0].chunkRatings : {}
-  }, [sortedSessions])
+  const title = isDiscipline
+    ? `${discipline?.icon || ''} ${discipline?.name || 'Discipline'}`
+    : `🎵 ${routine?.name || 'Routine'}`
 
-  // Scroll to "now" on mount
+  // Filter sessions for this context
+  const filteredSessions = useMemo(() => {
+    return [...(state.sessions || [])]
+      .filter(s => {
+        if (isDiscipline) return s.disciplineId === id
+        if (isRoutine) return s.routineId === id
+        return false
+      })
+      .sort((a, b) => new Date(b.date) - new Date(a.date)) // newest first
+  }, [state.sessions, id, isDiscipline, isRoutine])
+
+  // For routines, also get practice videos
+  const practiceVideos = useMemo(() => {
+    if (!isRoutine || !routine) return []
+    return [...(routine.practiceVideos || [])]
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+  }, [routine, isRoutine])
+
+  // Related shows (for routines)
+  const relatedShows = useMemo(() => {
+    if (!isRoutine) return []
+    return (state.shows || [])
+      .filter(s => (s.routineIds || []).includes(id))
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+  }, [state.shows, id, isRoutine])
+
+  // Related stickers
+  const relatedStickers = useMemo(() => {
+    return [...(state.stickers || [])]
+      .sort((a, b) => new Date(b.earnedDate) - new Date(a.earnedDate))
+  }, [state.stickers])
+
+  // Merge all events into a single timeline
+  const timelineItems = useMemo(() => {
+    const items = []
+
+    filteredSessions.forEach(s => {
+      items.push({ type: 'session', date: s.date, data: s })
+    })
+
+    practiceVideos.forEach(v => {
+      items.push({ type: 'video', date: v.date, data: v })
+    })
+
+    relatedShows.forEach(s => {
+      items.push({ type: 'show', date: s.date, data: s })
+    })
+
+    // Sort newest first
+    items.sort((a, b) => new Date(b.date) - new Date(a.date))
+    return items
+  }, [filteredSessions, practiceVideos, relatedShows])
+
+  // Discipline elements (for discipline view)
+  const elements = isDiscipline ? (discipline?.elements || []) : []
+
+  // Scroll to NOW on mount
   useEffect(() => {
     if (nowRef.current) {
-      nowRef.current.scrollIntoView({ inline: 'center', behavior: 'smooth' })
+      nowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
   }, [])
 
-  const scrollToNow = () => {
-    if (nowRef.current) {
-      nowRef.current.scrollIntoView({ inline: 'center', behavior: 'smooth' })
-    }
-  }
-
-  const getZone = (dateStr) => {
-    if (isToday(dateStr)) return 'now'
-    if (isPast(dateStr)) return 'past'
-    return 'future'
-  }
-
-  // Find the node closest to "now"
-  const findNowIndex = () => {
-    const today = new Date().toISOString().split('T')[0]
-    let closest = 0
-    let minDiff = Infinity
-    sortedSessions.forEach((s, i) => {
-      const diff = Math.abs(new Date(s.date) - new Date(today))
-      if (diff < minDiff) {
-        minDiff = diff
-        closest = i
-      }
+  const handleSubmitReflection = (sessionId) => {
+    if (!feeling && !note) return
+    dispatch({
+      type: 'SET_SESSION_REFLECTION',
+      payload: {
+        sessionId,
+        reflection: { feeling, note },
+      },
     })
-    return closest
+    setReflectingSession(null)
+    setFeeling('')
+    setNote('')
   }
 
-  const nowIndex = findNowIndex()
-
-  const getConfidenceLevel = (chunkRatings) => {
-    if (!chunkRatings || Object.keys(chunkRatings).length === 0) return null
-    const values = Object.values(chunkRatings)
-    const greens = values.filter((v) => v === 'green').length
-    const reds = values.filter((v) => v === 'red').length
-    if (greens >= values.length * 0.6) return 'mostly-green'
-    if (reds >= values.length * 0.4) return 'mostly-red'
-    return 'mostly-yellow'
+  const handleElementStatus = (elementId, status) => {
+    dispatch({
+      type: 'SET_ELEMENT_STATUS',
+      payload: { disciplineId: id, elementId, status },
+    })
   }
+
+  const today = new Date().toISOString().split('T')[0]
+  const nowInserted = useRef(false)
 
   return (
-    <div className={styles['timeline-page']}>
+    <div className={styles.timelinePage}>
       {/* Header */}
-      <div className={styles['timeline-header']}>
+      <div className={styles.header}>
+        <button className={styles.backBtn} onClick={() => navigate('/')}>←</button>
         <div>
-          <h1>Journey ✨</h1>
-          <span className={styles.dancers}>
-            {state.settings.dancers.join(' & ')}
-          </span>
+          <h1 className={styles.title}>{title}</h1>
+          {isDiscipline && discipline && (
+            <p className={styles.subtitle}>{discipline.currentGrade}</p>
+          )}
+          {isRoutine && routine && (
+            <p className={styles.subtitle}>{routine.formation} · {routine.type}</p>
+          )}
         </div>
-        <button className={styles['jump-today-btn']} onClick={scrollToNow}>
-          Jump to Now
-        </button>
+        {isRoutine && routine && (
+          <button
+            className={styles.liveBtn}
+            onClick={() => navigate(`/choreography/${routine.id}`)}
+          >
+            ▶ Live
+          </button>
+        )}
       </div>
 
-      {/* Next competition countdown */}
-      {nextCompetition && (
-        <div className={styles['countdown-banner']}>
-          <span className={styles['trophy-icon']}>🏆</span>
-          <div className={styles['countdown-text']}>
-            <span className={styles['countdown-days']}>
-              {daysUntil(nextCompetition.date)} days
-            </span>{' '}
-            until {nextCompetition.title}
+      {/* Discipline elements */}
+      {isDiscipline && elements.length > 0 && (
+        <div className={styles.elementsSection}>
+          <h3 className={styles.sectionLabel}>Elements</h3>
+          <div className={styles.elementsList}>
+            {elements.map(el => (
+              <div key={el.id} className={`${styles.elementItem} ${styles[el.status]}`}>
+                <span className={styles.elementName}>{el.name}</span>
+                <div className={styles.elementButtons}>
+                  {['learning', 'confident', 'mastered'].map(s => (
+                    <button
+                      key={s}
+                      className={`${styles.statusBtn} ${el.status === s ? styles.activeStatus : ''}`}
+                      onClick={() => handleElementStatus(el.id, s)}
+                    >
+                      {s === 'learning' ? '📖' : s === 'confident' ? '💪' : '⭐'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Chunk overview pills */}
-      <div className={styles['chunk-overview']}>
-        <h3>Dance Sections</h3>
-        <div className={styles['chunk-pills']}>
-          {state.chunks.map((chunk) => {
-            const rating = latestRatings[chunk.id] || null
-            return (
-              <div
-                key={chunk.id}
-                className={`${styles['chunk-pill']} ${rating ? styles[rating] : ''}`}
-              >
-                <span>{chunk.emoji}</span>
-                <span>{chunk.name}</span>
-                {rating && (
-                  <span>
-                    {rating === 'green' ? '🟢' : rating === 'yellow' ? '🟡' : '🔴'}
-                  </span>
+      {/* Timeline */}
+      <div className={styles.timeline}>
+        {timelineItems.length === 0 && (
+          <div className={styles.empty}>
+            <p>No events yet — start practising! 💃</p>
+          </div>
+        )}
+
+        {timelineItems.map((item, index) => {
+          // Insert NOW marker between past and future items
+          const isNowItem = !nowInserted.current && item.date <= today
+          if (isNowItem) nowInserted.current = true
+
+          return (
+            <div key={`${item.type}-${item.data.id}`}>
+              {isNowItem && index > 0 && (
+                <div ref={nowRef} className={styles.nowMarker}>
+                  <span className={styles.nowPill}>NOW</span>
+                </div>
+              )}
+
+              <div className={`${styles.timelineCard} ${isPast(item.date) ? styles.past : styles.future}`}>
+                <div className={styles.cardDate}>{formatDate(item.date)}</div>
+
+                {item.type === 'session' && (
+                  <div className={styles.cardBody} onClick={() => {
+                    if (item.data.videoUrl) {
+                      // If session has video, could open player
+                    }
+                  }}>
+                    <span className={styles.cardIcon}>
+                      {SESSION_ICONS[item.data.type] || '📝'}
+                    </span>
+                    <div className={styles.cardInfo}>
+                      <div className={styles.cardTitle}>{item.data.title}</div>
+                      {item.data.islaReflection?.feeling && (
+                        <span className={styles.feelingBadge}>
+                          {item.data.islaReflection.feeling}
+                        </span>
+                      )}
+                    </div>
+                    {!item.data.islaReflection?.feeling && isPast(item.date) && (
+                      <button
+                        className={styles.reflectBtn}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setReflectingSession(item.data.id)
+                        }}
+                      >
+                        How was it?
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {item.type === 'video' && (
+                  <div
+                    className={styles.cardBody}
+                    onClick={() => routine && navigate(`/choreography/${routine.id}`)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <span className={styles.cardIcon}>📹</span>
+                    <div className={styles.cardInfo}>
+                      <div className={styles.cardTitle}>Practice Video</div>
+                      {item.data.islaNote && (
+                        <div className={styles.cardNote}>{item.data.islaNote}</div>
+                      )}
+                      {item.data.islaFeeling && (
+                        <span className={styles.feelingBadge}>{item.data.islaFeeling}</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {item.type === 'show' && (
+                  <div
+                    className={styles.cardBody}
+                    onClick={() => navigate(`/show/${item.data.id}`)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <span className={styles.cardIcon}>🎭</span>
+                    <div className={styles.cardInfo}>
+                      <div className={styles.cardTitle}>{item.data.name}</div>
+                      {item.data.venue && (
+                        <div className={styles.cardNote}>📍 {item.data.venue}</div>
+                      )}
+                    </div>
+                    <span className={styles.cardArrow}>→</span>
+                  </div>
                 )}
               </div>
-            )
-          })}
-        </div>
-      </div>
 
-      {/* Timeline scroll area */}
-      <div className={styles['timeline-scroll-container']} ref={scrollRef}>
-        <div className={styles['timeline-track']}>
-          {sortedSessions.map((session, index) => {
-            const zone = getZone(session.date)
-            const isNow = index === nowIndex
-            const conf = getConfidenceLevel(session.chunkRatings)
-
-            return (
-              <div
-                key={session.id}
-                ref={isNow ? nowRef : null}
-                className={`${styles['timeline-node']} ${styles[zone]}`}
-                onClick={() => setSelectedSession(session)}
-              >
-                <div className={styles['node-circle']}>
-                  {conf && (
-                    <div className={`${styles['confidence-ring']} ${styles[conf]}`} />
-                  )}
-                  <span>{getSessionIcon(session.type)}</span>
-                  {session.type === 'competition' && (
-                    <span className={styles['node-badge']}>⭐</span>
-                  )}
+              {/* Reflection inline modal */}
+              {reflectingSession === item.data.id && item.type === 'session' && (
+                <div className={styles.reflectionPanel}>
+                  <div className={styles.reflectionTitle}>How did that feel?</div>
+                  <div className={styles.feelingPicker}>
+                    {['🔥', '😊', '🤔', '😤', '😢'].map(emoji => (
+                      <button
+                        key={emoji}
+                        className={`${styles.feelingOption} ${feeling === emoji ? styles.selectedFeeling : ''}`}
+                        onClick={() => setFeeling(emoji)}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                  <textarea
+                    className={styles.reflectionInput}
+                    placeholder="Any thoughts? (optional)"
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    rows={2}
+                  />
+                  <div className={styles.reflectionActions}>
+                    <button
+                      className={styles.reflectionCancel}
+                      onClick={() => { setReflectingSession(null); setFeeling(''); setNote('') }}
+                    >
+                      Skip
+                    </button>
+                    <button
+                      className={styles.reflectionSave}
+                      onClick={() => handleSubmitReflection(item.data.id)}
+                    >
+                      Save ✓
+                    </button>
+                  </div>
                 </div>
-                <span className={styles['node-date']}>
-                  {formatDate(session.date)}
-                </span>
-                <span className={styles['node-title']}>{session.title}</span>
-                {isNow && <span className={styles['now-marker']}>Now</span>}
-              </div>
-            )
-          })}
-        </div>
+              )}
+            </div>
+          )
+        })}
       </div>
-
-      {/* FAB to add session */}
-      <button
-        className={styles['add-session-btn']}
-        onClick={() => setShowAddModal(true)}
-        title="Add session"
-      >
-        +
-      </button>
-
-      {/* Popout card modal */}
-      {selectedSession && (
-        <PopoutCard
-          session={selectedSession}
-          onClose={() => setSelectedSession(null)}
-        />
-      )}
-
-      {/* Add session modal */}
-      {showAddModal && (
-        <AddSessionModal onClose={() => setShowAddModal(false)} />
-      )}
     </div>
   )
 }
+

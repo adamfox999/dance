@@ -1,16 +1,22 @@
 // Milestone definitions for auto-unlocking stickers
 export const milestones = [
   {
+    type: "first-practice",
+    label: "First Practice! 💪",
+    icon: "💪",
+    check: (state) => (state.practiceLog || []).length >= 1,
+  },
+  {
     type: "first-video",
     label: "First Video! 📹",
     icon: "📹",
-    check: (state) => state.sessions.some((s) => s.videoUrl),
+    check: (state) => (state.routines || []).some((r) => (r.practiceVideos || []).length > 0),
   },
   {
-    type: "first-duet",
-    label: "Duet Power! 🤝",
-    icon: "🤝",
-    check: (state) => state.sessions.some((s) => s.subType === "together" && s.chunkRatings && Object.keys(s.chunkRatings).length > 0),
+    type: "first-reflection",
+    label: "Self-Coach! 🪞",
+    icon: "🪞",
+    check: (state) => (state.sessions || []).some((s) => s.islaReflection?.note),
   },
   {
     type: "streak-3",
@@ -37,47 +43,56 @@ export const milestones = [
     check: (state) => getMaxStreak(state.practiceLog) >= 30,
   },
   {
-    type: "chunk-mastery",
-    label: "Chunk Master! 🌟",
-    icon: "🌟",
-    check: (state) => {
-      // Any chunk that's been green in the last session
-      const lastSession = [...state.sessions]
-        .filter((s) => s.chunkRatings && Object.keys(s.chunkRatings).length > 0)
-        .sort((a, b) => new Date(b.date) - new Date(a.date))[0]
-      if (!lastSession) return false
-      return Object.values(lastSession.chunkRatings).some((r) => r === "green")
-    },
-  },
-  {
-    type: "all-green",
-    label: "Perfect Run! 💎",
-    icon: "💎",
-    check: (state) => {
-      const lastSession = [...state.sessions]
-        .filter((s) => s.chunkRatings && Object.keys(s.chunkRatings).length > 0)
-        .sort((a, b) => new Date(b.date) - new Date(a.date))[0]
-      if (!lastSession) return false
-      return (
-        Object.keys(lastSession.chunkRatings).length === state.chunks.length &&
-        Object.values(lastSession.chunkRatings).every((r) => r === "green")
-      )
-    },
-  },
-  {
-    type: "competition-done",
-    label: "Competition Star! 🏆",
-    icon: "🏆",
+    type: "first-show",
+    label: "Show Star! ⭐",
+    icon: "⭐",
     check: (state) => {
       const now = new Date().toISOString().split("T")[0]
-      return state.sessions.some((s) => s.type === "competition" && s.date <= now && s.emojiReactions.length > 0)
+      return (state.shows || []).some((s) => s.date <= now)
     },
   },
   {
-    type: "rhythm-100",
-    label: "Rhythm Master! 🎵",
-    icon: "🎵",
-    check: (state) => state.rhythmScores.some((s) => s.accuracy >= 100),
+    type: "first-goal",
+    label: "Goal Setter! 🎯",
+    icon: "🎯",
+    check: (state) => (state.islaProfile?.goals || []).length > 0,
+  },
+  {
+    type: "goal-completed",
+    label: "Goal Achieved! 🏆",
+    icon: "🏆",
+    check: (state) => (state.islaProfile?.goals || []).some((g) => g.completedDate),
+  },
+  {
+    type: "element-mastered",
+    label: "Element Mastered! 🌟",
+    icon: "🌟",
+    check: (state) => (state.disciplines || []).some((d) =>
+      (d.elements || []).some((e) => e.status === "mastered")
+    ),
+  },
+  {
+    type: "exam-passed",
+    label: "Exam Passed! 🎓",
+    icon: "🎓",
+    check: (state) => (state.disciplines || []).some((d) =>
+      (d.gradeHistory || []).some((g) => g.result === "pass" || g.result === "merit" || g.result === "distinction")
+    ),
+  },
+  {
+    type: "five-shows",
+    label: "5 Shows! 🌟🌟",
+    icon: "🌟",
+    check: (state) => {
+      const now = new Date().toISOString().split("T")[0]
+      return (state.shows || []).filter((s) => s.date <= now).length >= 5
+    },
+  },
+  {
+    type: "first-scrapbook",
+    label: "Scrapbook Started! 📖",
+    icon: "📖",
+    check: (state) => (state.shows || []).some((s) => (s.scrapbookEntries || []).length > 0),
   },
 ]
 
