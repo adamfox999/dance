@@ -3,14 +3,27 @@
  * Uses the Web Audio API to decode audio files and extract waveform data.
  */
 
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+let audioCtx = null
+
+function getAudioContext() {
+  if (audioCtx) return audioCtx
+
+  const AudioContextCtor = window.AudioContext || window.webkitAudioContext
+  if (!AudioContextCtor) {
+    throw new Error('Web Audio API is not supported in this browser.')
+  }
+
+  audioCtx = new AudioContextCtor()
+  return audioCtx
+}
 
 /**
  * Decode an audio file (or video file's audio track) into an AudioBuffer.
  */
 export async function decodeAudioFile(file) {
   const arrayBuffer = await file.arrayBuffer()
-  return audioCtx.decodeAudioData(arrayBuffer)
+  const ctx = getAudioContext()
+  return ctx.decodeAudioData(arrayBuffer)
 }
 
 /**
