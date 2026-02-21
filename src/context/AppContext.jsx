@@ -1,9 +1,39 @@
 import React, { createContext, useContext, useReducer, useEffect, useState } from 'react'
 import { defaultState } from '../data/defaultState'
 import { checkForNewStickers } from '../utils/milestones'
-import { supabase, hasSupabaseConfig } from '../utils/supabaseClient'
+import { fetchStateFromBackend, saveStateToBackend } from '../utils/backendApi'
 
 const AppContext = createContext(null)
+
+function mergeStateWithDefaults(inputState) {
+  return {
+    ...defaultState,
+    ...(inputState || {}),
+    settings: {
+      ...defaultState.settings,
+      ...((inputState || {}).settings || {}),
+    },
+    choreography: {
+      ...defaultState.choreography,
+      ...((inputState || {}).choreography || {}),
+    },
+  }
+}
+
+function stateFromDanceRow(row) {
+  const source = row?.state_data || {}
+  return mergeStateWithDefaults({
+    ...source,
+    settings: {
+      ...(source.settings || {}),
+      danceName: row?.name ?? source?.settings?.danceName,
+      dancers: row?.dancers ?? source?.settings?.dancers,
+      themeColor: row?.theme_color ?? source?.settings?.themeColor,
+      viewMode: row?.view_mode ?? source?.settings?.viewMode,
+      promptLeadMs: row?.prompt_lead_ms ?? source?.settings?.promptLeadMs,
+    },
+  })
+}
 
 // ============ REDUCER ============
 function appReducer(state, action) {
@@ -162,7 +192,7 @@ function appReducer(state, action) {
 
     // ---- Full state ----
     case "IMPORT_STATE":
-      return { ...action.payload }
+      return mergeStateWithDefaults(action.payload)
 
     case "RESET_STATE":
       return { ...defaultState }
@@ -182,19 +212,7 @@ export function AppProvider({ children }) {
       const saved = localStorage.getItem("dance-tracker-state")
       if (saved) {
         const parsed = JSON.parse(saved)
-        // Merge in new default keys, including nested keys like settings.viewMode
-        return {
-          ...defaultState,
-          ...parsed,
-          settings: {
-            ...defaultState.settings,
-            ...(parsed.settings || {}),
-          },
-          choreography: {
-            ...defaultState.choreography,
-            ...(parsed.choreography || {}),
-          },
-        }
+        return mergeStateWithDefaults(parsed)
       }
     } catch (e) {
       console.warn("Failed to load state from localStorage:", e)
@@ -204,28 +222,20 @@ export function AppProvider({ children }) {
 
   const [state, dispatch] = useReducer(appReducer, null, loadInitialState)
 
-  // Load from Supabase on mount
+  // Load from backend on mount
   useEffect(() => {
-    if (!hasSupabaseConfig || !supabase) {
-      setIsLoading(false)
-      return
-    }
-
     async function fetchState() {
       try {
-        const { data, error } = await supabase
-          .from('app_state')
-          .select('state_data')
-          .eq('id', 1)
-          .single()
+        const payload = await fetchStateFromBackend()
 
-        if (error && error.code !== 'PGRST116') { // PGRST116 is "no rows returned"
-          console.error('Error fetching state from Supabase:', error)
-        } else if (data && data.state_data) {
-          dispatch({ type: 'IMPORT_STATE', payload: data.state_data })
+        if (payload?.source === 'dance' && payload?.danceData?.state_data) {
+          dispatch({ type: 'IMPORT_STATE', payload: stateFromDanceRow(payload.danceData) })
+        } else if (payload?.source === 'app_state' && payload?.appStateData?.state_data) {
+          const merged = mergeStateWithDefaults(payload.appStateData.state_data)
+          dispatch({ type: 'IMPORT_STATE', payload: merged })
         }
       } catch (err) {
-        console.error('Unexpected error fetching state:', err)
+        console.warn('Backend state fetch unavailable; using local state only:', err)
       } finally {
         setIsLoading(false)
       }
@@ -234,7 +244,7 @@ export function AppProvider({ children }) {
     fetchState()
   }, [])
 
-  // Persist to localStorage and Supabase on every state change
+  // Persist to localStorage and backend on every state change
   useEffect(() => {
     if (isLoading) return // Don't save while initially loading
 
@@ -244,24 +254,16 @@ export function AppProvider({ children }) {
       console.warn("Failed to save state to localStorage:", e)
     }
 
-    if (!hasSupabaseConfig || !supabase) return
-
-    // Debounce Supabase saves to avoid too many requests
-    const saveToSupabase = async () => {
+    // Debounce backend saves to avoid too many requests
+    const saveToBackend = async () => {
       try {
-        const { error } = await supabase
-          .from('app_state')
-          .upsert({ id: 1, state_data: state })
-
-        if (error) {
-          console.error('Error saving state to Supabase:', error)
-        }
+        await saveStateToBackend(state)
       } catch (err) {
-        console.error('Unexpected error saving state:', err)
+        console.warn('Backend state save failed; local save still kept:', err)
       }
     }
 
-    const timeoutId = setTimeout(saveToSupabase, 1000) // 1 second debounce
+    const timeoutId = setTimeout(saveToBackend, 1000) // 1 second debounce
     return () => clearTimeout(timeoutId)
   }, [state, isLoading])
 

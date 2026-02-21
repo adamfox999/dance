@@ -8,10 +8,10 @@ import RhythmGame from './pages/RhythmGame'
 import TrophyShelf from './pages/TrophyShelf'
 import Calendar from './pages/Calendar'
 import Settings from './pages/Settings'
+import LiveViewSelect from './pages/LiveViewSelect'
 
 export default function App() {
-  const { state, isLoading } = useApp()
-  const isKidView = state.settings?.viewMode === 'kid'
+  const { isLoading } = useApp()
 
   if (isLoading) {
     return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Loading...</div>
@@ -20,11 +20,13 @@ export default function App() {
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={isKidView ? <KidTimeline /> : <Timeline />} />
-        <Route path="/choreography" element={isKidView ? <Navigate to="/" replace /> : <Choreography />} />
-        <Route path="/rhythm" element={isKidView ? <Navigate to="/" replace /> : <RhythmGame />} />
-        <Route path="/trophies" element={isKidView ? <Navigate to="/" replace /> : <TrophyShelf />} />
-        <Route path="/calendar" element={isKidView ? <Navigate to="/" replace /> : <Calendar />} />
+        <Route path="/" element={<LiveViewSelect />} />
+        <Route path="/timeline" element={<Timeline />} />
+        <Route path="/kid-timeline" element={<KidTimeline />} />
+        <Route path="/choreography" element={<Choreography />} />
+        <Route path="/rhythm" element={<RhythmGame />} />
+        <Route path="/trophies" element={<TrophyShelf />} />
+        <Route path="/calendar" element={<Calendar />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

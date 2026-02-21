@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { generateId } from '../utils/helpers'
 import { decodeAudioFile, extractWaveform, crossCorrelateSync, formatTimestamp } from '../utils/audioSync'
 import { detectBeats, getCurrentBeatInfo } from '../utils/beatDetection'
-import { saveFile, loadFile, findFirstExistingMediaUrl } from '../utils/fileStorage'
+import { saveFile, loadFile, loadLocalFile, findFirstExistingMediaUrl } from '../utils/fileStorage'
+import { saveStateToBackend } from '../utils/backendApi'
 import styles from './Choreography.module.css'
 
 const REPO_MUSIC_CANDIDATES = [
@@ -19,6 +21,9 @@ const REPO_VIDEO_CANDIDATES = [
   '/media/choreo-video.webm',
   '/media/WhatsApp Video 2026-02-10 at 17.39.11.mp4',
 ]
+
+const PREFERRED_MUSIC_URL = '/media/Mia%20%26%20Isla%20Modern%20Duet%202025_26.mp3'
+const PREFERRED_VIDEO_URL = '/media/WhatsApp%20Video%202026-02-10%20at%2017.39.11.mp4'
 
 function getFileNameFromUrl(url) {
   const raw = url.split('?')[0].split('/').pop() || ''
@@ -69,14 +74,31 @@ function suggestEmoji(text) {
 
 // Generate slot arrays for beat counter
 const BEAT_SLOTS = [1, 2, 3, 4, 5, 6, 7, 8]
+const ADULT_UNLOCK_KEY = 'adult-live-unlocked'
 
 export default function Choreography() {
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { state, dispatch } = useApp()
   const choreography = state.choreography || {}
   const promptLeadMs = Math.max(0, Math.min(600, Number(state.settings?.promptLeadMs ?? 200)))
+  const requestedView = searchParams.get('view') === 'kid' ? 'kid' : 'adult'
+  const isKidLiveView = requestedView === 'kid'
 
   // Modes: 'edit' | 'live'
-  const [mode, setMode] = useState('edit')
+  const [mode, setMode] = useState(isKidLiveView ? 'live' : 'edit')
+
+  useEffect(() => {
+    if (requestedView === 'adult' && sessionStorage.getItem(ADULT_UNLOCK_KEY) !== 'true') {
+      navigate('/', { replace: true })
+      return
+    }
+
+    if (isKidLiveView) {
+      setMode('live')
+      setLiveEditOpen(false)
+    }
+  }, [requestedView, isKidLiveView, navigate])
 
   // Audio state
   const audioRef = useRef(null)
@@ -121,6 +143,8 @@ export default function Choreography() {
   // Sync
   const [syncing, setSyncing] = useState(false)
   const [syncResult, setSyncResult] = useState(null)
+  const [manualSyncing, setManualSyncing] = useState(false)
+  const [manualSyncMessage, setManualSyncMessage] = useState('')
 
   // Live mode video
   const [liveVideoUrl, setLiveVideoUrl] = useState('')
@@ -130,9 +154,16 @@ export default function Choreography() {
   const [liveDuration, setLiveDuration] = useState(0)
   const syncOffset = (choreography.videoSyncOffset || 0) / 1000 // ms → s
   const [filesLoaded, setFilesLoaded] = useState(false)
-  const [liveAudioMode, setLiveAudioMode] = useState('music') // 'music' | 'video'
+  const [liveAudioMode, setLiveAudioMode] = useState(isKidLiveView ? 'video' : 'music') // 'music' | 'video'
   const [isLiveSeeking, setIsLiveSeeking] = useState(false)
   const [seekPreviewTime, setSeekPreviewTime] = useState(null)
+  const isLiveVideoPlayback = !!liveVideoUrl
+
+  useEffect(() => {
+    if (isKidLiveView && liveVideoUrl) {
+      setLiveAudioMode('video')
+    }
+  }, [isKidLiveView, liveVideoUrl])
 
   const runSyncAnalysis = useCallback(async (musicFile, videoFile) => {
     if (!musicFile || !videoFile) return
@@ -164,80 +195,92 @@ export default function Choreography() {
     let cancelled = false
     const restore = async () => {
       try {
-        // Restore music
-        const music = await loadFile('choreo-music')
-        if (music && !cancelled) {
-          const url = URL.createObjectURL(music.blob)
-          setAudioUrl(url)
-          setMusicFileName(music.meta.fileName || '')
-          setDuration(music.meta.duration || 0)
-          // Restore cached waveform
-          const cached = localStorage.getItem('choreo-waveform')
-          if (cached) {
-            setWaveformData(JSON.parse(cached))
-          } else {
-            // Re-decode for waveform
+        // Prefer bundled music from /public/media first
+        const preferredMusicOk = await fetch(PREFERRED_MUSIC_URL, { method: 'HEAD' })
+          .then((res) => res.ok)
+          .catch(() => false)
+        const bundledMusicUrl = preferredMusicOk
+          ? PREFERRED_MUSIC_URL
+          : await findFirstExistingMediaUrl(REPO_MUSIC_CANDIDATES)
+        if (bundledMusicUrl && !cancelled) {
+          setAudioUrl(bundledMusicUrl)
+          setMusicFileName(getFileNameFromUrl(bundledMusicUrl))
+
+          try {
+            const response = await fetch(bundledMusicUrl)
+            const blob = await response.blob()
+            const file = new File([blob], getFileNameFromUrl(bundledMusicUrl), {
+              type: blob.type || 'audio/mpeg',
+            })
+            const audioBuffer = await decodeAudioFile(file)
+            const peaks = extractWaveform(audioBuffer, 800)
+            setWaveformData(peaks)
+            setDuration(audioBuffer.duration)
+            localStorage.setItem('choreo-waveform', JSON.stringify(peaks))
+
             try {
-              const buf = await decodeAudioFile(new File([music.blob], 'music'))
-              const peaks = extractWaveform(buf, 800)
-              setWaveformData(peaks)
-              localStorage.setItem('choreo-waveform', JSON.stringify(peaks))
-            } catch (err) {
-              console.warn('Could not rebuild waveform from saved music:', err)
-            }
-          }
-          // Restore cached beats
-          const cachedBeats = localStorage.getItem('choreo-beats')
-          if (cachedBeats) {
-            setBeatData(JSON.parse(cachedBeats))
-          } else {
-            try {
-              const buf = await decodeAudioFile(new File([music.blob], 'music'))
-              const bd = detectBeats(buf)
+              const bd = detectBeats(audioBuffer)
               setBeatData(bd)
               localStorage.setItem('choreo-beats', JSON.stringify(bd))
             } catch (err) {
-              console.warn('Could not rebuild beat data from saved music:', err)
+              console.warn('Could not detect beats for bundled music:', err)
             }
+          } catch (err) {
+            console.warn('Could not decode bundled music:', err)
           }
-        } else if (!cancelled) {
-          const bundledMusicUrl = await findFirstExistingMediaUrl(REPO_MUSIC_CANDIDATES)
-          if (bundledMusicUrl) {
-            setAudioUrl(bundledMusicUrl)
-            setMusicFileName(getFileNameFromUrl(bundledMusicUrl))
+        } else {
+          // Fallback to previously uploaded music
+          const music = await loadFile('choreo-music')
+          if (music && !cancelled) {
+            const url = URL.createObjectURL(music.blob)
+            setAudioUrl(url)
+            setMusicFileName(music.meta.fileName || '')
+            setDuration(music.meta.duration || 0)
 
-            try {
-              const response = await fetch(bundledMusicUrl)
-              const blob = await response.blob()
-              const file = new File([blob], getFileNameFromUrl(bundledMusicUrl), {
-                type: blob.type || 'audio/mpeg',
-              })
-              const audioBuffer = await decodeAudioFile(file)
-              const peaks = extractWaveform(audioBuffer, 800)
-              setWaveformData(peaks)
-              setDuration(audioBuffer.duration)
-              localStorage.setItem('choreo-waveform', JSON.stringify(peaks))
-
+            const cached = localStorage.getItem('choreo-waveform')
+            if (cached) {
+              setWaveformData(JSON.parse(cached))
+            } else {
               try {
-                const bd = detectBeats(audioBuffer)
+                const buf = await decodeAudioFile(new File([music.blob], 'music'))
+                const peaks = extractWaveform(buf, 800)
+                setWaveformData(peaks)
+                localStorage.setItem('choreo-waveform', JSON.stringify(peaks))
+              } catch (err) {
+                console.warn('Could not rebuild waveform from saved music:', err)
+              }
+            }
+
+            const cachedBeats = localStorage.getItem('choreo-beats')
+            if (cachedBeats) {
+              setBeatData(JSON.parse(cachedBeats))
+            } else {
+              try {
+                const buf = await decodeAudioFile(new File([music.blob], 'music'))
+                const bd = detectBeats(buf)
                 setBeatData(bd)
                 localStorage.setItem('choreo-beats', JSON.stringify(bd))
               } catch (err) {
-                console.warn('Could not detect beats for bundled music:', err)
+                console.warn('Could not rebuild beat data from saved music:', err)
               }
-            } catch (err) {
-              console.warn('Could not decode bundled music:', err)
             }
           }
         }
-        // Restore live video
-        const video = await loadFile('choreo-video')
-        if (video && !cancelled) {
-          setLiveVideoUrl(URL.createObjectURL(video.blob))
-        } else if (!cancelled) {
-          const bundledVideoUrl = await findFirstExistingMediaUrl(REPO_VIDEO_CANDIDATES)
-          if (bundledVideoUrl) {
-            setLiveVideoUrl(bundledVideoUrl)
+
+        // Prefer bundled video from /public/media first
+        const preferredVideoOk = await fetch(PREFERRED_VIDEO_URL, { method: 'HEAD' })
+          .then((res) => res.ok)
+          .catch(() => false)
+        const bundledVideoUrl = preferredVideoOk
+          ? PREFERRED_VIDEO_URL
+          : await findFirstExistingMediaUrl(REPO_VIDEO_CANDIDATES)
+        if (bundledVideoUrl && !cancelled) {
+          setLiveVideoUrl(bundledVideoUrl)
+        } else {
+          // Fallback to previously uploaded video
+          const video = await loadFile('choreo-video')
+          if (video && !cancelled) {
+            setLiveVideoUrl(URL.createObjectURL(video.blob))
           }
         }
       } catch (err) {
@@ -399,6 +442,9 @@ export default function Choreography() {
 
   const handleAudioEnded = () => {
     setIsPlaying(false)
+    if (!isLiveVideoPlayback) {
+      setLiveIsPlaying(false)
+    }
     const endTime = audioRef.current?.duration || duration || 0
     setCurrentTime(endTime)
     drawWaveform(endTime)
@@ -495,7 +541,7 @@ export default function Choreography() {
   const toggleLivePlay = () => {
     const video = liveVideoRef.current
     const audio = audioRef.current
-    if (liveVideoUrl && video) {
+    if (isLiveVideoPlayback && video) {
       if (liveIsPlaying) {
         video.pause()
         if (liveAudioMode === 'music') audio?.pause()
@@ -516,9 +562,11 @@ export default function Choreography() {
       if (isPlaying) {
         audio?.pause()
         setIsPlaying(false)
+        setLiveIsPlaying(false)
       } else {
         audio?.play()
         setIsPlaying(true)
+        setLiveIsPlaying(true)
       }
     }
   }
@@ -551,7 +599,7 @@ export default function Choreography() {
   const seekLive = (time) => {
     const video = liveVideoRef.current
     const audio = audioRef.current
-    if (liveVideoUrl && video) {
+    if (isLiveVideoPlayback && video) {
       video.currentTime = time
       setLiveTime(time)
       if (liveAudioMode === 'music' && audio && audioUrl) {
@@ -646,8 +694,48 @@ export default function Choreography() {
     }
   }
 
+  const handleManualSync = async () => {
+    setManualSyncing(true)
+    setManualSyncMessage('Syncing local data...')
+
+    try {
+      let localState = state
+      const savedState = localStorage.getItem('dance-tracker-state')
+      if (savedState) {
+        try {
+          localState = JSON.parse(savedState)
+        } catch {
+          localState = state
+        }
+      }
+
+      await saveStateToBackend(localState)
+
+      const localFileKeys = ['choreo-music', 'choreo-video']
+      let uploadedCount = 0
+
+      for (const key of localFileKeys) {
+        const localFile = await loadLocalFile(key)
+        if (!localFile?.blob) continue
+        await saveFile(key, localFile.blob, localFile.meta || {})
+        uploadedCount += 1
+      }
+
+      if (uploadedCount === 0) {
+        setManualSyncMessage('Synced state. 0 browser-local files found. To upload project folder files, run npm run sync:storage.')
+      } else {
+        setManualSyncMessage(`Synced state and ${uploadedCount} local file${uploadedCount === 1 ? '' : 's'} to backend storage.`)
+      }
+    } catch (err) {
+      console.error('Manual local sync failed:', err)
+      setManualSyncMessage('Sync failed. Check backend env vars/policies and try again.')
+    } finally {
+      setManualSyncing(false)
+    }
+  }
+
   // Derived time for live mode
-  const effectiveLiveTime = liveVideoUrl ? (liveTime - syncOffset) : currentTime
+  const effectiveLiveTime = isLiveVideoPlayback ? (liveTime - syncOffset) : currentTime
   const liveTotalDuration = liveDuration || duration
 
   // Derived beat info for live mode
@@ -655,6 +743,7 @@ export default function Choreography() {
 
   // ========== SONG-LEVEL INSTRUCTIONS ==========
   const songInstructions = choreography.songInstructions || []
+  const cues = choreography.cues || []
   const songInstructionsRef = useRef(songInstructions)
   songInstructionsRef.current = songInstructions
 
@@ -850,7 +939,26 @@ export default function Choreography() {
   // Active song instruction for live display (returns { text, id, emoji } or null)
   // Triggers PEAK_OFFSET seconds early so the spring animation peaks ON the beat
   const liveSongInstruction = useMemo(() => {
-    if (!beatData?.beats?.length || !songInstructions.length) return null
+    if (!beatData?.beats?.length || !songInstructions.length) {
+      if (!cues.length) return null
+      const sortedCues = [...cues].sort((a, b) => a.time - b.time)
+      const time = effectiveLiveTime
+
+      for (let i = 0; i < sortedCues.length; i++) {
+        const cue = sortedCues[i]
+        const nextCue = sortedCues[i + 1]
+        const startTime = cue.time
+        const endTime = nextCue ? nextCue.time : cue.time + 2
+        if (time >= startTime && time < endTime) {
+          return {
+            text: cue.label,
+            id: cue.id,
+            emoji: cue.emoji || suggestEmoji(cue.label),
+          }
+        }
+      }
+      return null
+    }
     const time = effectiveLiveTime
     const beatInterval = 60 / beatData.bpm
     // cue-slam is 0.25s; text reaches full scale at 40% = 0.1s
@@ -884,11 +992,24 @@ export default function Choreography() {
     matches.sort((a, b) => (a.endPos - a.startPos) - (b.endPos - b.startPos))
     const best = matches[0]
     return { text: best.text, id: best.id, emoji: best.emoji || suggestEmoji(best.text) }
-  }, [effectiveLiveTime, beatData, songInstructions])
+  }, [effectiveLiveTime, beatData, songInstructions, cues])
 
   // Next upcoming instruction for preview
   const nextSongInstruction = useMemo(() => {
-    if (!beatData?.beats?.length || !songInstructions.length) return null
+    if (!beatData?.beats?.length || !songInstructions.length) {
+      if (!cues.length) return null
+      const time = effectiveLiveTime
+      const nextCue = [...cues]
+        .sort((a, b) => a.time - b.time)
+        .find((cue) => cue.time > time)
+
+      if (!nextCue) return null
+      return {
+        text: nextCue.label,
+        id: nextCue.id,
+        emoji: nextCue.emoji || suggestEmoji(nextCue.label),
+      }
+    }
     const time = effectiveLiveTime
     const beatInterval = 60 / beatData.bpm
 
@@ -915,7 +1036,7 @@ export default function Choreography() {
     if (upcoming.length === 0) return null
     const next = upcoming[0]
     return { text: next.text, id: next.id, emoji: next.emoji || suggestEmoji(next.text) }
-  }, [effectiveLiveTime, beatData, songInstructions, liveSongInstruction])
+  }, [effectiveLiveTime, beatData, songInstructions, liveSongInstruction, cues])
 
   // ESC key handler: cancel beat range selection
   useEffect(() => {
@@ -987,7 +1108,7 @@ export default function Choreography() {
 
   // ========== RENDER ==========
   const playheadLeft = duration > 0 ? `${(currentTime / duration) * 100}%` : '0%'
-  const liveProgressTime = liveVideoUrl ? liveTime : currentTime
+  const liveProgressTime = isLiveVideoPlayback ? liveTime : currentTime
   const liveProgressLeft = liveTotalDuration > 0
     ? `${(liveProgressTime / liveTotalDuration) * 100}%`
     : '0%'
@@ -1006,132 +1127,151 @@ export default function Choreography() {
         />
       )}
 
-      {/* Header */}
-      <div className={styles['choreo-header']}>
-        <h1>🎶 Choreography</h1>
-        <p className={styles.subtitle}>
-          Load music &bull; Press <b>Space</b> to play &bull; Use <b>Live Mode</b> to add instructions
-        </p>
-        {beatData && (
-          <div className={styles['beat-info-bar']}>
-            <span className={styles['bpm-badge']}>♩ {beatData.bpm} BPM</span>
-            <span className={styles['eightcount-badge']}>{beatData.eightCounts.length} eight-counts</span>
-            <button
-              className={`${styles['beat-toggle']} ${showBeats ? styles.active : ''}`}
-              onClick={() => setShowBeats(!showBeats)}
-            >
-              {showBeats ? '🔢 Beats On' : '🔢 Beats Off'}
-            </button>
-            <label className={styles['prompt-lead-control']}>
-              Prompt Lead (ms)
-              <input
-                type="number"
-                value={promptLeadMs}
-                min={0}
-                max={600}
-                step={10}
-                onChange={(e) => dispatch({
-                  type: 'UPDATE_SETTINGS',
-                  payload: {
-                    promptLeadMs: Math.max(0, Math.min(600, Number(e.target.value) || 0)),
-                  },
-                })}
-              />
-            </label>
-          </div>
-        )}
-      </div>
-
-      {/* Mode tabs */}
-      <div className={styles['mode-tabs']}>
-        <button
-          className={`${styles['mode-tab']} ${mode === 'edit' ? styles.active : ''}`}
-          onClick={() => setMode('edit')}
-        >
-          ✏️ Edit
-        </button>
-        <button
-          className={`${styles['mode-tab']} ${mode === 'live' ? styles.active : ''}`}
-          onClick={() => setMode('live')}
-        >
-          ▶️ Live Mode
-        </button>
-      </div>
-
-      {/* Music upload or info */}
-      {!audioUrl ? (
-        <div className={styles['music-upload']}>
-          <span className={styles['upload-emoji']}>🎵</span>
-          <span className={styles['upload-label']}>Upload the original music track</span>
-          <label className={styles['music-upload-btn']}>
-            Choose File
-            <input
-              type="file"
-              accept="audio/*"
-              onChange={handleMusicUpload}
-              style={{ display: 'none' }}
-            />
-          </label>
-        </div>
-      ) : (
-        <div className={styles['music-info']}>
-          <span>🎵</span>
-          <span className={styles['file-name']}>{musicFileName}</span>
-          <span className={styles.duration}>{formatTimestamp(duration)}</span>
-          <label className={styles['change-music-btn']}>
-            Change
-            <input
-              type="file"
-              accept="audio/*"
-              onChange={handleMusicUpload}
-              style={{ display: 'none' }}
-            />
-          </label>
-        </div>
-      )}
-
-      {/* Waveform */}
-      {audioUrl && (
-        <div className={styles['waveform-container']}>
-          <canvas
-            ref={canvasRef}
-            className={styles['waveform-canvas']}
-            width={800}
-            height={100}
-            onClick={handleCanvasClick}
-          />
-          <div
-            className={styles['waveform-playhead']}
-            style={{ left: playheadLeft }}
-          />
-        </div>
-      )}
-
-      {/* Playback controls */}
-      {audioUrl && (
-        <div className={styles['playback-controls']}>
-          <button className={styles['play-btn']} onClick={togglePlay}>
-            {isPlaying ? '⏸' : '▶️'}
-          </button>
-          <span className={styles['time-display']}>
-            {formatTimestamp(currentTime)} / {formatTimestamp(duration)}
-          </span>
-          <div className={styles['speed-btns']}>
-            {[0.5, 0.75, 1].map((r) => (
+      {!isKidLiveView && (
+        <>
+          {/* Header */}
+          <div className={styles['choreo-header']}>
+            <h1>🎶 Choreography</h1>
+            <p className={styles.subtitle}>
+              Load music &bull; Press <b>Space</b> to play &bull; Use <b>Live Mode</b> to add instructions
+            </p>
+            <div className={styles['sync-row']}>
               <button
-                key={r}
-                className={`${styles['speed-btn']} ${playbackRate === r ? styles.active : ''}`}
-                onClick={() => changeSpeed(r)}
+                className={styles['sync-btn']}
+                onClick={handleManualSync}
+                disabled={manualSyncing}
+                title="Push local browser data to Supabase"
               >
-                {r}x
+                {manualSyncing ? '⏳ Syncing...' : '☁️ Sync Local Data'}
               </button>
-            ))}
+              {manualSyncMessage && (
+                <span className={styles['sync-status']}>
+                  {manualSyncMessage}
+                </span>
+              )}
+            </div>
+            {beatData && (
+              <div className={styles['beat-info-bar']}>
+                <span className={styles['bpm-badge']}>♩ {beatData.bpm} BPM</span>
+                <span className={styles['eightcount-badge']}>{beatData.eightCounts.length} eight-counts</span>
+                <button
+                  className={`${styles['beat-toggle']} ${showBeats ? styles.active : ''}`}
+                  onClick={() => setShowBeats(!showBeats)}
+                >
+                  {showBeats ? '🔢 Beats On' : '🔢 Beats Off'}
+                </button>
+                <label className={styles['prompt-lead-control']}>
+                  Prompt Lead (ms)
+                  <input
+                    type="number"
+                    value={promptLeadMs}
+                    min={0}
+                    max={600}
+                    step={10}
+                    onChange={(e) => dispatch({
+                      type: 'UPDATE_SETTINGS',
+                      payload: {
+                        promptLeadMs: Math.max(0, Math.min(600, Number(e.target.value) || 0)),
+                      },
+                    })}
+                  />
+                </label>
+              </div>
+            )}
           </div>
-        </div>
+
+          {/* Mode tabs */}
+          <div className={styles['mode-tabs']}>
+            <button
+              className={`${styles['mode-tab']} ${mode === 'edit' ? styles.active : ''}`}
+              onClick={() => setMode('edit')}
+            >
+              ✏️ Edit
+            </button>
+            <button
+              className={`${styles['mode-tab']} ${mode === 'live' ? styles.active : ''}`}
+              onClick={() => setMode('live')}
+            >
+              ▶️ Live Mode
+            </button>
+          </div>
+
+          {/* Music upload or info */}
+          {!audioUrl ? (
+            <div className={styles['music-upload']}>
+              <span className={styles['upload-emoji']}>🎵</span>
+              <span className={styles['upload-label']}>Upload the original music track</span>
+              <label className={styles['music-upload-btn']}>
+                Choose File
+                <input
+                  type="file"
+                  accept="audio/*"
+                  onChange={handleMusicUpload}
+                  style={{ display: 'none' }}
+                />
+              </label>
+            </div>
+          ) : (
+            <div className={styles['music-info']}>
+              <span>🎵</span>
+              <span className={styles['file-name']}>{musicFileName}</span>
+              <span className={styles.duration}>{formatTimestamp(duration)}</span>
+              <label className={styles['change-music-btn']}>
+                Change
+                <input
+                  type="file"
+                  accept="audio/*"
+                  onChange={handleMusicUpload}
+                  style={{ display: 'none' }}
+                />
+              </label>
+            </div>
+          )}
+
+          {/* Waveform */}
+          {audioUrl && (
+            <div className={styles['waveform-container']}>
+              <canvas
+                ref={canvasRef}
+                className={styles['waveform-canvas']}
+                width={800}
+                height={100}
+                onClick={handleCanvasClick}
+              />
+              <div
+                className={styles['waveform-playhead']}
+                style={{ left: playheadLeft }}
+              />
+            </div>
+          )}
+
+          {/* Playback controls */}
+          {audioUrl && (
+            <div className={styles['playback-controls']}>
+              <button className={styles['play-btn']} onClick={togglePlay}>
+                {isPlaying ? '⏸' : '▶️'}
+              </button>
+              <span className={styles['time-display']}>
+                {formatTimestamp(currentTime)} / {formatTimestamp(duration)}
+              </span>
+              <div className={styles['speed-btns']}>
+                {[0.5, 0.75, 1].map((r) => (
+                  <button
+                    key={r}
+                    className={`${styles['speed-btn']} ${playbackRate === r ? styles.active : ''}`}
+                    onClick={() => changeSpeed(r)}
+                  >
+                    {r}x
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* ===== EDIT MODE ===== */}
-      {mode === 'edit' && (
+      {!isKidLiveView && mode === 'edit' && (
         <>
           {/* Video & Sync section */}
           <div className={styles['sync-section']}>
@@ -1187,15 +1327,15 @@ export default function Choreography() {
       )}
 
       {/* ===== LIVE MODE — fullscreen dance game ===== */}
-      {mode === 'live' && (
+      {(mode === 'live' || isKidLiveView) && (
         <div className={styles['live-screen']}>
-          {/* Background: video or dark gradient */}
-          {liveVideoUrl ? (
+          {/* Background: video (when loaded) or dark gradient */}
+          {isLiveVideoPlayback ? (
             <video
               ref={liveVideoRef}
               src={liveVideoUrl}
               className={styles['live-video-bg']}
-              muted={liveAudioMode === 'music'}
+              muted={liveAudioMode === 'music' && !!audioUrl}
               playsInline
               onTimeUpdate={(e) => {
                 const t = e.target.currentTime
@@ -1209,9 +1349,13 @@ export default function Choreography() {
             />
           ) : (
             <div className={styles['live-no-video']}>
-              <span style={{ fontSize: '3rem', marginBottom: 8, display: 'block' }}>🎬</span>
-              <p style={{ fontWeight: 600, marginBottom: 4 }}>No video loaded</p>
-              <p style={{ fontSize: '0.78rem', opacity: 0.6 }}>Upload a practice video below, or dance along to music only</p>
+              {!isKidLiveView && (
+                <>
+                  <span style={{ fontSize: '3rem', marginBottom: 8, display: 'block' }}>🎬</span>
+                  <p style={{ fontWeight: 600, marginBottom: 4 }}>No video loaded</p>
+                  <p style={{ fontSize: '0.78rem', opacity: 0.6 }}>Upload a practice video below, or dance along to music only</p>
+                </>
+              )}
             </div>
           )}
 
@@ -1219,46 +1363,50 @@ export default function Choreography() {
           <div className={styles['live-top-gradient']} />
           <div className={styles['live-bottom-gradient']} />
 
-          {/* Top bar: exit + upload + clock */}
-          <div className={styles['live-top-bar']}>
-            <button
-              className={styles['live-exit-btn']}
-              onClick={() => {
-                liveVideoRef.current?.pause()
-                audioRef.current?.pause()
-                setLiveIsPlaying(false)
-                setMode('edit')
-              }}
-            >
-              ✕ Exit
-            </button>
-            <label className={styles['live-upload-btn']}>
-              {audioUrl ? '🎵 Change Song' : '🎵 Load Song'}
-              <input type="file" accept="audio/*" onChange={handleMusicUpload} style={{ display: 'none' }} />
-            </label>
-            <label className={styles['live-upload-btn']}>
-              {liveVideoUrl ? '🎥 Change Video' : '📹 Load Video'}
-              <input type="file" accept="video/*" onChange={handleVideoUpload} style={{ display: 'none' }} />
-            </label>
-            <button
-              className={styles['live-sync-btn']}
-              onClick={handleLiveResync}
-              disabled={!audioUrl || !liveVideoUrl || syncing}
-              title={!audioUrl || !liveVideoUrl ? 'Load both song and video first' : 'Re-analyse sync'}
-            >
-              {syncing ? '⏳ Syncing...' : '🔗 Sync Now'}
-            </button>
-            {(syncResult || choreography.videoSyncOffset) && (
-              <span className={styles['live-sync-status']}>
-                {syncResult?.error
-                  ? 'Sync failed'
-                  : `Offset ${Math.round(choreography.videoSyncOffset || 0)}ms`}
-              </span>
-            )}
-            <span className={styles['live-time-display']}>
-              {formatTimestamp(liveVideoUrl ? liveTime : currentTime)} / {formatTimestamp(liveTotalDuration)}
-            </span>
-          </div>
+          {!isKidLiveView && (
+            <>
+              {/* Top bar: exit + upload + clock */}
+              <div className={styles['live-top-bar']}>
+                <button
+                  className={styles['live-exit-btn']}
+                  onClick={() => {
+                    liveVideoRef.current?.pause()
+                    audioRef.current?.pause()
+                    setLiveIsPlaying(false)
+                    setMode('edit')
+                  }}
+                >
+                  ✕ Exit
+                </button>
+                <label className={styles['live-upload-btn']}>
+                  {audioUrl ? '🎵 Change Song' : '🎵 Load Song'}
+                  <input type="file" accept="audio/*" onChange={handleMusicUpload} style={{ display: 'none' }} />
+                </label>
+                <label className={styles['live-upload-btn']}>
+                  {liveVideoUrl ? '🎥 Change Video' : '📹 Load Video'}
+                  <input type="file" accept="video/*" onChange={handleVideoUpload} style={{ display: 'none' }} />
+                </label>
+                <button
+                  className={styles['live-sync-btn']}
+                  onClick={handleLiveResync}
+                  disabled={!audioUrl || !liveVideoUrl || syncing}
+                  title={!audioUrl || !liveVideoUrl ? 'Load both song and video first' : 'Re-analyse sync'}
+                >
+                  {syncing ? '⏳ Syncing...' : '🔗 Sync Now'}
+                </button>
+                {(syncResult || choreography.videoSyncOffset) && (
+                  <span className={styles['live-sync-status']}>
+                    {syncResult?.error
+                      ? 'Sync failed'
+                      : `Offset ${Math.round(choreography.videoSyncOffset || 0)}ms`}
+                  </span>
+                )}
+                <span className={styles['live-time-display']}>
+                  {formatTimestamp(isLiveVideoPlayback ? liveTime : currentTime)} / {formatTimestamp(liveTotalDuration)}
+                </span>
+              </div>
+            </>
+          )}
 
           {/* Next instruction preview */}
           {nextSongInstruction && (isPlaying || liveIsPlaying) && (
@@ -1332,7 +1480,7 @@ export default function Choreography() {
                 className={styles['live-progress-fill']}
                 style={{
                   width: liveTotalDuration > 0
-                    ? `${((liveVideoUrl ? liveTime : currentTime) / liveTotalDuration) * 100}%`
+                    ? `${((isLiveVideoPlayback ? liveTime : currentTime) / liveTotalDuration) * 100}%`
                     : '0%',
                   transition: isLiveSeeking ? 'none' : undefined,
                 }}
@@ -1347,22 +1495,26 @@ export default function Choreography() {
                   {formatTimestamp(seekPreviewTime)}
                 </div>
               )}
-              {/* Song instruction dots on progress bar */}
-              {beatData?.beats && liveTotalDuration > 0 && songInstructions.map((inst) => {
-                const beatIdx = Math.floor(inst.startPos)
-                const beatTime = beatData.beats[beatIdx]
-                if (beatTime === undefined) return null
-                const isActive = liveSongInstruction?.id === inst.id
-                return (
-                  <div
-                    key={inst.id}
-                    className={`${styles['live-progress-dot']} ${isActive ? styles['live-progress-dot-active'] : ''}`}
-                    style={{ left: `${(beatTime / liveTotalDuration) * 100}%` }}
-                    title={`${inst.emoji || ''} ${inst.text || ''}`}
-                    onClick={(e) => { e.stopPropagation(); seekLive(beatTime) }}
-                  />
-                )
-              })}
+              {!isKidLiveView && (
+                <>
+                  {/* Song instruction dots on progress bar */}
+                  {beatData?.beats && liveTotalDuration > 0 && songInstructions.map((inst) => {
+                    const beatIdx = Math.floor(inst.startPos)
+                    const beatTime = beatData.beats[beatIdx]
+                    if (beatTime === undefined) return null
+                    const isActive = liveSongInstruction?.id === inst.id
+                    return (
+                      <div
+                        key={inst.id}
+                        className={`${styles['live-progress-dot']} ${isActive ? styles['live-progress-dot-active'] : ''}`}
+                        style={{ left: `${(beatTime / liveTotalDuration) * 100}%` }}
+                        title={`${inst.emoji || ''} ${inst.text || ''}`}
+                        onClick={(e) => { e.stopPropagation(); seekLive(beatTime) }}
+                      />
+                    )
+                  })}
+                </>
+              )}
             </div>
 
             {/* Controls row */}
@@ -1371,52 +1523,56 @@ export default function Choreography() {
                 ⏮
               </button>
               <button className={styles['live-play-btn']} onClick={toggleLivePlay}>
-                {(liveVideoUrl ? liveIsPlaying : isPlaying) ? '⏸' : '▶️'}
+                {(isLiveVideoPlayback ? liveIsPlaying : isPlaying) ? '⏸' : '▶️'}
               </button>
-              <div className={styles['live-speed-row']}>
-                {[0.5, 0.75, 1].map((r) => (
+              {!isKidLiveView && (
+                <>
+                  <div className={styles['live-speed-row']}>
+                    {[0.5, 0.75, 1].map((r) => (
+                      <button
+                        key={r}
+                        className={`${styles['live-speed-btn']} ${playbackRate === r ? styles.active : ''}`}
+                        onClick={() => changeLiveSpeed(r)}
+                      >
+                        {r}x
+                      </button>
+                    ))}
+                  </div>
+                  {/* Audio mode toggle — only show when both video + music are available */}
+                  {liveVideoUrl && audioUrl && (
+                    <div className={styles['live-audio-toggle']}>
+                      <button
+                        className={`${styles['live-audio-btn']} ${liveAudioMode === 'video' ? styles.active : ''}`}
+                        onClick={() => setLiveAudioMode('video')}
+                      >
+                        🎬 Video
+                      </button>
+                      <button
+                        className={`${styles['live-audio-btn']} ${liveAudioMode === 'music' ? styles.active : ''}`}
+                        onClick={() => setLiveAudioMode('music')}
+                      >
+                        🎵 Music
+                      </button>
+                    </div>
+                  )}
+                  <label className={styles['live-change-video']}>
+                    {liveVideoUrl ? '🎥 Change' : '📹 Load Video'}
+                    <input type="file" accept="video/*" onChange={handleVideoUpload} style={{ display: 'none' }} />
+                  </label>
                   <button
-                    key={r}
-                    className={`${styles['live-speed-btn']} ${playbackRate === r ? styles.active : ''}`}
-                    onClick={() => changeLiveSpeed(r)}
+                    className={`${styles['live-edit-toggle']} ${liveEditOpen ? styles.active : ''}`}
+                    onClick={() => setLiveEditOpen(!liveEditOpen)}
+                    title="Edit beat instructions"
                   >
-                    {r}x
+                    ✏️ Edit
                   </button>
-                ))}
-              </div>
-              {/* Audio mode toggle — only show when both video + music are available */}
-              {liveVideoUrl && audioUrl && (
-                <div className={styles['live-audio-toggle']}>
-                  <button
-                    className={`${styles['live-audio-btn']} ${liveAudioMode === 'video' ? styles.active : ''}`}
-                    onClick={() => setLiveAudioMode('video')}
-                  >
-                    🎬 Video
-                  </button>
-                  <button
-                    className={`${styles['live-audio-btn']} ${liveAudioMode === 'music' ? styles.active : ''}`}
-                    onClick={() => setLiveAudioMode('music')}
-                  >
-                    🎵 Music
-                  </button>
-                </div>
+                </>
               )}
-              <label className={styles['live-change-video']}>
-                {liveVideoUrl ? '🎥 Change' : '📹 Load Video'}
-                <input type="file" accept="video/*" onChange={handleVideoUpload} style={{ display: 'none' }} />
-              </label>
-              <button
-                className={`${styles['live-edit-toggle']} ${liveEditOpen ? styles.active : ''}`}
-                onClick={() => setLiveEditOpen(!liveEditOpen)}
-                title="Edit beat instructions"
-              >
-                ✏️ Edit
-              </button>
             </div>
           </div>
 
           {/* Live edit panel — full-song beat timeline + instructions */}
-          {liveEditOpen && (
+          {!isKidLiveView && liveEditOpen && (
             <div className={styles['live-edit-panel']}>
               <div className={styles['live-edit-header']}>
                 <span>🎵 Song Instructions</span>

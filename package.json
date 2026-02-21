@@ -7,7 +7,8 @@
     "dev": "vite",
     "lint": "eslint .",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "sync:storage": "node scripts/sync-public-to-supabase.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.97.0",

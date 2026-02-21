@@ -1,10 +1,11 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { getCurrentStreak } from '../utils/milestones'
 import styles from './Layout.module.css'
 
 const adultNavItems = [
-  { to: '/', icon: '🕐', label: 'Timeline' },
+  { to: '/', icon: '🏠', label: 'Home' },
+  { to: '/timeline', icon: '🕐', label: 'Timeline' },
   { to: '/choreography', icon: '🎼', label: 'Choreo' },
   { to: '/rhythm', icon: '🎮', label: 'Game' },
   { to: '/trophies', icon: '🏆', label: 'Trophies' },
@@ -14,24 +15,27 @@ const adultNavItems = [
 
 export default function Layout({ children }) {
   const { state } = useApp()
+  const location = useLocation()
   const streak = getCurrentStreak(state.practiceLog)
-  const isKidView = state.settings?.viewMode === 'kid'
-  const navItems = isKidView ? [] : adultNavItems
+  const navItems = adultNavItems
+  const isKidChoreoView = location.pathname === '/choreography' && new URLSearchParams(location.search).get('view') === 'kid'
 
   return (
     <div className={styles.layout}>
       {/* Header */}
-      <header className={styles.header}>
-        <div className={`${styles['header-title']} sparkle-text`}>
-          {state.settings.danceName} 💃
-        </div>
-        {streak > 0 && (
-          <div className={styles['header-streak']}>
-            <span className={styles.flame}>🔥</span>
-            {streak} day streak
+      {!isKidChoreoView && (
+        <header className={styles.header}>
+          <div className={`${styles['header-title']} sparkle-text`}>
+            {state.settings.danceName} 💃
           </div>
-        )}
-      </header>
+          {streak > 0 && (
+            <div className={styles['header-streak']}>
+              <span className={styles.flame}>🔥</span>
+              {streak} day streak
+            </div>
+          )}
+        </header>
+      )}
 
       {/* Page content */}
       <main className={styles['main-content']}>
@@ -39,7 +43,7 @@ export default function Layout({ children }) {
       </main>
 
       {/* Bottom navigation */}
-      {!isKidView && (
+      {!isKidChoreoView && (
         <nav className={styles['bottom-nav']}>
           {navItems.map((item) => (
             <NavLink
