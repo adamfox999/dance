@@ -106,7 +106,7 @@ export default function Dashboard() {
                   <div
                     key={routine.id}
                     className={styles.routineCardCover}
-                    onClick={() => navigate(`/choreography/${routine.id}?live=true`)}
+                    onClick={() => navigate(`/timeline/routine/${routine.id}`)}
                   >
                     <img src={routine.coverPhoto} alt={`${routine.name} cover`} className={styles.routineCoverImg} />
                     <div className={styles.routineCoverOverlay}>
@@ -115,31 +115,19 @@ export default function Dashboard() {
                         <span>{formationEmoji} {routine.formation}</span>
                         {videoCount > 0 && <span>📹 {videoCount}</span>}
                       </div>
-                      <div
-                        className={styles.routineCoverAction}
-                        onClick={(e) => { e.stopPropagation(); navigate(`/choreography/${routine.id}?live=true`) }}
-                      >
-                        ▶ Watch
-                      </div>
                     </div>
                   </div>
                 ) : (
                   <div
                     key={routine.id}
                     className={styles.routineCard}
-                    onClick={() => navigate(`/choreography/${routine.id}?live=true`)}
+                    onClick={() => navigate(`/timeline/routine/${routine.id}`)}
                   >
                     <div className={styles.routineEmoji}>🎵</div>
                     <div className={styles.routineName}>{routine.name}</div>
                     <div className={styles.routineMeta}>
                       <span>{formationEmoji} {routine.formation}</span>
                       {videoCount > 0 && <span>📹 {videoCount}</span>}
-                    </div>
-                    <div
-                      className={styles.routineAction}
-                      onClick={(e) => { e.stopPropagation(); navigate(`/choreography/${routine.id}?live=true`) }}
-                    >
-                      ▶ Watch
                     </div>
                   </div>
                 )

@@ -446,6 +446,23 @@
     border-color: rgba(255,255,255,0.10);
     box-shadow: 0 2px 12px rgba(0,0,0,0.4);
   }
+  .disciplineCard,
+  .achievementCard {
+    background: white;
+    border-color: rgba(0,0,0,0.08);
+    box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+  }
+  .disciplineName,
+  .achievementName {
+    color: #111;
+  }
+  .disciplineGrade,
+  .achievementLabel {
+    color: #555;
+  }
+  .achievementArrow {
+    color: #888;
+  }
   .routineCard:hover, .disciplineCard:hover {
     box-shadow: 0 4px 16px rgba(0,0,0,0.5);
   }
