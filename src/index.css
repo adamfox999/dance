@@ -1,0 +1,128 @@
+/* ===== GLOBAL RESET & THEME ===== */
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@300;400;500;600;700&display=swap');
+
+:root {
+  /* Primary palette — purple/pink dance theme */
+  --purple-50: #fdf4ff;
+  --purple-100: #fae8ff;
+  --purple-200: #f5d0fe;
+  --purple-300: #e879f9;
+  --purple-400: #c026d3;
+  --purple-500: #a855f7;
+  --purple-600: #9333ea;
+  --purple-700: #7e22ce;
+
+  --pink-400: #f472b6;
+  --pink-500: #ec4899;
+
+  --blue-400: #60a5fa;
+  --blue-500: #3b82f6;
+
+  --green-400: #4ade80;
+  --green-500: #22c55e;
+
+  --yellow-400: #facc15;
+  --yellow-500: #eab308;
+
+  --red-400: #f87171;
+  --red-500: #ef4444;
+
+  --orange-400: #fb923c;
+
+  --gray-50: #fafafa;
+  --gray-100: #f5f5f5;
+  --gray-200: #e5e5e5;
+  --gray-300: #d4d4d4;
+  --gray-400: #a3a3a3;
+  --gray-500: #737373;
+  --gray-600: #525252;
+  --gray-700: #404040;
+  --gray-800: #262626;
+  --gray-900: #171717;
+
+  --bg: var(--purple-50);
+  --card-bg: #ffffff;
+  --text: var(--gray-800);
+  --text-muted: var(--gray-500);
+  --accent: var(--purple-500);
+  --accent-light: var(--purple-200);
+
+  --radius: 16px;
+  --radius-sm: 10px;
+  --radius-full: 9999px;
+
+  --shadow: 0 4px 20px rgba(168, 85, 247, 0.12);
+  --shadow-lg: 0 8px 40px rgba(168, 85, 247, 0.18);
+
+  --nav-height: 72px;
+  --header-height: 60px;
+
+  font-family: 'Fredoka', sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Fredoka', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button {
+  font-family: 'Fredoka', sans-serif;
+  cursor: pointer;
+  border: none;
+  background: none;
+  font-size: inherit;
+}
+
+input, textarea, select {
+  font-family: 'Fredoka', sans-serif;
+  font-size: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ===== SCROLLBAR ===== */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--purple-200);
+  border-radius: 3px;
+}
+
+/* ===== UTILITY CLASSES ===== */
+.sparkle-text {
+  background: linear-gradient(135deg, var(--purple-500), var(--pink-500), var(--purple-400));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}

@@ -1,0 +1,236 @@
+.calendar-page {
+  padding: 20px 24px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.calendar-page h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 20px;
+}
+
+/* ===== MONTH NAV ===== */
+.month-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  max-width: 400px;
+}
+
+.month-nav button {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--gray-100);
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.month-nav button:hover {
+  background: var(--gray-200);
+}
+
+.month-label {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+/* ===== CALENDAR GRID ===== */
+.calendar-grid {
+  max-width: 400px;
+}
+
+.weekday-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.weekday-label {
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--gray-400);
+  text-transform: uppercase;
+}
+
+.days-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.day-cell {
+  aspect-ratio: 1;
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+  font-weight: 500;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.day-cell:hover {
+  background: var(--gray-100);
+}
+
+.day-cell.today {
+  background: var(--purple-100);
+  font-weight: 700;
+  color: var(--purple-700);
+}
+
+.day-cell.empty {
+  cursor: default;
+}
+
+.session-dots {
+  display: flex;
+  gap: 3px;
+  margin-top: 3px;
+}
+
+.session-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.dot-practice { background: var(--purple-500); }
+.dot-lesson { background: var(--blue-500); }
+.dot-competition { background: var(--yellow-500); }
+
+.practice-logged {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green-400);
+}
+
+/* ===== UPCOMING ===== */
+.upcoming-section {
+  margin-top: 28px;
+  max-width: 400px;
+}
+
+.upcoming-section h3 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--gray-500);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+.upcoming-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.upcoming-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  background: white;
+  box-shadow: var(--shadow);
+}
+
+.upcoming-icon {
+  font-size: 1.5rem;
+}
+
+.upcoming-info {
+  flex: 1;
+}
+
+.upcoming-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.upcoming-date {
+  font-size: 0.75rem;
+  color: var(--gray-500);
+}
+
+.upcoming-countdown {
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  background: var(--purple-100);
+  color: var(--purple-600);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.upcoming-countdown.soon {
+  background: rgba(251, 146, 60, 0.1);
+  color: var(--orange-400);
+}
+
+/* ===== STREAK DISPLAY ===== */
+.streak-display {
+  margin-bottom: 24px;
+  padding: 16px 20px;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(251, 146, 60, 0.08), rgba(245, 158, 11, 0.05));
+  border: 1px solid rgba(251, 146, 60, 0.15);
+  max-width: 400px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.streak-flame {
+  font-size: 2rem;
+}
+
+.streak-info {
+  flex: 1;
+}
+
+.streak-number {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--orange-400);
+}
+
+.streak-text {
+  font-size: 0.8rem;
+  color: var(--gray-500);
+}
+
+.log-today-btn {
+  padding: 8px 16px;
+  border-radius: var(--radius-full);
+  background: var(--green-500);
+  color: white;
+  font-weight: 600;
+  font-size: 0.8rem;
+  transition: transform 0.15s;
+}
+
+.log-today-btn:hover {
+  transform: scale(1.05);
+}
+
+.already-logged {
+  font-size: 0.78rem;
+  color: var(--green-500);
+  font-weight: 600;
+}
