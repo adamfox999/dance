@@ -30,6 +30,43 @@ function getFileNameFromUrl(url) {
   return decodeURIComponent(raw)
 }
 
+async function downloadBlobWithProgress(url, onProgress) {
+  const response = await fetch(url)
+  if (!response.ok) {
+    throw new Error(`Failed to download file: ${response.status}`)
+  }
+
+  const total = Number(response.headers.get('content-length') || 0)
+  const contentType = response.headers.get('content-type') || 'application/octet-stream'
+
+  if (!response.body) {
+    const blob = await response.blob()
+    onProgress?.(100)
+    return new Blob([blob], { type: contentType })
+  }
+
+  const reader = response.body.getReader()
+  const chunks = []
+  let loaded = 0
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    if (value) {
+      chunks.push(value)
+      loaded += value.length
+      if (total > 0) {
+        onProgress?.(Math.min(100, Math.round((loaded / total) * 100)))
+      } else {
+        onProgress?.(null)
+      }
+    }
+  }
+
+  onProgress?.(100)
+  return new Blob(chunks, { type: contentType })
+}
+
 // Keyword → emoji map for instruction auto-suggestions
 const INSTRUCTION_EMOJI_MAP = [
   [/\b(spin|turn|pivot|pirouette)\b/i, '🌀'],
@@ -157,6 +194,8 @@ export default function Choreography() {
   const [liveAudioMode, setLiveAudioMode] = useState(isKidLiveView ? 'video' : 'music') // 'music' | 'video'
   const [isLiveSeeking, setIsLiveSeeking] = useState(false)
   const [seekPreviewTime, setSeekPreviewTime] = useState(null)
+  const [videoDownloadProgress, setVideoDownloadProgress] = useState(null)
+  const [isVideoDownloading, setIsVideoDownloading] = useState(false)
   const isLiveVideoPlayback = !!liveVideoUrl
 
   useEffect(() => {
@@ -267,24 +306,83 @@ export default function Choreography() {
           }
         }
 
-        // Prefer bundled video from /public/media first
-        const preferredVideoOk = await fetch(PREFERRED_VIDEO_URL, { method: 'HEAD' })
-          .then((res) => res.ok)
-          .catch(() => false)
-        const bundledVideoUrl = preferredVideoOk
-          ? PREFERRED_VIDEO_URL
-          : await findFirstExistingMediaUrl(REPO_VIDEO_CANDIDATES)
-        if (bundledVideoUrl && !cancelled) {
-          setLiveVideoUrl(bundledVideoUrl)
+        // Video restore is local-first to avoid network lag during playback.
+        let resolvedVideo = false
+        const localVideo = await loadLocalFile('choreo-video')
+        if (localVideo?.blob && !cancelled) {
+          setLiveVideoUrl(URL.createObjectURL(localVideo.blob))
+          resolvedVideo = true
         } else {
-          // Fallback to previously uploaded video
-          const video = await loadFile('choreo-video')
-          if (video && !cancelled) {
-            setLiveVideoUrl(URL.createObjectURL(video.blob))
+          // If bundled video exists, pre-download it and cache it locally before use.
+          const preferredVideoOk = await fetch(PREFERRED_VIDEO_URL, { method: 'HEAD' })
+            .then((res) => res.ok)
+            .catch(() => false)
+          const bundledVideoUrl = preferredVideoOk
+            ? PREFERRED_VIDEO_URL
+            : await findFirstExistingMediaUrl(REPO_VIDEO_CANDIDATES)
+
+          if (bundledVideoUrl) {
+            try {
+              if (!cancelled) {
+                setIsVideoDownloading(true)
+                setVideoDownloadProgress(0)
+              }
+
+              const blob = await downloadBlobWithProgress(bundledVideoUrl, (progress) => {
+                if (!cancelled) setVideoDownloadProgress(progress)
+              })
+
+              const fileName = getFileNameFromUrl(bundledVideoUrl) || 'choreo-video.mp4'
+              const file = new File([blob], fileName, {
+                type: blob.type || 'video/mp4',
+              })
+
+              await saveFile('choreo-video', file, {
+                fileName,
+                type: file.type,
+                size: file.size,
+              })
+
+              if (!cancelled) {
+                setLiveVideoUrl(URL.createObjectURL(blob))
+                resolvedVideo = true
+              }
+            } catch (err) {
+              console.warn('Could not pre-download bundled video:', err)
+            } finally {
+              if (!cancelled) {
+                setIsVideoDownloading(false)
+              }
+            }
+          }
+
+          // Final fallback: load from backend/local and ensure local cache for next run.
+          if (!cancelled && !resolvedVideo) {
+            setIsVideoDownloading(true)
+            setVideoDownloadProgress(null)
+            const video = await loadFile('choreo-video')
+            if (video?.blob) {
+              try {
+                await saveFile('choreo-video', video.blob, video.meta || {})
+              } catch (cacheErr) {
+                console.warn('Could not cache fetched video locally:', cacheErr)
+              }
+              if (!cancelled) {
+                setLiveVideoUrl(URL.createObjectURL(video.blob))
+                resolvedVideo = true
+              }
+            }
+            if (!cancelled) {
+              setIsVideoDownloading(false)
+            }
           }
         }
       } catch (err) {
         console.warn('Could not restore files:', err)
+      } finally {
+        if (!cancelled) {
+          setIsVideoDownloading(false)
+        }
       }
       if (!cancelled) setFilesLoaded(true)
     }
@@ -1362,6 +1460,13 @@ export default function Choreography() {
           {/* Gradient overlays for readability */}
           <div className={styles['live-top-gradient']} />
           <div className={styles['live-bottom-gradient']} />
+
+          {isVideoDownloading && (
+            <div className={styles['video-download-status']}>
+              ⬇️ Caching video locally...
+              {typeof videoDownloadProgress === 'number' ? ` ${videoDownloadProgress}%` : ''}
+            </div>
+          )}
 
           {!isKidLiveView && (
             <>
