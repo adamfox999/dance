@@ -611,7 +611,7 @@ export default function Settings() {
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
                   <div style={{ flex: 1, fontWeight: 700, fontSize: '1rem' }}>{unit.name}</div>
-                  {unit.isOwner && isAdmin && (
+                  {unit.isOwner && !unit.isSynthetic && isAdmin && (
                     <>
                       <button
                         className={styles['data-btn']}
@@ -699,7 +699,7 @@ export default function Settings() {
               )}
 
               {/* Invite someone to this unit */}
-              {unit.isOwner && isAdmin && (
+              {unit.isOwner && !unit.isSynthetic && isAdmin && (
                 <div style={{ marginTop: 10, borderTop: '1px solid #f3f4f6', paddingTop: 10 }}>
                   <button
                     className={styles['data-btn']}

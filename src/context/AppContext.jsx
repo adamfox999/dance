@@ -704,7 +704,7 @@ export function AppProvider({ children }) {
   const familyUnits = (() => {
     const units = []
 
-    // --- My own family unit (always present) ---
+    // --- My own household (synthetic overview — not a DB row, not editable) ---
     const myMembers = []
     if (userProfile) {
       myMembers.push({ type: 'adult', profile: userProfile, relationship: 'You', isSelf: true })
@@ -726,8 +726,37 @@ export function AppProvider({ children }) {
         ? `${userProfile.display_name}'s Family`
         : 'My Family',
       isOwner: true,
+      isSynthetic: true,   // not a DB row — edit/delete disabled
       members: myMembers,
     })
+
+    // --- DB-backed family units I own (editable) ---
+    for (const dbUnit of myFamilyUnitsDB) {
+      const members = []
+      if (userProfile) {
+        members.push({ type: 'adult', profile: userProfile, relationship: 'You', isSelf: true })
+      }
+      for (const kid of kidProfiles.filter(k => (dbUnit.kid_profile_ids || []).includes(k.id))) {
+        members.push({ type: 'child', profile: kid, relationship: 'Your child', isOwn: true })
+      }
+      // Include accepted guardians linked to this unit
+      for (const g of outgoingGuardians.filter(g => g.status === 'accepted' && g.family_unit_id === dbUnit.id)) {
+        members.push({
+          type: 'adult',
+          profile: { id: g.guardian_user_id, display_name: g.guardian_email || 'Guardian', avatar_emoji: '👤' },
+          relationship: 'Parent / Guardian',
+          guardianId: g.id,
+        })
+      }
+      units.push({
+        id: dbUnit.id,
+        name: dbUnit.name,
+        isOwner: true,
+        isSynthetic: false,
+        kidProfileIds: dbUnit.kid_profile_ids || [],
+        members,
+      })
+    }
 
     // --- Families I joined as guardian ---
     for (const fam of guardianFamilies) {
@@ -752,6 +781,7 @@ export function AppProvider({ children }) {
           ? `${fam.ownerProfile.display_name}'s Family`
           : 'Family',
         isOwner: false,
+        isSynthetic: true,
         members,
       })
     }
