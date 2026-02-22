@@ -111,7 +111,7 @@ export default function Auth() {
       <div className={styles.card}>
         <div className={styles.header}>
           <span className={styles.emoji}>💃</span>
-          <h1 className={styles.title}>Isla's Dance Journey</h1>
+          <h1 className={styles.title}>My Dancing</h1>
           <p className={styles.subtitle}>Track practice, choreography & achievements</p>
         </div>
 
@@ -169,6 +169,7 @@ export default function Auth() {
           <form className={styles.form} onSubmit={handleCreateAccount}>
             <p className={styles.hint}>
               Looks like you're new here! This is for the parent or guardian managing the account.
+              After setup, you'll be able to add your dancers and share routines with other parents.
             </p>
             <label className={styles.label}>
               What shall we call you?

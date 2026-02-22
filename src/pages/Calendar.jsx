@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { getCurrentStreak } from '../utils/milestones'
 import { getDaysInMonth, getFirstDayOfMonth, formatDate, daysUntil, isFuture, getSessionIcon, generateId } from '../utils/helpers'
+import { AED_TEMPLATES, EVENT_TYPES, getEventTypeIcon } from '../data/aedEvents'
 import styles from './Calendar.module.css'
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -20,6 +21,14 @@ export default function Calendar() {
   const [scheduleDate, setScheduleDate] = useState(() => new Date(Date.now() + 86400000).toISOString().split('T')[0])
   const [scheduleRoutineId, setScheduleRoutineId] = useState(() => state.routines?.[0]?.id || '')
   const [scheduleVersionId, setScheduleVersionId] = useState('')
+  const [addMode, setAddMode] = useState('practice') // 'practice' | 'event'
+  const [eventName, setEventName] = useState('')
+  const [eventVenue, setEventVenue] = useState('')
+  const [eventType, setEventType] = useState('show')
+  const [eventStartDate, setEventStartDate] = useState(() => new Date(Date.now() + 86400000).toISOString().split('T')[0])
+  const [eventEndDate, setEventEndDate] = useState('')
+  const [eventCompOrg, setEventCompOrg] = useState('')
+  const [eventRegion, setEventRegion] = useState('')
 
   const selectedRoutine = useMemo(
     () => state.routines.find((routine) => routine.id === scheduleRoutineId) || null,
@@ -52,6 +61,19 @@ export default function Calendar() {
     })
   }, [state.sessions, viewYear, viewMonth])
 
+  // Shows/events in this month (dot display)
+  const monthShows = useMemo(() => {
+    return (state.shows || []).filter((s) => {
+      const start = s.startDate || s.date
+      const end = s.endDate || start
+      if (!start) return false
+      const monthStart = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-01`
+      const daysCount = getDaysInMonth(viewYear, viewMonth)
+      const monthEnd = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(daysCount).padStart(2, '0')}`
+      return start <= monthEnd && end >= monthStart
+    })
+  }, [state.shows, viewYear, viewMonth])
+
   // Upcoming sessions
   const upcoming = useMemo(() => {
     return state.sessions
@@ -60,9 +82,27 @@ export default function Calendar() {
       .slice(0, 5)
   }, [state.sessions])
 
+  // Upcoming shows/events
+  const upcomingShows = useMemo(() => {
+    const todayStr = new Date().toISOString().split('T')[0]
+    return (state.shows || [])
+      .filter((s) => (s.startDate || s.date) >= todayStr)
+      .sort((a, b) => new Date(a.startDate || a.date) - new Date(b.startDate || b.date))
+      .slice(0, 3)
+  }, [state.shows])
+
   const getSessionsForDay = (day) => {
     const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
     return monthSessions.filter((s) => s.date === dateStr)
+  }
+
+  const getShowsForDay = (day) => {
+    const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    return monthShows.filter((s) => {
+      const start = s.startDate || s.date
+      const end = s.endDate || start
+      return dateStr >= start && dateStr <= end
+    })
   }
 
   const getRoutineVersion = (session) => {
@@ -97,6 +137,46 @@ export default function Calendar() {
         status: 'scheduled',
       },
     })
+  }
+
+  const handleCreateEvent = () => {
+    if (!eventName.trim()) return
+    const startDate = eventStartDate || new Date(Date.now() + 86400000).toISOString().split('T')[0]
+    dispatch({
+      type: 'ADD_SHOW',
+      payload: {
+        id: generateId('show'),
+        name: eventName.trim(),
+        date: startDate,
+        startDate,
+        endDate: eventEndDate || startDate,
+        venue: eventVenue.trim(),
+        eventType,
+        competitionOrg: eventCompOrg,
+        region: eventRegion,
+        routineIds: [],
+        entries: [],
+        scrapbookEntries: [],
+      },
+    })
+    // Reset
+    setEventName('')
+    setEventVenue('')
+    setEventType('show')
+    setEventStartDate(new Date(Date.now() + 86400000).toISOString().split('T')[0])
+    setEventEndDate('')
+    setEventCompOrg('')
+    setEventRegion('')
+  }
+
+  const handlePickAedTemplate = (template) => {
+    setEventName(template.name)
+    setEventVenue(template.venue)
+    setEventType(template.eventType)
+    setEventStartDate(template.startDate)
+    setEventEndDate(template.endDate)
+    setEventCompOrg(template.competitionOrg)
+    setEventRegion(template.region)
   }
 
   const isPracticeLogged = (day) => {
@@ -154,42 +234,126 @@ export default function Calendar() {
         )}
       </div>
 
-      {/* Month navigation */}
+      {/* Add to Calendar — dual mode */}
       <div className={styles['schedule-box']}>
-        <h3>Schedule Practice</h3>
-        {state.routines.length === 0 ? (
-          <p className={styles['schedule-empty']}>Add a routine in Settings first.</p>
-        ) : (
+        <div className={styles['add-mode-tabs']}>
+          <button
+            className={`${styles['add-mode-tab']} ${addMode === 'practice' ? styles['add-mode-tab-active'] : ''}`}
+            onClick={() => setAddMode('practice')}
+          >
+            Practice
+          </button>
+          <button
+            className={`${styles['add-mode-tab']} ${addMode === 'event' ? styles['add-mode-tab-active'] : ''}`}
+            onClick={() => setAddMode('event')}
+          >
+            Event
+          </button>
+        </div>
+
+        {addMode === 'practice' && (
+          <>
+            {state.routines.length === 0 ? (
+              <p className={styles['schedule-empty']}>Add a routine in Settings first.</p>
+            ) : (
+              <div className={styles['schedule-controls']}>
+                <input
+                  type="date"
+                  value={scheduleDate}
+                  onChange={(e) => setScheduleDate(e.target.value)}
+                />
+                <select
+                  value={scheduleRoutineId}
+                  onChange={(e) => {
+                    setScheduleRoutineId(e.target.value)
+                    const nextRoutine = state.routines.find((routine) => routine.id === e.target.value)
+                    const nextVersions = nextRoutine?.choreographyVersions || []
+                    setScheduleVersionId(nextVersions[nextVersions.length - 1]?.id || '')
+                  }}
+                >
+                  {state.routines.map((routine) => (
+                    <option key={routine.id} value={routine.id}>{routine.name}</option>
+                  ))}
+                </select>
+                <select
+                  value={scheduleVersionId}
+                  onChange={(e) => setScheduleVersionId(e.target.value)}
+                >
+                  {selectedRoutineVersions.map((version, versionIndex) => (
+                    <option key={version.id} value={version.id}>
+                      v{versionIndex + 1}
+                    </option>
+                  ))}
+                </select>
+                <button onClick={handleSchedulePractice}>+ Schedule</button>
+              </div>
+            )}
+          </>
+        )}
+
+        {addMode === 'event' && (
           <div className={styles['schedule-controls']}>
+            {/* AED Quick-pick */}
+            <div className={styles['aed-quick-pick']}>
+              <label className={styles['field-label']}>AED Quick-pick</label>
+              <div className={styles['aed-chips']}>
+                {AED_TEMPLATES.map((t) => (
+                  <button
+                    key={t.name}
+                    className={`${styles['aed-chip']} ${eventName === t.name ? styles['aed-chip-active'] : ''}`}
+                    onClick={() => handlePickAedTemplate(t)}
+                    title={`${t.venue} — ${t.startDate}`}
+                  >
+                    {getEventTypeIcon(t.eventType)} {t.region === 'national' ? 'National' : t.region.charAt(0).toUpperCase() + t.region.slice(1).replace('-', ' ')}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className={styles['event-form-row']}>
+              <label className={styles['field-label']}>Type</label>
+              <select value={eventType} onChange={(e) => setEventType(e.target.value)}>
+                {EVENT_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>{t.icon} {t.label}</option>
+                ))}
+              </select>
+            </div>
+
             <input
-              type="date"
-              value={scheduleDate}
-              onChange={(e) => setScheduleDate(e.target.value)}
+              type="text"
+              value={eventName}
+              onChange={(e) => setEventName(e.target.value)}
+              placeholder="Event name"
             />
-            <select
-              value={scheduleRoutineId}
-              onChange={(e) => {
-                setScheduleRoutineId(e.target.value)
-                const nextRoutine = state.routines.find((routine) => routine.id === e.target.value)
-                const nextVersions = nextRoutine?.choreographyVersions || []
-                setScheduleVersionId(nextVersions[nextVersions.length - 1]?.id || '')
-              }}
-            >
-              {state.routines.map((routine) => (
-                <option key={routine.id} value={routine.id}>{routine.name}</option>
-              ))}
-            </select>
-            <select
-              value={scheduleVersionId}
-              onChange={(e) => setScheduleVersionId(e.target.value)}
-            >
-              {selectedRoutineVersions.map((version, versionIndex) => (
-                <option key={version.id} value={version.id}>
-                  v{versionIndex + 1}{version.label ? ` — ${version.label}` : ''}
-                </option>
-              ))}
-            </select>
-            <button onClick={handleSchedulePractice}>+ Schedule</button>
+            <input
+              type="text"
+              value={eventVenue}
+              onChange={(e) => setEventVenue(e.target.value)}
+              placeholder="Venue (optional)"
+            />
+
+            <div className={styles['event-date-row']}>
+              <div>
+                <label className={styles['field-label']}>Start</label>
+                <input
+                  type="date"
+                  value={eventStartDate}
+                  onChange={(e) => setEventStartDate(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className={styles['field-label']}>End</label>
+                <input
+                  type="date"
+                  value={eventEndDate}
+                  onChange={(e) => setEventEndDate(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <button onClick={handleCreateEvent} disabled={!eventName.trim()}>
+              + Create Event
+            </button>
           </div>
         )}
       </div>
@@ -222,6 +386,7 @@ export default function Calendar() {
           {Array.from({ length: daysInMonth }, (_, i) => {
             const day = i + 1
             const sessions = getSessionsForDay(day)
+            const shows = getShowsForDay(day)
             const logged = isPracticeLogged(day)
             const isToday = isTodayCell(day)
 
@@ -232,12 +397,19 @@ export default function Calendar() {
               >
                 {day}
                 {logged && <div className={styles['practice-logged']} />}
-                {sessions.length > 0 && (
+                {(sessions.length > 0 || shows.length > 0) && (
                   <div className={styles['session-dots']}>
                     {sessions.map((s) => (
                       <div
                         key={s.id}
                         className={`${styles['session-dot']} ${styles[`dot-${s.type}`]}`}
+                      />
+                    ))}
+                    {shows.map((s) => (
+                      <div
+                        key={s.id}
+                        className={`${styles['session-dot']} ${styles['dot-event']}`}
+                        title={s.name}
                       />
                     ))}
                   </div>
@@ -249,10 +421,43 @@ export default function Calendar() {
       </div>
 
       {/* Upcoming events */}
-      {upcoming.length > 0 && (
+      {(upcoming.length > 0 || upcomingShows.length > 0) && (
         <div className={styles['upcoming-section']}>
           <h3>Coming Up</h3>
           <div className={styles['upcoming-list']}>
+            {/* Upcoming shows/events */}
+            {upcomingShows.map((s) => {
+              const days = daysUntil(s.startDate || s.date)
+              return (
+                <div
+                  key={s.id}
+                  className={styles['upcoming-item']}
+                  onClick={() => navigate(`/show/${s.id}`)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <span className={styles['upcoming-icon']}>
+                    {getEventTypeIcon(s.eventType)}
+                  </span>
+                  <div className={styles['upcoming-info']}>
+                    <div className={styles['upcoming-title']}>{s.name}</div>
+                    <div className={styles['upcoming-date']}>
+                      {formatDate(s.startDate || s.date)}
+                      {s.venue && ` · ${s.venue}`}
+                    </div>
+                    {(s.entries || []).length > 0 && (
+                      <div className={styles['upcoming-date']}>
+                        {s.entries.length} entr{s.entries.length === 1 ? 'y' : 'ies'}
+                      </div>
+                    )}
+                  </div>
+                  <span className={`${styles['upcoming-countdown']} ${days <= 14 ? styles.soon : ''}`}>
+                    {days} day{days !== 1 ? 's' : ''}
+                  </span>
+                </div>
+              )
+            })}
+
+            {/* Upcoming sessions */}
             {upcoming.map((s) => {
               const days = daysUntil(s.date)
               const linked = getRoutineVersion(s)
@@ -268,7 +473,7 @@ export default function Calendar() {
                     </div>
                     {linked?.version && (
                       <div className={styles['upcoming-date']}>
-                        Choreo: v{linked.versionIndex + 1} {linked.version.label ? `— ${linked.version.label}` : ''}
+                        Choreo: v{linked.versionIndex + 1}
                       </div>
                     )}
                   </div>

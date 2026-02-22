@@ -5,17 +5,17 @@ export const GRADE_LEVELS = [
   'Intermediate Foundation', 'Intermediate', 'Advanced 1', 'Advanced 2',
 ]
 
-// Default app state — Isla's Dance Journey
+// Default app state — My Dancing
 export const defaultState = {
   settings: {
-    dancerName: "Isla",
+    dancerName: "My Dancing",
     themeColor: "#a855f7",
     promptLeadMs: 200,
   },
 
-  // Isla's profile — her personal space
-  islaProfile: {
-    name: "Isla",
+  // Dancer profile — personal space
+  dancerProfile: {
+    name: "My Dancing",
     goals: [],          // { id, text, createdDate, completedDate? }
     currentFocus: null,  // { type: "routine"|"discipline", id }
   },

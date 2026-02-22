@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { useRegisterSW } from 'virtual:pwa-register/react'
 import Layout from './components/Layout'
 import { useApp } from './context/AppContext'
 import Auth from './pages/Auth'
@@ -12,6 +13,10 @@ import Settings from './pages/Settings'
 
 export default function App() {
   const { isLoading, authLoading, isAuthenticated, hasSupabaseAuth } = useApp()
+  const {
+    needRefresh: [needRefresh],
+    updateServiceWorker,
+  } = useRegisterSW()
 
   // While checking auth session, show a loading spinner
   if (authLoading) {
@@ -32,17 +37,28 @@ export default function App() {
   }
 
   return (
-    <Layout>
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/timeline/:type/:id" element={<Timeline />} />
-        <Route path="/choreography/:routineId" element={<Choreography />} />
-        <Route path="/show/:showId" element={<Scrapbook />} />
-        <Route path="/trophies" element={<TrophyShelf />} />
-        <Route path="/calendar" element={<Calendar />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Layout>
+    <>
+      <Layout>
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/timeline/:type/:id" element={<Timeline />} />
+          <Route path="/choreography/:routineId" element={<Choreography />} />
+          <Route path="/show/:showId" element={<Scrapbook />} />
+          <Route path="/trophies" element={<TrophyShelf />} />
+          <Route path="/calendar" element={<Calendar />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Layout>
+
+      {needRefresh && (
+        <div className="update-banner" role="status" aria-live="polite">
+          <span>Update available</span>
+          <button type="button" onClick={() => updateServiceWorker(true)}>
+            Refresh
+          </button>
+        </div>
+      )}
+    </>
   )
 }

@@ -16,7 +16,7 @@ export const milestones = [
     type: "first-reflection",
     label: "Self-Coach! 🪞",
     icon: "🪞",
-    check: (state) => (state.sessions || []).some((s) => s.islaReflection?.note),
+    check: (state) => (state.sessions || []).some((s) => s.dancerReflection?.note),
   },
   {
     type: "streak-3",
@@ -55,13 +55,13 @@ export const milestones = [
     type: "first-goal",
     label: "Goal Setter! 🎯",
     icon: "🎯",
-    check: (state) => (state.islaProfile?.goals || []).length > 0,
+    check: (state) => (state.dancerProfile?.goals || []).length > 0,
   },
   {
     type: "goal-completed",
     label: "Goal Achieved! 🏆",
     icon: "🏆",
-    check: (state) => (state.islaProfile?.goals || []).some((g) => g.completedDate),
+    check: (state) => (state.dancerProfile?.goals || []).some((g) => g.completedDate),
   },
   {
     type: "element-mastered",

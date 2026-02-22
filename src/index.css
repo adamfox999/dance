@@ -126,3 +126,28 @@ a {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
 }
+
+.update-banner {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--nav-height) + 12px);
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-full);
+  background: var(--card-bg);
+  border: 1px solid var(--purple-200);
+  box-shadow: var(--shadow);
+  color: var(--text);
+}
+
+.update-banner button {
+  padding: 6px 10px;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  color: var(--card-bg);
+  font-weight: 600;
+}

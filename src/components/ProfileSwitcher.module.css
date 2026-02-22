@@ -1,0 +1,206 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal {
+  background: #fff;
+  border-radius: 20px;
+  padding: 28px 24px;
+  max-width: 380px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  animation: slideUp 0.25s ease-out;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(40px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.title {
+  text-align: center;
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0 0 20px;
+  color: #1e1e2e;
+}
+
+.profileList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.profileBtn {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 2px solid #e5e7eb;
+  border-radius: 14px;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-size: 1rem;
+}
+
+.profileBtn:hover {
+  border-color: #a855f7;
+  background: #faf5ff;
+}
+
+.profileBtn.active {
+  border-color: #a855f7;
+  background: #f3e8ff;
+}
+
+.profileEmoji {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.profileInfo {
+  flex: 1;
+  text-align: left;
+}
+
+.profileName {
+  font-weight: 600;
+  color: #1e1e2e;
+}
+
+.profileRole {
+  font-size: 0.78rem;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.activeBadge {
+  font-size: 0.75rem;
+  color: #a855f7;
+  font-weight: 600;
+}
+
+/* PIN entry for switching back to adult */
+.pinSection {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.pinLabel {
+  font-size: 0.85rem;
+  color: #6b7280;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+.pinRow {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.pinInput {
+  width: 100px;
+  padding: 10px 14px;
+  border: 2px solid #e5e7eb;
+  border-radius: 10px;
+  font-size: 1.1rem;
+  text-align: center;
+  letter-spacing: 4px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.pinInput:focus {
+  border-color: #a855f7;
+}
+
+.pinInput.error {
+  border-color: #ef4444;
+  animation: shake 0.3s ease;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+.pinSubmit {
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: none;
+  background: #a855f7;
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.pinSubmit:hover {
+  background: #9333ea;
+}
+
+.closeBtn {
+  display: block;
+  margin: 14px auto 0;
+  padding: 8px 24px;
+  border: none;
+  background: none;
+  color: #6b7280;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.closeBtn:hover {
+  color: #1e1e2e;
+}
+
+/* Profile header chip (shown in Layout header) */
+.profileChip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 4px 6px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 20px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #374151;
+  transition: all 0.15s;
+}
+
+.profileChip:hover {
+  border-color: #a855f7;
+  background: #faf5ff;
+}
+
+.profileChip .chipEmoji {
+  font-size: 1.15rem;
+}
+
+.kidBanner {
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+  color: #92400e;
+  text-align: center;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.kidBanner:hover {
+  background: linear-gradient(135deg, #fde68a, #fbbf24);
+}

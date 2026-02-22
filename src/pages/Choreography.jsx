@@ -379,11 +379,17 @@ export default function Choreography() {
       return
     }
 
+    const isLocalBlobSource = typeof liveVideoUrl === 'string' && liveVideoUrl.startsWith('blob:')
     const canRemotePrompt = !!(video.remote && typeof video.remote.prompt === 'function')
     const canAirPlayPicker = typeof video.webkitShowPlaybackTargetPicker === 'function'
 
     if (!canRemotePrompt && !canAirPlayPicker) {
       window.alert('Casting is not supported in this browser. Try Chrome/Edge for Chromecast or Safari for AirPlay.')
+      return
+    }
+
+    if (isLocalBlobSource && !canAirPlayPicker) {
+      window.alert('This video is a local upload. Direct device cast may be unavailable. Use browser menu > Cast and choose This tab/screen, or use a cloud-hosted video URL.')
       return
     }
 
@@ -418,7 +424,11 @@ export default function Choreography() {
               console.warn('AirPlay picker failed after remote prompt block:', pickerErr)
             }
           }
-          window.alert('This browser blocked the cast picker. Try browser menu > Cast (or AirPlay), then choose your device.')
+          if (isLocalBlobSource) {
+            window.alert('Cast picker was dismissed for this local video source. Use browser menu > Cast and choose This tab/screen, or use a cloud-hosted video URL.')
+          } else {
+            window.alert('Cast picker was dismissed or blocked by the browser. Try browser menu > Cast (or AirPlay), then choose your device.')
+          }
           return
         }
 
@@ -1820,8 +1830,6 @@ export default function Choreography() {
   const liveProgressLeft = liveTotalDuration > 0
     ? `${(liveProgressTime / liveTotalDuration) * 100}%`
     : '0%'
-  const displayMusicName = toDisplayFileName(musicFileName)
-  const displayVideoName = toDisplayFileName(videoFileName)
   const hasSyncResult = (!!syncResult && !syncResult.error)
     || Number.isFinite(choreography.videoSyncConfidence)
   const syncOffsetMs = Math.round(syncResult?.offsetMs ?? choreography.videoSyncOffset ?? 0)
@@ -1901,7 +1909,7 @@ export default function Choreography() {
                   >
                     {versions.map((v, i) => (
                       <option key={v.id} value={v.id}>
-                        v{i + 1}{v.label ? ` — ${v.label}` : ''} {v.createdAt ? `(${new Date(v.createdAt).toLocaleDateString()})` : ''}
+                        v{i + 1} {v.createdAt ? `(${new Date(v.createdAt).toLocaleDateString()})` : ''}
                       </option>
                     ))}
                   </select>
@@ -2146,6 +2154,7 @@ export default function Choreography() {
               ref={liveVideoRef}
               src={liveVideoUrl}
               className={styles['live-video-bg']}
+              style={{ objectFit: 'contain', objectPosition: 'center center' }}
               x-webkit-airplay="allow"
               muted={liveAudioMode === 'music' && !!audioUrl}
               playsInline
@@ -2239,21 +2248,17 @@ export default function Choreography() {
                   title={musicFileName || 'No song loaded'}
                   onClick={() => openMediaPicker('audio')}
                 >
-                  <span className={styles['live-upload-text']}>🎵 {displayMusicName}</span>
+                  <span className={styles['live-upload-text']}>🎵 Music</span>
                   <span className={styles['live-upload-pencil']} aria-hidden="true">✏️</span>
                 </button>
                 <button
                   type="button"
                   className={styles['live-upload-btn']}
-                  title={videoFileName || 'No video loaded'}
+                  title={videoProcessing ? compressingLabel : (videoFileName || 'No video loaded')}
                   disabled={videoProcessing}
                   onClick={() => openMediaPicker('video')}
                 >
-                  <span className={styles['live-upload-text']}>
-                    {videoProcessing
-                      ? compressingLabel
-                      : `🎥 ${displayVideoName}`}
-                  </span>
+                  <span className={styles['live-upload-text']}>🎥 Video</span>
                   <span className={styles['live-upload-pencil']} aria-hidden="true">✏️</span>
                 </button>
                 <button
@@ -2606,7 +2611,7 @@ export default function Choreography() {
                     >
                       {versions.map((v, i) => (
                         <option key={v.id} value={v.id}>
-                          v{i + 1}{v.label ? ` — ${v.label}` : ''}
+                          v{i + 1}
                         </option>
                       ))}
                     </select>
@@ -2637,7 +2642,7 @@ export default function Choreography() {
                     >
                       {versions.map((v, i) => (
                         <option key={v.id} value={v.id}>
-                          v{i + 1}{v.label ? ` — ${v.label}` : ''}
+                          v{i + 1}
                         </option>
                       ))}
                     </select>

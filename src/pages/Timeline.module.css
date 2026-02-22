@@ -34,39 +34,93 @@
   text-transform: capitalize;
 }
 
-.liveBtn {
+.addBtn {
   margin-left: auto;
-  padding: 0.5rem 1rem;
-  border-radius: 2rem;
-  border: none;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
   background: linear-gradient(135deg, #a855f7, #ec4899);
   color: white;
+  font-size: 1.15rem;
   font-weight: 700;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: transform 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
 }
 
-.liveBtn:hover {
-  transform: scale(1.05);
+.addDialogBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
 }
 
-.scheduleCard {
-  background: white;
-  border-radius: 0.75rem;
-  padding: 0.75rem;
-  box-shadow: 0 1px 6px rgba(0,0,0,0.06);
-  margin-bottom: 1rem;
+.addDialog {
+  width: min(420px, 100%);
+  background: #fff;
+  border-radius: 0.85rem;
+  box-shadow: 0 10px 36px rgba(0,0,0,0.2);
+  padding: 0.9rem;
 }
 
-.scheduleRow {
+.addDialogHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.8rem;
+}
+
+.addDialogHeader h3 {
+  font-size: 0.95rem;
+}
+
+.addDialogClose {
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 999px;
+  background: #f3f4f6;
+}
+
+.addTypeRow {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   gap: 0.5rem;
+  margin-bottom: 0.75rem;
 }
 
-.scheduleRow input,
-.scheduleRow select {
+.addTypeBtn {
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #4b5563;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.42rem 0.65rem;
+}
+
+.activeAddTypeBtn {
+  background: #a855f7;
+  color: #fff;
+}
+
+.addField {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 0.65rem;
+}
+
+.addField label {
+  font-size: 0.74rem;
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.addField input,
+.addField select {
   border: 1px solid #e5e7eb;
   border-radius: 0.5rem;
   padding: 0.5rem 0.65rem;
@@ -74,13 +128,28 @@
   background: white;
 }
 
-.scheduleRow button {
-  border-radius: 999px;
+.addDialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.2rem;
+}
+
+.addDialogCancel {
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  background: white;
+  padding: 0.42rem 0.75rem;
+  font-size: 0.78rem;
+}
+
+.addDialogSave {
+  border-radius: 0.5rem;
   background: #a855f7;
   color: white;
   font-weight: 700;
+  padding: 0.42rem 0.8rem;
   font-size: 0.78rem;
-  padding: 0.5rem 0.8rem;
 }
 
 /* Elements section (discipline view) */
@@ -205,7 +274,8 @@
 }
 
 .cardBody {
-  background: white;
+  background: linear-gradient(135deg, #ffffff 0%, #fdf4ff 55%, #fef3f2 100%);
+  border: 1px solid #f3e8ff;
   border-radius: 0.75rem;
   padding: 0.75rem;
   box-shadow: 0 1px 6px rgba(0,0,0,0.06);
@@ -229,6 +299,30 @@
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.sessionMediaPlayOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.sessionMediaPlayIcon {
+  width: 2.8rem;
+  height: 2.8rem;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.56);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  line-height: 1;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.45);
 }
 
 .sessionMediaFallback {
@@ -319,18 +413,82 @@
 .cardTitle {
   font-weight: 600;
   font-size: 0.9rem;
+  color: #4c1d95;
 }
 
 .cardNote {
   font-size: 0.75rem;
-  color: #888;
+  color: #7c3aed;
   margin-top: 0.1rem;
 }
 
 .cardArrow {
-  color: #ccc;
+  color: #a855f7;
   font-size: 1.2rem;
   flex-shrink: 0;
+}
+
+.showPlaceMedal {
+  font-size: 1.35rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.showPlaceCircle {
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 999px;
+  background: #f3e8ff;
+  border: 1px solid #d8b4fe;
+  color: #7e22ce;
+  font-size: 0.72rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ===== EVENT TYPE TAG ===== */
+.eventTypeTag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: var(--radius-full, 999px);
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: capitalize;
+  background: rgba(168, 85, 247, 0.12);
+  color: #7e22ce;
+  vertical-align: middle;
+}
+
+/* ===== QUALIFIED BADGE ===== */
+.qualifiedBadge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: var(--radius-full, 999px);
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: rgba(34, 197, 94, 0.15);
+  color: #15803d;
+}
+
+/* ===== ENTRY DETAILS ===== */
+.entryDetails {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 2px;
+  font-size: 0.72rem;
+  color: var(--gray-500, #6b7280);
+}
+
+/* ===== ADD FIELD HINT ===== */
+.addFieldHint {
+  font-size: 0.75rem;
+  color: var(--gray-400, #9ca3af);
+  margin: 0;
 }
 
 .feelingBadge {
@@ -475,12 +633,127 @@
   color: #888;
 }
 
+/* ===== SHOW MEDIA CAROUSEL ===== */
+.showMediaCarousel {
+  padding: 8px 0 12px;
+}
+
+.showMediaTrack {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
+}
+
+.showMediaTrack::-webkit-scrollbar {
+  height: 3px;
+}
+.showMediaTrack::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 2px;
+}
+
+.showMediaItem {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+
+.showMediaImg {
+  display: block;
+  height: 120px;
+  width: auto;
+  max-width: 200px;
+  object-fit: cover;
+}
+
+.showMediaVid {
+  display: block;
+  height: 120px;
+  width: auto;
+  max-width: 220px;
+  background: #000;
+  pointer-events: none;
+}
+
+/* ===== LIGHTBOX ===== */
+.lightboxOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  animation: lbFadeIn 0.2s ease;
+}
+
+@keyframes lbFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.lightboxClose {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  background: rgba(255,255,255,0.15);
+  border: none;
+  color: white;
+  font-size: 1.5rem;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
+.lightboxImg {
+  max-width: 95vw;
+  max-height: 90vh;
+  border-radius: 0.5rem;
+  object-fit: contain;
+}
+
+.lightboxVideo {
+  max-width: 95vw;
+  max-height: 90vh;
+  border-radius: 0.5rem;
+  background: #000;
+}
+
 @media (prefers-color-scheme: dark) {
-  .cardBody, .elementItem, .reflectionPanel {
+  .elementItem, .reflectionPanel {
     background: #1f2937;
     box-shadow: 0 1px 6px rgba(0,0,0,0.3);
   }
   .statusBtn { background: #374151; }
   .reflectBtn { background: #374151; border-color: #4b5563; color: #9ca3af; }
   .reflectionInput { background: #374151; border-color: #4b5563; color: white; }
+}
+
+/* ===== SHARE PARTNER CARD & KID CHIP ===== */
+.sharePartnerCard {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.65rem;
+  padding: 0.65rem 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.partnerKidChip {
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
 }

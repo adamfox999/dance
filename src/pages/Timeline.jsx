@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { generateId } from '../utils/helpers'
 import { loadFile } from '../utils/fileStorage'
+import { getEventTypeIcon } from '../data/aedEvents'
+import { fetchStateFromBackend } from '../utils/backendApi'
 import styles from './Timeline.module.css'
 
 function formatDate(dateStr) {
@@ -99,14 +101,33 @@ function SessionVideoPoster({ rehearsalVideoKey, rehearsalVideoName, className }
 
 export default function Timeline() {
   const { type, id } = useParams()
-  const { state, dispatch } = useApp()
+  const {
+    state, dispatch, hasSupabaseAuth,
+    outgoingShares, createShareInvite, loadShares,
+    fetchPartnerKids, updateSharePartnerKids,
+  } = useApp()
   const navigate = useNavigate()
   const nowRef = useRef(null)
   const [reflectingSession, setReflectingSession] = useState(null)
   const [feeling, setFeeling] = useState('')
   const [note, setNote] = useState('')
-  const [scheduleDate, setScheduleDate] = useState(() => new Date(Date.now() + 86400000).toISOString().split('T')[0])
-  const [scheduleVersionId, setScheduleVersionId] = useState('')
+  const [addDialogOpen, setAddDialogOpen] = useState(false)
+  const [addType, setAddType] = useState('practice')
+  const [addDate, setAddDate] = useState(() => new Date(Date.now() + 86400000).toISOString().split('T')[0])
+  const [addVersionId, setAddVersionId] = useState('')
+  const [addShowName, setAddShowName] = useState('')
+  const [addShowVenue, setAddShowVenue] = useState('')
+  const [addShowPlace, setAddShowPlace] = useState('')
+  const [addEventId, setAddEventId] = useState('')
+  const [addEntryDate, setAddEntryDate] = useState(() => new Date(Date.now() + 86400000).toISOString().split('T')[0])
+  const [addEntryTime, setAddEntryTime] = useState('')
+  const [lightbox, setLightbox] = useState(null) // { type, src }
+
+  // Share state
+  const [shareEmail, setShareEmail] = useState('')
+  const [shareBusy, setShareBusy] = useState(false)
+  const [shareMsg, setShareMsg] = useState(null)
+  const [partnerKidsMap, setPartnerKidsMap] = useState({}) // { shareId: [kid, ...] }
 
   // Determine what we're showing a timeline for
   const isDiscipline = type === 'discipline'
@@ -144,9 +165,15 @@ export default function Timeline() {
   const relatedShows = useMemo(() => {
     if (!isRoutine) return []
     return (state.shows || [])
-      .filter(s => (s.routineIds || []).includes(id))
+      .filter(s => (s.entries || []).some(e => e.routineId === id))
       .sort((a, b) => new Date(b.date) - new Date(a.date))
   }, [state.shows, id, isRoutine])
+
+  // All events available to link an entry to (for the add dialog)
+  const availableEvents = useMemo(() => {
+    return (state.shows || [])
+      .sort((a, b) => new Date(a.startDate || a.date) - new Date(b.startDate || b.date))
+  }, [state.shows])
 
   // Merge all events into a single timeline
   const timelineItems = (() => {
@@ -181,10 +208,21 @@ export default function Timeline() {
 
   useEffect(() => {
     if (!isRoutine) return
-    if (!scheduleVersionId && routineVersions.length) {
-      setScheduleVersionId(routineVersions[routineVersions.length - 1].id)
+    if (!addVersionId && routineVersions.length) {
+      setAddVersionId(routineVersions[routineVersions.length - 1].id)
     }
-  }, [isRoutine, scheduleVersionId, routineVersions])
+  }, [isRoutine, addVersionId, routineVersions])
+
+  useEffect(() => {
+    if (!addDialogOpen) return
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setAddDialogOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [addDialogOpen])
 
   const handleSubmitReflection = (sessionId) => {
     if (!feeling && !note) return
@@ -207,23 +245,141 @@ export default function Timeline() {
     })
   }
 
-  const handleScheduleRehearsal = () => {
-    if (!isRoutine || !routine || !scheduleDate) return
-    const versionId = scheduleVersionId || routineVersions[routineVersions.length - 1]?.id || null
+  const openAddDialog = () => {
+    if (!isRoutine || !routine) return
+    setAddType('practice')
+    setAddDate(new Date(Date.now() + 86400000).toISOString().split('T')[0])
+    setAddVersionId(routineVersions[routineVersions.length - 1]?.id || '')
+    setAddShowName(`${routine.name} show`)
+    setAddShowVenue('')
+    setAddShowPlace('')
+    setAddEventId(availableEvents[0]?.id || '')
+    setAddEntryDate(new Date(Date.now() + 86400000).toISOString().split('T')[0])
+    setAddEntryTime('')
+    setShareEmail('')
+    setShareMsg(null)
+    setAddDialogOpen(true)
+    // Load partner kids for accepted shares of this routine
+    loadPartnerKidsForRoutine()
+  }
 
-    dispatch({
-      type: 'SCHEDULE_REHEARSAL',
-      payload: {
-        id: generateId('session'),
-        date: scheduleDate,
-        scheduledAt: scheduleDate,
-        title: `${routine.name} rehearsal`,
-        routineId: routine.id,
-        disciplineId: routine.disciplineId || null,
-        choreographyVersionId: versionId,
-        status: 'scheduled',
-      },
-    })
+  // Shares for THIS routine
+  const routineShares = useMemo(() => {
+    return outgoingShares.filter(
+      s => s.routine_id === id || (!s.routine_id && s.status === 'accepted')
+    )
+  }, [outgoingShares, id])
+
+  const loadPartnerKidsForRoutine = async () => {
+    const accepted = outgoingShares.filter(
+      s => s.status === 'accepted' && s.invited_user_id &&
+        (s.routine_id === id || !s.routine_id)
+    )
+    const map = {}
+    await Promise.all(
+      accepted.map(async (share) => {
+        try {
+          const kids = await fetchPartnerKids(share.invited_user_id)
+          map[share.id] = kids
+        } catch {
+          map[share.id] = []
+        }
+      })
+    )
+    setPartnerKidsMap(prev => ({ ...prev, ...map }))
+  }
+
+  const handleShareInvite = async () => {
+    if (!shareEmail.trim()) return
+    setShareBusy(true)
+    setShareMsg(null)
+    try {
+      const res = await fetchStateFromBackend()
+      if (!res?.danceData?.id) throw new Error('No dance data found to share.')
+      await createShareInvite({
+        danceId: res.danceData.id,
+        routineId: id,
+        invitedEmail: shareEmail.trim(),
+      })
+      setShareEmail('')
+      setShareMsg({ type: 'success', text: 'Invite sent!' })
+      await loadShares()
+    } catch (err) {
+      setShareMsg({ type: 'error', text: err?.message || 'Could not send invite' })
+    } finally {
+      setShareBusy(false)
+    }
+  }
+
+  const handleTogglePartnerKid = async (shareId, kidId) => {
+    const share = outgoingShares.find(s => s.id === shareId)
+    if (!share) return
+    const current = share.partner_kid_ids || []
+    const updated = current.includes(kidId)
+      ? current.filter(k => k !== kidId)
+      : [...current, kidId]
+    try {
+      await updateSharePartnerKids(shareId, updated)
+    } catch (err) {
+      console.warn('Failed to update partner kids:', err)
+    }
+  }
+
+  const handleAddTimelineItem = () => {
+    if (!isRoutine || !routine || !addDate) return
+
+    if (addType === 'practice') {
+      const versionId = addVersionId || routineVersions[routineVersions.length - 1]?.id || null
+      dispatch({
+        type: 'SCHEDULE_REHEARSAL',
+        payload: {
+          id: generateId('session'),
+          date: addDate,
+          scheduledAt: addDate,
+          title: `${routine.name} rehearsal`,
+          routineId: routine.id,
+          disciplineId: routine.disciplineId || null,
+          choreographyVersionId: versionId,
+          status: 'scheduled',
+        },
+      })
+    } else if (addType === 'event-entry' && addEventId) {
+      // Add an entry (this routine) to an existing event
+      dispatch({
+        type: 'ADD_EVENT_ENTRY',
+        payload: {
+          showId: addEventId,
+          entry: {
+            id: generateId('entry'),
+            routineId: routine.id,
+            scheduledDate: addEntryDate || '',
+            scheduledTime: addEntryTime || '',
+            place: null,
+            qualified: false,
+            qualifiedForEventId: '',
+            notes: '',
+          },
+        },
+      })
+    } else {
+      // Legacy: create a new quick show directly
+      const parsedPlace = Number.parseInt(addShowPlace, 10)
+      const place = Number.isFinite(parsedPlace) && parsedPlace > 0 ? parsedPlace : null
+      dispatch({
+        type: 'ADD_SHOW',
+        payload: {
+          id: generateId('show'),
+          name: addShowName.trim() || `${routine.name} show`,
+          date: addDate,
+          venue: addShowVenue.trim(),
+          place,
+          routineIds: [routine.id],
+          scrapbookEntries: [],
+        },
+      })
+    }
+
+    setAddDialogOpen(false)
   }
 
   const getSessionVersion = (session) => {
@@ -258,34 +414,257 @@ export default function Timeline() {
         </div>
         {isRoutine && routine && (
           <button
-            className={styles.liveBtn}
-            onClick={() => navigate(`/choreography/${routine.id}`)}
+            className={styles.addBtn}
+            onClick={openAddDialog}
+            aria-label="Add timeline item"
+            title="Add to timeline"
           >
-            ▶ Live
+            +
           </button>
         )}
       </div>
 
-      {isRoutine && routine && (
-        <div className={styles.scheduleCard}>
-          <h3 className={styles.sectionLabel}>Schedule Practice</h3>
-          <div className={styles.scheduleRow}>
-            <input
-              type="date"
-              value={scheduleDate}
-              onChange={(e) => setScheduleDate(e.target.value)}
-            />
-            <select
-              value={scheduleVersionId}
-              onChange={(e) => setScheduleVersionId(e.target.value)}
-            >
-              {routineVersions.map((version, versionIndex) => (
-                <option key={version.id} value={version.id}>
-                  v{versionIndex + 1}{version.label ? ` — ${version.label}` : ''}
-                </option>
-              ))}
-            </select>
-            <button onClick={handleScheduleRehearsal}>+ Schedule</button>
+      {addDialogOpen && isRoutine && routine && (
+        <div className={styles.addDialogBackdrop} onClick={() => setAddDialogOpen(false)}>
+          <div
+            className={styles.addDialog}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Add to timeline"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className={styles.addDialogHeader}>
+              <h3>Add to timeline</h3>
+              <button className={styles.addDialogClose} onClick={() => setAddDialogOpen(false)}>✕</button>
+            </div>
+
+            <div className={styles.addTypeRow}>
+              <button
+                className={`${styles.addTypeBtn} ${addType === 'practice' ? styles.activeAddTypeBtn : ''}`}
+                onClick={() => setAddType('practice')}
+              >
+                Practice
+              </button>
+              <button
+                className={`${styles.addTypeBtn} ${addType === 'event-entry' ? styles.activeAddTypeBtn : ''}`}
+                onClick={() => setAddType('event-entry')}
+              >
+                Event entry
+              </button>
+              <button
+                className={`${styles.addTypeBtn} ${addType === 'show' ? styles.activeAddTypeBtn : ''}`}
+                onClick={() => setAddType('show')}
+              >
+                Quick show
+              </button>
+              {hasSupabaseAuth && (
+                <button
+                  className={`${styles.addTypeBtn} ${addType === 'share' ? styles.activeAddTypeBtn : ''}`}
+                  onClick={() => setAddType('share')}
+                >
+                  Share
+                </button>
+              )}
+            </div>
+
+            {addType === 'practice' ? (
+              <>
+                <div className={styles.addField}>
+                  <label>Date</label>
+                  <input
+                    type="date"
+                    value={addDate}
+                    onChange={(event) => setAddDate(event.target.value)}
+                  />
+                </div>
+                <div className={styles.addField}>
+                  <label>Choreography version</label>
+                  <select
+                    value={addVersionId}
+                    onChange={(event) => setAddVersionId(event.target.value)}
+                  >
+                    {routineVersions.map((version, versionIndex) => (
+                      <option key={version.id} value={version.id}>
+                        v{versionIndex + 1}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            ) : addType === 'event-entry' ? (
+              <>
+                <div className={styles.addField}>
+                  <label>Select event</label>
+                  {availableEvents.length === 0 ? (
+                    <p className={styles.addFieldHint}>No events yet — create one on the Calendar page first.</p>
+                  ) : (
+                    <select
+                      value={addEventId}
+                      onChange={(event) => setAddEventId(event.target.value)}
+                    >
+                      {availableEvents.map((ev) => (
+                        <option key={ev.id} value={ev.id}>
+                          {getEventTypeIcon(ev.eventType)} {ev.name} ({ev.startDate || ev.date})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+                <div className={styles.addField}>
+                  <label>Performance date</label>
+                  <input
+                    type="date"
+                    value={addEntryDate}
+                    onChange={(event) => setAddEntryDate(event.target.value)}
+                  />
+                </div>
+                <div className={styles.addField}>
+                  <label>Scheduled time (optional)</label>
+                  <input
+                    type="time"
+                    value={addEntryTime}
+                    onChange={(event) => setAddEntryTime(event.target.value)}
+                  />
+                </div>
+              </>
+            ) : addType === 'show' ? (
+              <>
+                <div className={styles.addField}>
+                  <label>Date</label>
+                  <input
+                    type="date"
+                    value={addDate}
+                    onChange={(event) => setAddDate(event.target.value)}
+                  />
+                </div>
+                <div className={styles.addField}>
+                  <label>Show name</label>
+                  <input
+                    type="text"
+                    value={addShowName}
+                    onChange={(event) => setAddShowName(event.target.value)}
+                    placeholder="Show"
+                  />
+                </div>
+                <div className={styles.addField}>
+                  <label>Venue (optional)</label>
+                  <input
+                    type="text"
+                    value={addShowVenue}
+                    onChange={(event) => setAddShowVenue(event.target.value)}
+                    placeholder="Venue"
+                  />
+                </div>
+                <div className={styles.addField}>
+                  <label>Place (optional)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={addShowPlace}
+                    onChange={(event) => setAddShowPlace(event.target.value)}
+                    placeholder="e.g. 1"
+                  />
+                </div>
+              </>
+            ) : addType === 'share' ? (
+              <>
+                {/* Invite form */}
+                <div className={styles.addField}>
+                  <label>Invite a dance partner's parent</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input
+                      type="email"
+                      placeholder="Parent's email"
+                      value={shareEmail}
+                      onChange={(e) => setShareEmail(e.target.value)}
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      className={styles.addDialogSave}
+                      onClick={handleShareInvite}
+                      disabled={shareBusy || !shareEmail.trim()}
+                      style={{ margin: 0 }}
+                    >
+                      {shareBusy ? '…' : '📨 Invite'}
+                    </button>
+                  </div>
+                  {shareMsg && (
+                    <p style={{ fontSize: '0.78rem', color: shareMsg.type === 'error' ? '#dc2626' : '#16a34a', fontWeight: 500, marginTop: 4 }}>
+                      {shareMsg.text}
+                    </p>
+                  )}
+                </div>
+
+                {/* Accepted shares — partner kid selection */}
+                {routineShares.filter(s => s.status === 'accepted').map(share => {
+                  const kids = partnerKidsMap[share.id] || []
+                  return (
+                    <div key={share.id} className={styles.sharePartnerCard}>
+                      <div style={{ fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+                        📧 {share.invited_email}
+                        <span style={{ marginLeft: 8, fontSize: '0.7rem', color: '#16a34a', fontWeight: 700 }}>✓ Joined</span>
+                      </div>
+                      {kids.length > 0 ? (
+                        <>
+                          <div style={{ fontSize: '0.72rem', color: '#6b7280', marginBottom: 4 }}>Which of their kids are in this dance?</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {kids.map(kid => {
+                              const assigned = (share.partner_kid_ids || []).includes(kid.id)
+                              return (
+                                <button
+                                  key={kid.id}
+                                  onClick={() => handleTogglePartnerKid(share.id, kid.id)}
+                                  className={styles.partnerKidChip}
+                                  style={{
+                                    border: assigned ? '2px solid #7c3aed' : '1px solid #d1d5db',
+                                    background: assigned ? '#ede9fe' : '#f9fafb',
+                                    color: assigned ? '#7c3aed' : '#6b7280',
+                                  }}
+                                >
+                                  {kid.avatar_emoji} {kid.display_name}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{ fontSize: '0.72rem', color: '#9ca3af', fontStyle: 'italic' }}>
+                          They haven't added their dancers yet.
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+
+                {/* Pending shares */}
+                {routineShares.filter(s => s.status === 'pending').map(share => (
+                  <div key={share.id} className={styles.sharePartnerCard} style={{ opacity: 0.6 }}>
+                    <div style={{ fontSize: '0.78rem', color: '#6b7280' }}>
+                      📧 {share.invited_email}
+                      <span style={{ marginLeft: 8, fontSize: '0.7rem', color: '#92400e', fontWeight: 600 }}>⏳ Pending</span>
+                    </div>
+                  </div>
+                ))}
+
+                {routineShares.length === 0 && (
+                  <p style={{ fontSize: '0.78rem', color: '#9ca3af', textAlign: 'center', margin: '8px 0' }}>
+                    No shares for this dance yet.
+                  </p>
+                )}
+              </>
+            ) : null}
+
+            {addType !== 'share' && (
+            <div className={styles.addDialogActions}>
+              <button className={styles.addDialogCancel} onClick={() => setAddDialogOpen(false)}>
+                Cancel
+              </button>
+              <button className={styles.addDialogSave} onClick={handleAddTimelineItem}>
+                Add
+              </button>
+            </div>
+            )}
           </div>
         </div>
       )}
@@ -350,11 +729,16 @@ export default function Timeline() {
                     style={item.data.routineId ? { cursor: 'pointer' } : undefined}
                   >
                     {item.data.rehearsalVideoKey ? (
-                      <SessionVideoPoster
-                        rehearsalVideoKey={item.data.rehearsalVideoKey}
-                        rehearsalVideoName={item.data.rehearsalVideoName}
-                        className={styles.sessionMediaPoster}
-                      />
+                      <>
+                        <SessionVideoPoster
+                          rehearsalVideoKey={item.data.rehearsalVideoKey}
+                          rehearsalVideoName={item.data.rehearsalVideoName}
+                          className={styles.sessionMediaPoster}
+                        />
+                        <div className={styles.sessionMediaPlayOverlay} aria-hidden="true">
+                          <span className={styles.sessionMediaPlayIcon}>▶</span>
+                        </div>
+                      </>
                     ) : (
                       <div className={styles.sessionMediaFallback}>
                         <span className={styles.sessionMediaFallbackIcon}>
@@ -371,23 +755,20 @@ export default function Timeline() {
                           if (!versionData) return null
                           return (
                             <div className={styles.sessionMediaNote}>
-                              Choreo: v{versionData.versionIndex + 1}{versionData.version.label ? ` — ${versionData.version.label}` : ''}
+                              Choreo: v{versionData.versionIndex + 1}
                             </div>
                           )
                         })()}
-                        {item.data.rehearsalVideoName && (
-                          <div className={styles.sessionMediaNote}>🎥 {item.data.rehearsalVideoName}</div>
-                        )}
                       </div>
 
                       <div className={styles.sessionMediaActions}>
-                        {item.data.islaReflection?.feeling && (
+                        {item.data.dancerReflection?.feeling && (
                           <span className={styles.feelingBadge}>
-                            {item.data.islaReflection.feeling}
+                            {item.data.dancerReflection.feeling}
                           </span>
                         )}
 
-                        {!item.data.islaReflection?.feeling && isPast(item.date) && (
+                        {!item.data.dancerReflection?.feeling && isPast(item.date) && (
                           <button
                             className={`${styles.reflectBtn} ${styles.reflectBtnOverlay}`}
                             onClick={(e) => {
@@ -412,11 +793,11 @@ export default function Timeline() {
                     <span className={styles.cardIcon}>📹</span>
                     <div className={styles.cardInfo}>
                       <div className={styles.cardTitle}>Practice Video</div>
-                      {item.data.islaNote && (
-                        <div className={styles.cardNote}>{item.data.islaNote}</div>
+                      {item.data.dancerNote && (
+                        <div className={styles.cardNote}>{item.data.dancerNote}</div>
                       )}
-                      {item.data.islaFeeling && (
-                        <span className={styles.feelingBadge}>{item.data.islaFeeling}</span>
+                      {item.data.dancerFeeling && (
+                        <span className={styles.feelingBadge}>{item.data.dancerFeeling}</span>
                       )}
                     </div>
                   </div>
@@ -428,16 +809,87 @@ export default function Timeline() {
                     onClick={() => navigate(`/show/${item.data.id}`)}
                     style={{ cursor: 'pointer' }}
                   >
-                    <span className={styles.cardIcon}>🎭</span>
+                    <span className={styles.cardIcon}>{getEventTypeIcon(item.data.eventType)}</span>
                     <div className={styles.cardInfo}>
-                      <div className={styles.cardTitle}>{item.data.name}</div>
+                      <div className={styles.cardTitle}>
+                        {item.data.name}
+                        {item.data.eventType && item.data.eventType !== 'show' && (
+                          <span className={styles.eventTypeTag}>
+                            {item.data.eventType.replace('-', ' ')}
+                          </span>
+                        )}
+                      </div>
                       {item.data.venue && (
                         <div className={styles.cardNote}>📍 {item.data.venue}</div>
                       )}
+                      {(() => {
+                        const entry = (item.data.entries || []).find(e => e.routineId === id)
+                        if (!entry) return null
+                        const hasDate = Boolean(entry.scheduledDate)
+                        const hasTime = Boolean(entry.scheduledTime)
+                        const dateLabel = hasDate
+                          ? new Date(entry.scheduledDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+                          : ''
+                        return (
+                          <div className={styles.entryDetails}>
+                            {(hasDate || hasTime) && (
+                              <span>
+                                ⏰ {hasDate ? dateLabel : ''}{hasDate && hasTime ? ' · ' : ''}{hasTime ? entry.scheduledTime : ''}
+                              </span>
+                            )}
+                            {entry.qualified && (
+                              <span className={styles.qualifiedBadge}>✓ Qualified</span>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
+                    {(() => {
+                      // Check entry-level place first, then event-level place
+                      const entry = (item.data.entries || []).find(e => e.routineId === id)
+                      const placeVal = entry?.place ?? item.data.place
+                      const parsedPlace = Number.parseInt(String(placeVal || ''), 10)
+                      const hasPlace = Number.isFinite(parsedPlace) && parsedPlace > 0
+                      if (!hasPlace) return null
+
+                      if (parsedPlace === 1 || parsedPlace === 2 || parsedPlace === 3) {
+                        const medal = parsedPlace === 1 ? '🥇' : parsedPlace === 2 ? '🥈' : '🥉'
+                        return <span className={styles.showPlaceMedal}>{medal}</span>
+                      }
+
+                      return <span className={styles.showPlaceCircle}>{parsedPlace}</span>
+                    })()}
                     <span className={styles.cardArrow}>→</span>
                   </div>
                 )}
+
+                {/* Media carousel for show cards */}
+                {item.type === 'show' && (() => {
+                  const media = (item.data.scrapbookEntries || []).filter(
+                    e => e.type === 'photo' || e.type === 'video'
+                  )
+                  if (media.length === 0) return null
+                  return (
+                    <div className={styles.showMediaCarousel}>
+                      <div className={styles.showMediaTrack}>
+                        {media.map(me => (
+                          <div
+                            key={me.id}
+                            className={styles.showMediaItem}
+                            onClick={(e) => { e.stopPropagation(); setLightbox({ type: me.type, src: me.content }) }}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            {me.type === 'photo' ? (
+                              <img src={me.content} alt="" className={styles.showMediaImg} />
+                            ) : (
+                              <video src={me.content} className={styles.showMediaVid} />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
 
               {/* Reflection inline modal */}
@@ -482,6 +934,18 @@ export default function Timeline() {
           )
         })}
       </div>
+
+      {/* Lightbox overlay */}
+      {lightbox && (
+        <div className={styles.lightboxOverlay} onClick={() => setLightbox(null)}>
+          <button className={styles.lightboxClose} onClick={() => setLightbox(null)}>✕</button>
+          {lightbox.type === 'photo' ? (
+            <img src={lightbox.src} alt="" className={styles.lightboxImg} onClick={e => e.stopPropagation()} />
+          ) : (
+            <video src={lightbox.src} controls autoPlay className={styles.lightboxVideo} onClick={e => e.stopPropagation()} />
+          )}
+        </div>
+      )}
     </div>
   )
 }

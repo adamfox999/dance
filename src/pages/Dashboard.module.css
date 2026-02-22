@@ -123,6 +123,22 @@
   opacity: 0.9;
 }
 
+.upcomingEntries {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.upcomingEntryChip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  background: rgba(255,255,255,0.25);
+}
+
 /* Sections */
 .section {
   margin-bottom: 1.5rem;
@@ -406,6 +422,16 @@
   text-align: center;
   padding: 3rem 1rem;
   color: #888;
+}
+
+/* Kid setup prompt */
+.setupCard {
+  background: linear-gradient(135deg, #faf5ff 0%, #f0e7ff 100%);
+  border: 1px solid #e9d5ff;
+  border-radius: 1rem;
+  padding: 1rem 1.1rem;
+  margin-bottom: 0.75rem;
+  text-align: center;
 }
 
 .emptyEmoji {

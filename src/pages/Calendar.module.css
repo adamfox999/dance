@@ -26,6 +26,29 @@
   color: var(--gray-600);
 }
 
+/* ===== ADD-MODE TABS ===== */
+.add-mode-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.add-mode-tab {
+  flex: 1;
+  padding: 6px 0;
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: var(--gray-100);
+  color: var(--gray-500);
+  transition: all 0.2s;
+}
+
+.add-mode-tab-active {
+  background: var(--purple-500);
+  color: white;
+}
+
 .schedule-empty {
   font-size: 0.78rem;
   color: var(--gray-500);
@@ -154,6 +177,7 @@
 .dot-practice { background: var(--purple-500); }
 .dot-lesson { background: var(--blue-500); }
 .dot-competition { background: var(--yellow-500); }
+.dot-event { background: var(--pink-500, #ec4899); }
 
 .practice-logged {
   position: absolute;
@@ -287,4 +311,71 @@
   font-size: 0.78rem;
   color: var(--green-500);
   font-weight: 600;
+}
+
+/* ===== AED QUICK-PICK ===== */
+.aed-quick-pick {
+  margin-bottom: 4px;
+}
+
+.field-label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--gray-500);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.aed-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.aed-chip {
+  padding: 4px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.68rem;
+  font-weight: 600;
+  background: var(--gray-100);
+  color: var(--gray-600);
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.aed-chip:hover {
+  background: var(--gray-200);
+}
+
+.aed-chip-active {
+  background: var(--purple-100);
+  color: var(--purple-600);
+  outline: 2px solid var(--purple-400);
+}
+
+.event-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.event-date-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.event-date-row input {
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  background: white;
+}
+
+.schedule-controls button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
