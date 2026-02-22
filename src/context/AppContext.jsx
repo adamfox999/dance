@@ -1,7 +1,7 @@
 import { createContext, useContext, useReducer, useEffect, useState, useCallback } from 'react'
 import { defaultState } from '../data/defaultState'
 import { checkForNewStickers } from '../utils/milestones'
-import { fetchStateFromBackend, saveStateToBackend } from '../utils/backendApi'
+import { fetchStateFromBackend, saveStateToBackend, setDanceOwnerId } from '../utils/backendApi'
 import { setFileStorageUserScope } from '../utils/fileStorage'
 import { hasSupabaseConfig, supabase } from '../utils/supabaseClient'
 import {
@@ -1082,6 +1082,11 @@ export function AppProvider({ children }) {
 
           if (payload?.source === 'dance' && payload?.danceData?.state_data) {
             dispatch({ type: 'IMPORT_STATE', payload: stateFromDanceRow(payload.danceData) })
+
+            // Point file storage at the dance owner (may be a different user for guardians)
+            const effectiveOwner = payload.danceData.owner_id || authUser.id
+            setDanceOwnerId(effectiveOwner)
+            setFileStorageUserScope(effectiveOwner)
           }
         } catch (err) {
           console.warn('Backend state fetch unavailable; using local state only:', err)
@@ -1209,6 +1214,7 @@ export function AppProvider({ children }) {
 
   const signOut = async () => {
     if (!supabase) return
+    setDanceOwnerId(null)
     await supabase.auth.signOut()
   }
 

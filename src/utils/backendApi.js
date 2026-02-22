@@ -2,6 +2,22 @@ import { hasSupabaseConfig, supabase } from './supabaseClient'
 
 const STORAGE_BUCKET = 'dance-files'
 
+// Tracks the actual owner of the dance data we are working with.
+// Set after fetchStateFromBackend resolves — overrides user.id for all
+// file and save operations so guardians co-own the same data.
+let _danceOwnerId = null
+
+/**
+ * Set the effective dance-data owner.  Called from AppContext after hydration.
+ */
+export function setDanceOwnerId(id) {
+  _danceOwnerId = id || null
+}
+
+export function getDanceOwnerId() {
+  return _danceOwnerId
+}
+
 function ensureSupabaseClient() {
   if (!hasSupabaseConfig || !supabase) {
     throw new Error('Supabase client is not configured.')
@@ -18,10 +34,15 @@ async function requireUser() {
   return data.user
 }
 
+/** Return the effective owner ID — the dance owner if set, otherwise the logged-in user. */
+async function effectiveOwnerId() {
+  const user = await requireUser()
+  return _danceOwnerId || user.id
+}
+
 function getStoragePath(ownerId, key, fileName) {
   const base = `users/${ownerId}/files/${String(key || '').replace(/^files\//, '')}`
   if (fileName) {
-    // Sanitise the original filename for storage safety
     const safe = String(fileName).replace(/[^a-zA-Z0-9._-]/g, '_')
     return `${base}/${safe}`
   }
@@ -32,6 +53,7 @@ export async function fetchStateFromBackend() {
   const client = ensureSupabaseClient()
   const user = await requireUser()
 
+  // 1. Try the user's own dance row first
   const { data: ownDance, error: ownError } = await client
     .from('dance')
     .select('id, owner_id, name, dancers, theme_color, view_mode, prompt_lead_ms, state_data, updated_at')
@@ -40,38 +62,38 @@ export async function fetchStateFromBackend() {
 
   if (ownError) throw new Error(ownError.message)
   if (ownDance?.state_data) {
-    return {
-      source: 'dance',
-      danceData: ownDance,
-    }
+    _danceOwnerId = user.id
+    return { source: 'dance', danceData: ownDance }
   }
 
-  // Fallback for accepted guardians / shared users:
-  // load one dance row visible via RLS even when they are not the owner.
-  const { data: accessibleDanceRows, error: accessibleError } = await client
+  // 2. Fallback: find a dance row accessible via RLS (guardian / shared)
+  const { data: accessibleRows, error: accessibleError } = await client
     .from('dance')
     .select('id, owner_id, name, dancers, theme_color, view_mode, prompt_lead_ms, state_data, updated_at')
+    .neq('owner_id', user.id)
     .order('updated_at', { ascending: false })
     .limit(1)
 
   if (accessibleError) throw new Error(accessibleError.message)
 
-  const danceData = Array.isArray(accessibleDanceRows) ? accessibleDanceRows[0] : null
-  if (!danceData?.state_data) return { source: 'none', danceData: null }
-
-  return {
-    source: 'dance',
-    danceData,
+  const danceData = Array.isArray(accessibleRows) ? accessibleRows[0] : null
+  if (danceData?.state_data) {
+    // We are a guardian/co-owner: remember the real owner
+    _danceOwnerId = danceData.owner_id
+    return { source: 'dance', danceData }
   }
+
+  return { source: 'none', danceData: null }
 }
 
 export async function saveStateToBackend(state) {
   const client = ensureSupabaseClient()
-  const user = await requireUser()
+  await requireUser()
+  const ownerId = await effectiveOwnerId()
   const settings = state?.settings || {}
 
   const payload = {
-    owner_id: user.id,
+    owner_id: ownerId,
     name: settings.danceName || 'Dance Routine',
     dancers: Array.isArray(settings.dancers) ? settings.dancers : [],
     theme_color: settings.themeColor || '#a855f7',
@@ -92,9 +114,10 @@ export async function saveStateToBackend(state) {
 
 export async function uploadFileToBackend(key, blob, meta = {}) {
   const client = ensureSupabaseClient()
-  const user = await requireUser()
+  await requireUser()
+  const ownerId = await effectiveOwnerId()
   const normalizedKey = String(key || '').replace(/^files\//, '')
-  const storagePath = getStoragePath(user.id, normalizedKey, meta?.fileName)
+  const storagePath = getStoragePath(ownerId, normalizedKey, meta?.fileName)
   const contentType = meta?.type || blob?.type || 'application/octet-stream'
 
   const { error: uploadError } = await client.storage
@@ -115,7 +138,7 @@ export async function uploadFileToBackend(key, blob, meta = {}) {
 
   const { error: metaError } = await client
     .from('file_metadata')
-    .upsert({ owner_id: user.id, id: normalizedKey, meta_data: remoteMeta }, { onConflict: 'owner_id,id' })
+    .upsert({ owner_id: ownerId, id: normalizedKey, meta_data: remoteMeta }, { onConflict: 'owner_id,id' })
 
   if (metaError) throw new Error(metaError.message)
   return { ok: true }
@@ -123,19 +146,20 @@ export async function uploadFileToBackend(key, blob, meta = {}) {
 
 export async function getFileFromBackend(key) {
   const client = ensureSupabaseClient()
-  const user = await requireUser()
+  await requireUser()
+  const ownerId = await effectiveOwnerId()
   const normalizedKey = String(key || '').replace(/^files\//, '')
 
   const { data: metaRow, error: metaError } = await client
     .from('file_metadata')
     .select('meta_data')
-    .eq('owner_id', user.id)
+    .eq('owner_id', ownerId)
     .eq('id', normalizedKey)
     .maybeSingle()
 
   if (metaError) throw new Error(metaError.message)
 
-  const storagePath = metaRow?.meta_data?.storagePath || getStoragePath(user.id, normalizedKey)
+  const storagePath = metaRow?.meta_data?.storagePath || getStoragePath(ownerId, normalizedKey)
   const { data, error } = await client.storage
     .from(STORAGE_BUCKET)
     .download(storagePath)
@@ -151,25 +175,25 @@ export async function getFileFromBackend(key) {
 
 export async function deleteFileFromBackend(key) {
   const client = ensureSupabaseClient()
-  const user = await requireUser()
+  await requireUser()
+  const ownerId = await effectiveOwnerId()
   const normalizedKey = String(key || '').replace(/^files\//, '')
 
-  // Look up the actual storage path from metadata first
   const { data: metaRow } = await client
     .from('file_metadata')
     .select('meta_data')
-    .eq('owner_id', user.id)
+    .eq('owner_id', ownerId)
     .eq('id', normalizedKey)
     .maybeSingle()
 
-  const storagePath = metaRow?.meta_data?.storagePath || getStoragePath(user.id, normalizedKey)
+  const storagePath = metaRow?.meta_data?.storagePath || getStoragePath(ownerId, normalizedKey)
 
   await client.storage.from(STORAGE_BUCKET).remove([storagePath])
 
   const { error } = await client
     .from('file_metadata')
     .delete()
-    .eq('owner_id', user.id)
+    .eq('owner_id', ownerId)
     .eq('id', normalizedKey)
 
   if (error) throw new Error(error.message)
@@ -178,13 +202,14 @@ export async function deleteFileFromBackend(key) {
 
 export async function listMediaFromBackend(type) {
   const client = ensureSupabaseClient()
-  const user = await requireUser()
+  await requireUser()
+  const ownerId = await effectiveOwnerId()
   const normalizedType = type === 'audio' || type === 'video' ? type : null
 
   const { data, error } = await client
     .from('file_metadata')
     .select('id, owner_id, meta_data, updated_at')
-    .eq('owner_id', user.id)
+    .eq('owner_id', ownerId)
     .order('updated_at', { ascending: false })
 
   if (error) throw new Error(error.message)
@@ -196,7 +221,7 @@ export async function listMediaFromBackend(type) {
       return {
         id: row.id,
         key: row.id,
-        storagePath: meta.storagePath || getStoragePath(user.id, row.id),
+        storagePath: meta.storagePath || getStoragePath(ownerId, row.id),
         fileName: meta.fileName || row.id,
         type: contentType,
         size: Number(meta.size || 0),
