@@ -83,13 +83,19 @@ export async function fetchStateFromBackend() {
     return { source: 'dance', danceData }
   }
 
+  // No data anywhere — this is a brand-new user who owns their own (empty) data.
+  _danceOwnerId = user.id
   return { source: 'none', danceData: null }
 }
 
 export async function saveStateToBackend(state) {
+  // _danceOwnerId is null until fetchStateFromBackend completes.
+  // Saving before that would create a stale row under the wrong user.
+  if (!_danceOwnerId) return { ok: true, skipped: true }
+
   const client = ensureSupabaseClient()
   await requireUser()
-  const ownerId = await effectiveOwnerId()
+  const ownerId = _danceOwnerId
   const settings = state?.settings || {}
 
   const payload = {
