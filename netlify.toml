@@ -25,3 +25,9 @@ SECRETS_SCAN_OMIT_KEYS = "VITE_SUPABASE_URL,VITE_SUPABASE_ANON_KEY,VITE_SUPABASE
   for = "/*.wasm"
   [headers.values]
     Content-Type = "application/wasm"
+
+# SPA catch-all: send all routes to index.html for React Router
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
