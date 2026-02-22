@@ -94,12 +94,11 @@ export async function saveStateToBackend(state) {
   if (!_danceOwnerId) return { ok: true, skipped: true }
 
   const client = ensureSupabaseClient()
-  await requireUser()
+  const user = await requireUser()
   const ownerId = _danceOwnerId
   const settings = state?.settings || {}
 
   const payload = {
-    owner_id: ownerId,
     name: settings.danceName || 'Dance Routine',
     dancers: Array.isArray(settings.dancers) ? settings.dancers : [],
     theme_color: settings.themeColor || '#a855f7',
@@ -110,9 +109,19 @@ export async function saveStateToBackend(state) {
     state_data: state,
   }
 
-  const { error } = await client
-    .from('dance')
-    .upsert(payload, { onConflict: 'owner_id' })
+  let error
+  if (ownerId === user.id) {
+    // Own row: upsert (creates if first time)
+    ;({ error } = await client
+      .from('dance')
+      .upsert({ owner_id: ownerId, ...payload }, { onConflict: 'owner_id' }))
+  } else {
+    // Guardian: explicit UPDATE only (INSERT policy blocks upsert for other owners)
+    ;({ error } = await client
+      .from('dance')
+      .update(payload)
+      .eq('owner_id', ownerId))
+  }
 
   if (error) throw new Error(error.message)
   return { ok: true }
