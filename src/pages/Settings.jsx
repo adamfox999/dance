@@ -564,11 +564,14 @@ export default function Settings() {
       {/* Sharing */}
       {hasSupabaseAuth && authUser && isAdmin && (
         <div className={styles['settings-section']}>
-          <h3>Sharing</h3>
+          <h3>Share This Dance</h3>
           <div className={styles['setting-card']}>
             {/* Invite form */}
             <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#6b7280', marginBottom: 6 }}>
-              Invite a dance partner's parent to view a routine
+              Invite a parent or guardian to view this dance
+            </div>
+            <div style={{ fontSize: '0.78rem', color: '#9ca3af', marginBottom: 12, lineHeight: 1.4 }}>
+              Generate a one-time link to share this dance routine with another parent or guardian. They'll be able to view the routine without needing an account.
             </div>
             <form onSubmit={handleCreateShare} style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
               <div style={{ display: 'flex', gap: 8 }}>
@@ -592,20 +595,25 @@ export default function Settings() {
                 </button>
               </div>
               {shareLink && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f0fdf4', borderRadius: 8, padding: '8px 12px', border: '1px solid #bbf7d0' }}>
-                  <input
-                    readOnly
-                    value={shareLink}
-                    style={{ flex: 1, border: 'none', background: 'transparent', fontSize: '0.8rem', color: '#166534', outline: 'none' }}
-                    onClick={(e) => e.target.select()}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleCopyShareLink(shareLink)}
-                    style={{ background: '#16a34a', color: '#fff', borderRadius: 6, padding: '4px 12px', fontSize: '0.78rem', border: 'none', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
-                  >
-                    Copy
-                  </button>
+                <div>
+                  <div style={{ fontSize: '0.78rem', color: '#6b7280', marginBottom: 6 }}>
+                    ✓ Link created! Copy and share it with the other parent/guardian:
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f0fdf4', borderRadius: 8, padding: '8px 12px', border: '1px solid #bbf7d0' }}>
+                    <input
+                      readOnly
+                      value={shareLink}
+                      style={{ flex: 1, border: 'none', background: 'transparent', fontSize: '0.8rem', color: '#166534', outline: 'none' }}
+                      onClick={(e) => e.target.select()}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleCopyShareLink(shareLink)}
+                      style={{ background: '#16a34a', color: '#fff', borderRadius: 6, padding: '4px 12px', fontSize: '0.78rem', border: 'none', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
+                    >
+                      Copy
+                    </button>
+                  </div>
                 </div>
               )}
               {shareMsg && (
