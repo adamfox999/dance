@@ -744,6 +744,8 @@
   background: linear-gradient(to bottom, rgba(0,0,0,0.75), transparent);
   z-index: 1;
   pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.28s ease;
 }
 
 .live-bottom-gradient {
@@ -753,6 +755,13 @@
   background: linear-gradient(to top, rgba(0,0,0,0.85), transparent);
   z-index: 1;
   pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.28s ease;
+}
+
+.live-screen-controls-visible .live-top-gradient,
+.live-screen-controls-visible .live-bottom-gradient {
+  opacity: 1;
 }
 
 .video-download-status {

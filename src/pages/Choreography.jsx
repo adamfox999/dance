@@ -387,56 +387,58 @@ export default function Choreography() {
       return
     }
 
-    try {
-      if (canRemotePrompt && video.remote && typeof video.remote.watchAvailability === 'function') {
-        const maybeAvailable = await new Promise((resolve) => {
-          let settled = false
-          const finish = (value) => {
-            if (settled) return
-            settled = true
-            resolve(value)
+    if (canRemotePrompt) {
+      try {
+        await video.remote.prompt()
+        return
+      } catch (err) {
+        console.warn('Cast prompt failed:', err)
+
+        if (err?.name === 'AbortError') {
+          window.alert('No cast device was selected.')
+          return
+        }
+
+        if (err?.name === 'NotFoundError') {
+          const localSource = typeof liveVideoUrl === 'string' && liveVideoUrl.startsWith('blob:')
+          if (localSource) {
+            window.alert('No cast devices were found for this local video source. Try casting the browser tab/screen, or use a cloud-hosted video URL.')
+          } else {
+            window.alert('No cast devices were found. Make sure your device and TV are on the same network.')
           }
-          const timeoutId = setTimeout(() => finish(null), 700)
-          video.remote.watchAvailability((available) => {
-            clearTimeout(timeoutId)
-            finish(Boolean(available))
-          }).catch(() => {
-            clearTimeout(timeoutId)
-            finish(null)
-          })
-        })
-        if (maybeAvailable === false && !canAirPlayPicker) {
-          window.alert('No cast devices were found. Make sure your device and TV are on the same network.')
+          return
+        }
+
+        if (err?.name === 'NotAllowedError') {
+          if (canAirPlayPicker) {
+            try {
+              video.webkitShowPlaybackTargetPicker()
+              return
+            } catch (pickerErr) {
+              console.warn('AirPlay picker failed after remote prompt block:', pickerErr)
+            }
+          }
+          window.alert('This browser blocked the cast picker. Try browser menu > Cast (or AirPlay), then choose your device.')
+          return
+        }
+
+        if (!canAirPlayPicker) {
+          window.alert('Could not start casting on this device.')
           return
         }
       }
+    }
 
-      if (canRemotePrompt) {
-        await video.remote.prompt()
-        return
-      }
-
-      if (canAirPlayPicker) {
+    if (canAirPlayPicker) {
+      try {
         video.webkitShowPlaybackTargetPicker()
         return
+      } catch (err) {
+        console.warn('AirPlay picker failed:', err)
+        window.alert('Could not open the casting picker on this device.')
       }
-    } catch (err) {
-      console.warn('Cast prompt failed:', err)
-      if (err?.name === 'AbortError') {
-        window.alert('No cast device was selected.')
-        return
-      }
-      if (err?.name === 'NotFoundError') {
-        window.alert('No cast devices were found. Make sure your device and TV are on the same network.')
-        return
-      }
-      if (err?.name === 'NotAllowedError') {
-        window.alert('Casting was blocked by the browser. Try again and allow the cast prompt.')
-        return
-      }
-      window.alert('Could not start casting on this device.')
     }
-  }, [])
+  }, [liveVideoUrl])
 
   useEffect(() => {
     if (isKidLiveView && liveVideoUrl) {
