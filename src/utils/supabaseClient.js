@@ -13,6 +13,9 @@ export const supabase = hasSupabaseConfig
 		auth: {
 			persistSession: true,
 			autoRefreshToken: true,
+			detectSessionInUrl: true,
+			storageKey: 'dance-tracker-auth',
+			storage: typeof window !== 'undefined' ? window.localStorage : undefined,
 		},
 	})
 	: null

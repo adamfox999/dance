@@ -18,8 +18,14 @@ async function requireUser() {
   return data.user
 }
 
-function getStoragePath(ownerId, key) {
-  return `users/${ownerId}/files/${String(key || '').replace(/^files\//, '')}`
+function getStoragePath(ownerId, key, fileName) {
+  const base = `users/${ownerId}/files/${String(key || '').replace(/^files\//, '')}`
+  if (fileName) {
+    // Sanitise the original filename for storage safety
+    const safe = String(fileName).replace(/[^a-zA-Z0-9._-]/g, '_')
+    return `${base}/${safe}`
+  }
+  return base
 }
 
 export async function fetchStateFromBackend() {
@@ -70,7 +76,7 @@ export async function uploadFileToBackend(key, blob, meta = {}) {
   const client = ensureSupabaseClient()
   const user = await requireUser()
   const normalizedKey = String(key || '').replace(/^files\//, '')
-  const storagePath = getStoragePath(user.id, normalizedKey)
+  const storagePath = getStoragePath(user.id, normalizedKey, meta?.fileName)
   const contentType = meta?.type || blob?.type || 'application/octet-stream'
 
   const { error: uploadError } = await client.storage
@@ -129,7 +135,16 @@ export async function deleteFileFromBackend(key) {
   const client = ensureSupabaseClient()
   const user = await requireUser()
   const normalizedKey = String(key || '').replace(/^files\//, '')
-  const storagePath = getStoragePath(user.id, normalizedKey)
+
+  // Look up the actual storage path from metadata first
+  const { data: metaRow } = await client
+    .from('file_metadata')
+    .select('meta_data')
+    .eq('owner_id', user.id)
+    .eq('id', normalizedKey)
+    .maybeSingle()
+
+  const storagePath = metaRow?.meta_data?.storagePath || getStoragePath(user.id, normalizedKey)
 
   await client.storage.from(STORAGE_BUCKET).remove([storagePath])
 

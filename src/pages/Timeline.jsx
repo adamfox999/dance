@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { generateId } from '../utils/helpers'
+import { loadFile } from '../utils/fileStorage'
 import styles from './Timeline.module.css'
 
 function formatDate(dateStr) {
@@ -43,6 +44,59 @@ const SESSION_ICONS = {
   'competition': '🏆',
 }
 
+function SessionVideoPoster({ rehearsalVideoKey, rehearsalVideoName, className }) {
+  const [videoUrl, setVideoUrl] = useState('')
+
+  useEffect(() => {
+    let mounted = true
+    let objectUrl = ''
+
+    const loadPoster = async () => {
+      if (!rehearsalVideoKey) {
+        setVideoUrl('')
+        return
+      }
+
+      try {
+        const file = await loadFile(rehearsalVideoKey)
+        if (!mounted || !file?.blob) {
+          if (mounted) setVideoUrl('')
+          return
+        }
+
+        objectUrl = URL.createObjectURL(file.blob)
+        setVideoUrl(objectUrl)
+      } catch {
+        if (mounted) setVideoUrl('')
+      }
+    }
+
+    loadPoster()
+
+    return () => {
+      mounted = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [rehearsalVideoKey])
+
+  if (!videoUrl) return null
+
+  return (
+    <video
+      className={className || styles.cardThumb}
+      src={videoUrl}
+      preload="metadata"
+      muted
+      playsInline
+      onLoadedData={(e) => {
+        e.currentTarget.currentTime = 0
+        e.currentTarget.pause()
+      }}
+      title={rehearsalVideoName || 'Practice video'}
+    />
+  )
+}
+
 export default function Timeline() {
   const { type, id } = useParams()
   const { state, dispatch } = useApp()
@@ -78,11 +132,10 @@ export default function Timeline() {
   }, [state.sessions, id, isDiscipline, isRoutine])
 
   // For routines, also get practice videos
-  const practiceVideos = useMemo(() => {
-    if (!isRoutine || !routine) return []
-    return [...(routine.practiceVideos || [])]
-      .sort((a, b) => new Date(b.date) - new Date(a.date))
-  }, [routine, isRoutine])
+  const practiceVideos = !isRoutine || !routine
+    ? []
+    : [...(routine.practiceVideos || [])]
+        .sort((a, b) => new Date(b.date) - new Date(a.date))
 
   // Related shows (for routines)
   const relatedShows = useMemo(() => {
@@ -99,7 +152,7 @@ export default function Timeline() {
   }, [state.stickers])
 
   // Merge all events into a single timeline
-  const timelineItems = useMemo(() => {
+  const timelineItems = (() => {
     const items = []
 
     filteredSessions.forEach(s => {
@@ -117,7 +170,7 @@ export default function Timeline() {
     // Sort newest first
     items.sort((a, b) => new Date(b.date) - new Date(a.date))
     return items
-  }, [filteredSessions, practiceVideos, relatedShows])
+  })()
 
   // Discipline elements (for discipline view)
   const elements = isDiscipline ? (discipline?.elements || []) : []
@@ -291,7 +344,7 @@ export default function Timeline() {
 
                 {item.type === 'session' && (
                   <div
-                    className={styles.cardBody}
+                    className={styles.sessionMediaCard}
                     onClick={() => {
                       if (item.data.routineId) {
                         navigate(`/choreography/${item.data.routineId}?live=true&sessionId=${item.data.id}`)
@@ -299,40 +352,57 @@ export default function Timeline() {
                     }}
                     style={item.data.routineId ? { cursor: 'pointer' } : undefined}
                   >
-                    <span className={styles.cardIcon}>
-                      {SESSION_ICONS[item.data.type] || '📝'}
-                    </span>
-                    <div className={styles.cardInfo}>
-                      <div className={styles.cardTitle}>{(item.data.title || '').trim() || formatRehearsalTitle(item.date)}</div>
-                      {(() => {
-                        const versionData = getSessionVersion(item.data)
-                        if (!versionData) return null
-                        return (
-                          <div className={styles.cardNote}>
-                            Choreo: v{versionData.versionIndex + 1}{versionData.version.label ? ` — ${versionData.version.label}` : ''}
-                          </div>
-                        )
-                      })()}
-                      {item.data.rehearsalVideoName && (
-                        <div className={styles.cardNote}>🎥 {item.data.rehearsalVideoName}</div>
-                      )}
-                      {item.data.islaReflection?.feeling && (
-                        <span className={styles.feelingBadge}>
-                          {item.data.islaReflection.feeling}
+                    {item.data.rehearsalVideoKey ? (
+                      <SessionVideoPoster
+                        rehearsalVideoKey={item.data.rehearsalVideoKey}
+                        rehearsalVideoName={item.data.rehearsalVideoName}
+                        className={styles.sessionMediaPoster}
+                      />
+                    ) : (
+                      <div className={styles.sessionMediaFallback}>
+                        <span className={styles.sessionMediaFallbackIcon}>
+                          {SESSION_ICONS[item.data.type] || '📝'}
                         </span>
-                      )}
-                    </div>
-                    {!item.data.islaReflection?.feeling && isPast(item.date) && (
-                      <button
-                        className={styles.reflectBtn}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setReflectingSession(item.data.id)
-                        }}
-                      >
-                        How was it?
-                      </button>
+                      </div>
                     )}
+
+                    <div className={styles.sessionMediaOverlay}>
+                      <div className={styles.sessionMediaInfo}>
+                        <div className={styles.sessionMediaTitle}>{(item.data.title || '').trim() || formatRehearsalTitle(item.date)}</div>
+                        {(() => {
+                          const versionData = getSessionVersion(item.data)
+                          if (!versionData) return null
+                          return (
+                            <div className={styles.sessionMediaNote}>
+                              Choreo: v{versionData.versionIndex + 1}{versionData.version.label ? ` — ${versionData.version.label}` : ''}
+                            </div>
+                          )
+                        })()}
+                        {item.data.rehearsalVideoName && (
+                          <div className={styles.sessionMediaNote}>🎥 {item.data.rehearsalVideoName}</div>
+                        )}
+                      </div>
+
+                      <div className={styles.sessionMediaActions}>
+                        {item.data.islaReflection?.feeling && (
+                          <span className={styles.feelingBadge}>
+                            {item.data.islaReflection.feeling}
+                          </span>
+                        )}
+
+                        {!item.data.islaReflection?.feeling && isPast(item.date) && (
+                          <button
+                            className={`${styles.reflectBtn} ${styles.reflectBtnOverlay}`}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setReflectingSession(item.data.id)
+                            }}
+                          >
+                            How was it?
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 )}
 

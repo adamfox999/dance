@@ -4,7 +4,7 @@ import styles from './Auth.module.css'
 
 // Steps: 'email' → 'login-code' | 'create-name' → 'create-code'
 export default function Auth() {
-  const { checkUserExists, signInWithMagicLink, signUpWithMagicLink, verifyEmailOtp } = useApp()
+  const { signInWithMagicLink, signUpWithMagicLink, verifyEmailOtp } = useApp()
 
   const [step, setStep] = useState('email')
   const [email, setEmail] = useState('')
@@ -22,17 +22,17 @@ export default function Auth() {
     setBusy(true)
     clearMessage()
     try {
-      const exists = await checkUserExists(email.trim())
-      if (exists) {
-        // Returning user — checkUserExists already sends OTP when user exists
-        setCode('')
-        setStep('login-code')
-      } else {
-        // New user — collect their name first
-        setStep('create-name')
-      }
+      await signInWithMagicLink(email.trim())
+      setCode('')
+      setStep('login-code')
     } catch (err) {
-      setMessage({ type: 'error', text: err?.message || 'Something went wrong' })
+      const msg = String(err?.message || '').toLowerCase()
+      const likelyNewUser = msg.includes('signup') || msg.includes('sign up') || msg.includes('user not found')
+      if (likelyNewUser) {
+        setStep('create-name')
+      } else {
+        setMessage({ type: 'error', text: err?.message || 'Something went wrong' })
+      }
     } finally {
       setBusy(false)
     }

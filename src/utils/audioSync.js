@@ -60,21 +60,21 @@ export function extractWaveform(buffer, samples = 800) {
  * @param {number} maxOffsetSec - maximum offset to search (default 30s)
  * @returns {{ offsetMs: number, confidence: number }}
  */
-export function crossCorrelateSync(musicBuffer, videoBuffer, maxOffsetSec = 30) {
-  // Downsample to ~4kHz for fast correlation
-  const targetRate = 4000
+export function crossCorrelateSync(musicBuffer, videoBuffer, maxOffsetSec = 10) {
+  // Downsample to ~2kHz for fast correlation on the main thread
+  const targetRate = 2000
   const musicData = downsample(musicBuffer.getChannelData(0), musicBuffer.sampleRate, targetRate)
   const videoData = downsample(videoBuffer.getChannelData(0), videoBuffer.sampleRate, targetRate)
 
-  const maxOffset = Math.floor(maxOffsetSec * targetRate)
-  const windowLen = Math.min(musicData.length, videoData.length, targetRate * 15) // compare up to 15s
+  const effectiveMaxOffsetSec = Math.max(1, Math.min(10, maxOffsetSec))
+  const maxOffset = Math.floor(effectiveMaxOffsetSec * targetRate)
+  const windowLen = Math.min(musicData.length, videoData.length, targetRate * 8) // compare up to 8s
 
   let bestCorr = -Infinity
   let bestOffset = 0
   let totalEnergy = 0
 
-  // Slide video over music
-  for (let offset = -maxOffset; offset <= maxOffset; offset += 1) {
+  const correlateAtOffset = (offset) => {
     let corr = 0
     let count = 0
     for (let i = 0; i < windowLen; i++) {
@@ -85,19 +85,39 @@ export function crossCorrelateSync(musicBuffer, videoBuffer, maxOffsetSec = 30) 
         count++
       }
     }
-    if (count > 0) {
-      corr /= count
-      totalEnergy += Math.abs(corr)
-      if (corr > bestCorr) {
-        bestCorr = corr
-        bestOffset = offset
-      }
+    if (count <= 0) return null
+    return corr / count
+  }
+
+  // Coarse search first (much faster), then refine around best peak.
+  const coarseStep = 16
+  for (let offset = -maxOffset; offset <= maxOffset; offset += coarseStep) {
+    const corr = correlateAtOffset(offset)
+    if (corr == null) continue
+    totalEnergy += Math.abs(corr)
+    if (corr > bestCorr) {
+      bestCorr = corr
+      bestOffset = offset
+    }
+  }
+
+  const refineStart = Math.max(-maxOffset, bestOffset - coarseStep)
+  const refineEnd = Math.min(maxOffset, bestOffset + coarseStep)
+  for (let offset = refineStart; offset <= refineEnd; offset += 1) {
+    const corr = correlateAtOffset(offset)
+    if (corr == null) continue
+    totalEnergy += Math.abs(corr)
+    if (corr > bestCorr) {
+      bestCorr = corr
+      bestOffset = offset
     }
   }
 
   const offsetMs = Math.round((bestOffset / targetRate) * 1000)
   // Confidence: how much the peak stands out from average
-  const avgCorr = totalEnergy / (2 * maxOffset + 1)
+  const coarseSamples = Math.floor((2 * maxOffset) / coarseStep) + 1
+  const fineSamples = refineEnd - refineStart + 1
+  const avgCorr = totalEnergy / Math.max(1, coarseSamples + fineSamples)
   const confidence = avgCorr > 0 ? Math.min(100, Math.round((bestCorr / avgCorr) * 25)) : 0
 
   return { offsetMs, confidence }

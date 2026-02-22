@@ -6,6 +6,10 @@ import { decodeAudioFile, extractWaveform, crossCorrelateSync, formatTimestamp }
 import { detectBeats, getCurrentBeatInfo } from '../utils/beatDetection'
 import { saveFile, saveLocalFile, loadFile, loadLocalFile } from '../utils/fileStorage'
 import { saveStateToBackend, listMediaFromBackend } from '../utils/backendApi'
+import {
+  Input, Output, Conversion, ALL_FORMATS,
+  BlobSource, Mp4OutputFormat, BufferTarget, QUALITY_MEDIUM,
+} from 'mediabunny'
 import styles from './Choreography.module.css'
 import VideoAnnotationLayer from '../components/VideoAnnotationLayer'
 import annotationStyles from '../components/VideoAnnotationLayer.module.css'
@@ -27,6 +31,99 @@ function formatFileSize(size) {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function getFileNameBase(name) {
+  if (!name) return 'video'
+  const dot = name.lastIndexOf('.')
+  return dot > 0 ? name.slice(0, dot) : name
+}
+
+const MAX_VIDEO_UPLOAD_BYTES = 50 * 1024 * 1024
+
+async function compressVideoToMax720p(inputFile, options = {}) {
+  const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null
+  if (!(inputFile instanceof File || inputFile instanceof Blob)) {
+    throw new Error('Invalid video file.')
+  }
+  if (onProgress) onProgress({ stage: 'preparing', progress: 0 })
+
+  const startTime = Date.now()
+  console.log('[Mediabunny] Starting 720p compression for', inputFile.name || 'blob', `(${(inputFile.size / 1024 / 1024).toFixed(1)} MB)`)
+
+  const input = new Input({
+    source: new BlobSource(inputFile),
+    formats: ALL_FORMATS,
+  })
+  const output = new Output({
+    format: new Mp4OutputFormat(),
+    target: new BufferTarget(),
+  })
+
+  try {
+    if (onProgress) onProgress({ stage: 'compressing', progress: 0, elapsed: 0 })
+
+    const conversion = await Conversion.init({
+      input,
+      output,
+      video: (videoTrack) => {
+        const opts = { bitrate: QUALITY_MEDIUM }
+        // Only downscale if the video is taller than 720p
+        if (videoTrack.displayHeight > 720) {
+          opts.height = 720
+        }
+        // Keep only the first video track
+        if (videoTrack.number > 1) return { discard: true }
+        return opts
+      },
+      audio: (audioTrack) => {
+        if (audioTrack.number > 1) return { discard: true }
+        return {
+          numberOfChannels: 2,
+          sampleRate: 48000,
+          bitrate: QUALITY_MEDIUM,
+        }
+      },
+    })
+
+    if (!conversion.isValid) {
+      const reasons = conversion.discardedTracks
+        .map(t => `${t.track.type}: ${t.reason}`)
+        .join(', ')
+      throw new Error(`Video format not supported for conversion: ${reasons}`)
+    }
+
+    if (onProgress) {
+      conversion.onProgress = (progress) => {
+        const pct = Math.max(0, Math.min(1, Number(progress) || 0))
+        const elapsed = Math.round((Date.now() - startTime) / 1000)
+        onProgress({ stage: 'compressing', progress: pct, elapsed })
+      }
+    }
+
+    await conversion.execute()
+    console.log('[Mediabunny] Conversion complete in', Math.round((Date.now() - startTime) / 1000), 's')
+
+    if (onProgress) onProgress({ stage: 'finalizing', progress: 1 })
+
+    const buffer = output.target.buffer
+    if (!buffer || !buffer.byteLength) {
+      throw new Error('Video compression produced an empty file.')
+    }
+
+    const compressedBlob = new Blob([buffer], { type: 'video/mp4' })
+    console.log('[Mediabunny] Output size:', (compressedBlob.size / 1024 / 1024).toFixed(1), 'MB')
+
+    return new File(
+      [compressedBlob],
+      `${getFileNameBase(inputFile.name || 'video')}-720p.mp4`,
+      { type: 'video/mp4', lastModified: Date.now() }
+    )
+  } catch (error) {
+    throw new Error(`Video compression failed: ${error?.message || 'Unknown error'}`)
+  } finally {
+    input.dispose()
+  }
 }
 
 // Keyword → emoji map for instruction auto-suggestions
@@ -187,6 +284,11 @@ export default function Choreography() {
   // Live mode video
   const [liveVideoUrl, setLiveVideoUrl] = useState('')
   const [videoFileName, setVideoFileName] = useState(choreography.videoFileName || '')
+  const [videoProcessing, setVideoProcessing] = useState(false)
+  const [videoProcessingMessage, setVideoProcessingMessage] = useState('')
+  const [videoProcessStage, setVideoProcessStage] = useState('idle')
+  const [videoCompressionProgress, setVideoCompressionProgress] = useState(null)
+  const [videoError, setVideoError] = useState('')
   const liveVideoRef = useRef(null)
   const [liveIsPlaying, setLiveIsPlaying] = useState(false)
   const [liveTime, setLiveTime] = useState(0)
@@ -254,7 +356,24 @@ export default function Choreography() {
     } finally {
       setSyncing(false)
     }
-  }, [dispatch])
+  }, [dispatch, routineId, selectedVersion?.id])
+
+  const resetVideoSyncState = useCallback(() => {
+    setSyncResult(null)
+    if (routineId && selectedVersion?.id) {
+      dispatch({
+        type: 'UPDATE_CHOREOGRAPHY_VERSION',
+        payload: {
+          routineId,
+          versionId: selectedVersion.id,
+          updates: {
+            videoSyncOffset: 0,
+            videoSyncConfidence: null,
+          },
+        },
+      })
+    }
+  }, [dispatch, routineId, selectedVersion?.id])
 
   const closeMediaPicker = useCallback(() => {
     setMediaPickerOpen(false)
@@ -295,13 +414,14 @@ export default function Choreography() {
   const [beatData, setBeatData] = useState(null) // { bpm, firstBeat, beats[], eightCounts[] }
   const [showBeats, setShowBeats] = useState(true)
   const liveAnimRef = useRef(null)
+  const lastLiveClockTimeRef = useRef(-1)
 
   // ========== LOAD PERSISTED FILES ON MOUNT ==========
   useEffect(() => {
     let cancelled = false
     const restore = async () => {
       try {
-        const applyMusicBlob = async (blob, fileName = 'choreo-music.mp3', durationFromMeta = 0) => {
+        const applyMusicBlob = async (blob, fileName = choreography.musicFileName || 'music.mp3', durationFromMeta = 0) => {
           const url = URL.createObjectURL(blob)
           setAudioUrl(url)
           setMusicFileName(fileName)
@@ -331,7 +451,7 @@ export default function Choreography() {
         let resolvedMusic = false
         const localMusic = await loadLocalFile('choreo-music')
         if (localMusic?.blob && !cancelled) {
-          await applyMusicBlob(localMusic.blob, localMusic.meta?.fileName || 'choreo-music.mp3', localMusic.meta?.duration || 0)
+          await applyMusicBlob(localMusic.blob, localMusic.meta?.fileName || choreography.musicFileName || 'music.mp3', localMusic.meta?.duration || 0)
           resolvedMusic = true
         } else {
           // Final fallback: load from Supabase and cache locally for next run.
@@ -344,7 +464,7 @@ export default function Choreography() {
                 console.warn('Could not cache fetched music locally:', cacheErr)
               }
               if (!cancelled) {
-                await applyMusicBlob(music.blob, music.meta?.fileName || 'choreo-music.mp3', music.meta?.duration || 0)
+                await applyMusicBlob(music.blob, music.meta?.fileName || choreography.musicFileName || 'music.mp3', music.meta?.duration || 0)
                 resolvedMusic = true
               }
             }
@@ -609,45 +729,136 @@ export default function Choreography() {
   const applyVideoFile = useCallback(async (file) => {
     if (!file) return
 
-    await saveFile(liveVideoStorageKey, file, {
-      fileName: file.name,
-      type: file.type,
-      size: file.size,
-    })
-
-    const url = URL.createObjectURL(file)
-    setLiveVideoUrl(url)
-    setVideoFileName(file.name)
-    setLiveTime(0)
+    liveVideoRef.current?.pause()
+    audioRef.current?.pause()
     setLiveIsPlaying(false)
+    setIsPlaying(false)
 
-    if (sessionId) {
-      dispatch({
-        type: 'ATTACH_REHEARSAL_VIDEO',
-        payload: {
-          sessionId,
-          rehearsalVideoKey: liveVideoStorageKey,
-          rehearsalVideoName: file.name,
-        },
-      })
-    } else {
-      dispatch({
-        type: 'UPDATE_CHOREOGRAPHY_VERSION',
-        payload: { routineId, versionId: selectedVersion?.id, updates: { videoFileName: file.name } },
-      })
-    }
+    setVideoProcessing(true)
+    setVideoProcessStage('preparing')
+    setVideoCompressionProgress(null)
+    setVideoProcessingMessage('⏳ Compressing video to 720p before upload…')
+    setVideoError('')
+    setIsVideoDownloading(true)
+    setVideoDownloadProgress(0)
 
-    if (audioUrl) {
+    try {
+      let compressedFile
       try {
-        const musicResp = await fetch(audioUrl)
-        const musicBlob = await musicResp.blob()
-        const musicFile = new File([musicBlob], 'music.mp3', { type: musicBlob.type || 'audio/mpeg' })
-        await runSyncAnalysis(musicFile, file)
-      } catch (err) {
-        console.warn('Sync failed:', err)
+        compressedFile = await compressVideoToMax720p(file, {
+          onProgress: ({ stage, progress, elapsed }) => {
+            if (stage === 'preparing') {
+              setVideoProcessStage('preparing')
+              setVideoCompressionProgress(null)
+              setVideoProcessingMessage('⏳ Preparing video for 720p compression…')
+              setVideoDownloadProgress(5)
+              return
+            }
+            if (stage === 'compressing') {
+              const pct = Math.round((Number(progress) || 0) * 100)
+              const elapsedSec = Number(elapsed) || 0
+              const mins = Math.floor(elapsedSec / 60)
+              const secs = elapsedSec % 60
+              const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`
+              setVideoProcessStage('compressing')
+              setVideoCompressionProgress(pct)
+              setVideoProcessingMessage(`⏳ Compressing video to 720p… ${pct}% (${timeStr})`)
+              setVideoDownloadProgress(Math.max(5, Math.min(65, Math.round(5 + (pct * 0.6)))))
+              return
+            }
+            if (stage === 'finalizing') {
+              setVideoProcessStage('finalizing')
+              setVideoCompressionProgress(100)
+              setVideoProcessingMessage('⏳ Finalizing compressed video…')
+              setVideoDownloadProgress(70)
+            }
+          },
+        })
+      } catch (error) {
+        setVideoProcessingMessage(`❌ Compression failed: ${error?.message || 'Unknown error'}`)
+        throw error
       }
+
+      const sourceSizeLabel = formatFileSize(file.size) || `${file.size} B`
+      const compressedSizeLabel = formatFileSize(compressedFile.size) || `${compressedFile.size} B`
+      const uploadLimitLabel = formatFileSize(MAX_VIDEO_UPLOAD_BYTES) || '50 MB'
+      if (compressedFile.size > MAX_VIDEO_UPLOAD_BYTES) {
+        throw new Error(`Compressed video is ${compressedSizeLabel}. Maximum allowed size is ${uploadLimitLabel} (50 MB limit).`)
+      }
+      setVideoProcessStage('compressed')
+      setVideoCompressionProgress(null)
+      setVideoProcessingMessage(`✅ Compressed to 720p MP4: ${sourceSizeLabel} → ${compressedSizeLabel}`)
+      setVideoDownloadProgress(75)
+
+      setVideoProcessStage('caching')
+      setVideoProcessingMessage('⏳ Saving compressed video and caching locally…')
+      await saveFile(liveVideoStorageKey, compressedFile, {
+        fileName: compressedFile.name,
+        originalFileName: file.name,
+        type: compressedFile.type,
+        size: compressedFile.size,
+      })
+      setVideoDownloadProgress(90)
+
+      setVideoProcessingMessage('⏳ Verifying local video cache…')
+      const cachedVideo = await loadLocalFile(liveVideoStorageKey)
+      if (!cachedVideo?.blob) {
+        throw new Error('Video was not fully cached locally yet. Please retry upload.')
+      }
+      setVideoDownloadProgress(100)
+
+      resetVideoSyncState()
+
+      const url = URL.createObjectURL(cachedVideo.blob)
+      setLiveVideoUrl(url)
+      setVideoFileName(cachedVideo.meta?.fileName || compressedFile.name)
+      setLiveTime(0)
+      setLiveIsPlaying(false)
+
+      if (sessionId) {
+        dispatch({
+          type: 'ATTACH_REHEARSAL_VIDEO',
+          payload: {
+            sessionId,
+            rehearsalVideoKey: liveVideoStorageKey,
+            rehearsalVideoName: compressedFile.name,
+          },
+        })
+      } else {
+        dispatch({
+          type: 'UPDATE_CHOREOGRAPHY_VERSION',
+          payload: { routineId, versionId: selectedVersion?.id, updates: { videoFileName: compressedFile.name } },
+        })
+      }
+
+      // Upload/caching pipeline is complete here; unlock playback immediately.
+      setVideoProcessing(false)
+      setVideoProcessStage('idle')
+      setVideoCompressionProgress(null)
+      setIsVideoDownloading(false)
+      setVideoDownloadProgress(null)
+
+      if (audioUrl) {
+        try {
+          const musicResp = await fetch(audioUrl)
+          const musicBlob = await musicResp.blob()
+          const musicFile = new File([musicBlob], 'music.mp3', { type: musicBlob.type || 'audio/mpeg' })
+          await runSyncAnalysis(musicFile, compressedFile)
+        } catch (err) {
+          console.warn('Sync failed:', err)
+        }
+      }
+    } catch (error) {
+      console.error('[VideoUpload] ❌ Error:', error)
+      setVideoError(error?.message || 'Video upload failed. Please try again.')
+    } finally {
+      setVideoProcessing(false)
+      setVideoProcessStage('idle')
+      setVideoCompressionProgress(null)
+      setIsVideoDownloading(false)
+      setVideoDownloadProgress(null)
     }
-  }, [audioUrl, dispatch, liveVideoStorageKey, routineId, runSyncAnalysis, selectedVersion?.id, sessionId])
+  }, [audioUrl, dispatch, liveVideoStorageKey, resetVideoSyncState, routineId, runSyncAnalysis, selectedVersion?.id, sessionId])
 
   // ========== LIVE MODE VIDEO ==========
   const handleVideoUpload = async (e) => {
@@ -710,51 +921,71 @@ export default function Choreography() {
     }
   }
 
-  // Keep music audio in sync with the live video (drift-correct every frame)
+  // Keep master music timeline synced with live video (drift-correct every frame)
   const syncLiveAudio = useCallback((videoT) => {
-    if (liveAudioMode !== 'music') return // only sync when playing separate music track
     const audio = audioRef.current
     if (!audio || !audioUrl) return
     const target = videoT - syncOffset
+
+    if (liveAudioMode === 'music') {
+      audio.muted = false
+      audio.volume = 1
+    } else {
+      audio.muted = true
+      audio.volume = 0
+    }
+
     if (target < 0) {
-      // Music hasn't reached its start point yet — keep it paused
+      // Master track hasn't reached start point yet.
       if (!audio.paused) audio.pause()
       return
     }
-    // Music should be playing — auto-start if the video is playing but audio is paused
+
+    // Master track should be running while video is playing.
     if (audio.paused) {
       const video = liveVideoRef.current
       if (video && !video.paused) {
         audio.currentTime = target
         audio.play().catch(() => {
-          setLiveAudioMode('video')
-          video.muted = false
+          if (liveAudioMode === 'music') {
+            setLiveAudioMode('video')
+            video.muted = false
+          }
         })
       }
-    } else if (Math.abs(audio.currentTime - target) > 0.25) {
+    } else if (Math.abs(audio.currentTime - target) > 0.5) {
       audio.currentTime = target
     }
   }, [audioUrl, syncOffset, liveAudioMode])
 
   const toggleLivePlay = () => {
+    if (!filesLoaded || videoProcessing) return
     const video = liveVideoRef.current
     const audio = audioRef.current
     if (isLiveVideoPlayback && video) {
       if (liveIsPlaying) {
         video.pause()
-        if (liveAudioMode === 'music') audio?.pause()
+        audio?.pause()
       } else {
-        if (liveAudioMode === 'music' && audio && audioUrl) {
+        if (audio && audioUrl) {
           const musicTarget = video.currentTime - syncOffset
           if (musicTarget >= 0) {
-            // Music should already be playing at this video position
+            if (liveAudioMode === 'music') {
+              audio.muted = false
+              audio.volume = 1
+            } else {
+              audio.muted = true
+              audio.volume = 0
+            }
             audio.currentTime = musicTarget
             audio.play().catch(() => {
-              setLiveAudioMode('video')
-              video.muted = false
+              if (liveAudioMode === 'music') {
+                setLiveAudioMode('video')
+                video.muted = false
+              }
             })
           }
-          // If musicTarget < 0, music hasn't started yet — syncLiveAudio will auto-start it
+          // If musicTarget < 0, syncLiveAudio will auto-start when the time comes.
         }
         video.play().catch(() => {})
       }
@@ -778,11 +1009,13 @@ export default function Choreography() {
     const video = liveVideoRef.current
     const audio = audioRef.current
     if (liveAudioMode === 'music') {
-      // Mute video, start music in sync
+      // Music is the audible output.
       video.muted = true
       if (liveIsPlaying && audio && audioUrl) {
         const musicTarget = video.currentTime - syncOffset
         if (musicTarget >= 0) {
+          audio.muted = false
+          audio.volume = 1
           audio.currentTime = musicTarget
           audio.playbackRate = playbackRate
           audio.play().catch(() => {
@@ -790,14 +1023,29 @@ export default function Choreography() {
             video.muted = false
           })
         }
-        // If musicTarget < 0, syncLiveAudio will auto-start when the time comes
+        // If musicTarget < 0, syncLiveAudio will auto-start when the time comes.
       }
     } else {
-      // Unmute video, stop music
+      // Video is audible output; keep master music track silent and synced.
       video.muted = false
-      if (audio) audio.pause()
+      if (audio && audioUrl) {
+        audio.muted = true
+        audio.volume = 0
+        if (liveIsPlaying) {
+          const musicTarget = video.currentTime - syncOffset
+          if (musicTarget >= 0) {
+            audio.currentTime = musicTarget
+            audio.playbackRate = playbackRate
+            audio.play().catch(() => {})
+          } else {
+            audio.pause()
+          }
+        } else {
+          audio.pause()
+        }
+      }
     }
-  }, [liveAudioMode, liveVideoUrl, audioUrl]) // re-run whenever video/audio URL changes so mute state is always correct
+  }, [liveAudioMode, liveVideoUrl, audioUrl, liveIsPlaying, syncOffset, playbackRate])
 
   // Seek live mode to a specific time
   const seekLive = (time) => {
@@ -806,11 +1054,15 @@ export default function Choreography() {
     if (isLiveVideoPlayback && video) {
       video.currentTime = time
       setLiveTime(time)
-      if (liveAudioMode === 'music' && audio && audioUrl) {
+      if (audio && audioUrl) {
         const musicTarget = time - syncOffset
         if (musicTarget >= 0) {
           audio.currentTime = musicTarget
+          if (liveIsPlaying && audio.paused) {
+            audio.play().catch(() => {})
+          }
         } else {
+          audio.currentTime = 0
           audio.pause()
         }
       }
@@ -880,14 +1132,18 @@ export default function Choreography() {
   const handleLiveResync = async () => {
     if (!audioUrl || !liveVideoUrl || syncing) return
     try {
-      const [musicResp, videoResp] = await Promise.all([
-        fetch(audioUrl),
-        fetch(liveVideoUrl),
-      ])
-      const [musicBlob, videoBlob] = await Promise.all([
-        musicResp.blob(),
-        videoResp.blob(),
-      ])
+      const musicResp = await fetch(audioUrl)
+      const musicBlob = await musicResp.blob()
+      let videoBlob = null
+
+      const cachedVideo = await loadLocalFile(liveVideoStorageKey)
+      if (cachedVideo?.blob) {
+        videoBlob = cachedVideo.blob
+      } else {
+        const videoResp = await fetch(liveVideoUrl)
+        videoBlob = await videoResp.blob()
+      }
+
       const musicFile = new File([musicBlob], 'music.mp3', { type: musicBlob.type || 'audio/mpeg' })
       const videoFile = new File([videoBlob], 'video.mp4', { type: videoBlob.type || 'video/mp4' })
       await runSyncAnalysis(musicFile, videoFile)
@@ -975,8 +1231,16 @@ export default function Choreography() {
     }
   }
 
-  // Derived time for live mode
-  const effectiveLiveTime = isLiveVideoPlayback ? (liveTime - syncOffset) : currentTime
+  // Derived time for live mode: music track is the master timeline.
+  const hasMasterAudioClock = isLiveVideoPlayback && !!audioUrl
+  const masterAudioTime = hasMasterAudioClock
+    ? Number(audioRef.current?.currentTime || 0)
+    : null
+  const effectiveLiveTime = isLiveVideoPlayback
+    ? (hasMasterAudioClock
+      ? masterAudioTime
+      : (liveTime - syncOffset))
+    : currentTime
   const liveTotalDuration = liveDuration || duration
 
   // Derived beat info for live mode
@@ -1309,23 +1573,93 @@ export default function Choreography() {
     timelineContainerRef.current.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' })
   }, [liveBeatInfo?.beatIndex, liveEditOpen])
 
-  // High-frequency update loop for live mode (beat counter needs 60fps)
+  // Frame-accurate update loop for live mode (keeps UI time stable on heavy videos)
   useEffect(() => {
-    if (mode !== 'live' || !liveIsPlaying) {
-      if (liveAnimRef.current) cancelAnimationFrame(liveAnimRef.current)
+    const video = liveVideoRef.current
+    if (mode !== 'live' || !liveIsPlaying || !video) {
+      if (typeof liveAnimRef.current === 'number') cancelAnimationFrame(liveAnimRef.current)
+      liveAnimRef.current = null
+      lastLiveClockTimeRef.current = -1
       return
     }
-    const tick = () => {
-      if (liveVideoRef.current) {
-        setLiveTime(liveVideoRef.current.currentTime)
+
+    let cancelled = false
+    let lastFrameTs = performance.now()
+    let watchdogId = null
+    let usingRafFallback = false
+
+    const updateClock = (videoTime) => {
+      if (!Number.isFinite(videoTime)) return
+      const clampedTime = Math.max(0, videoTime)
+      const last = lastLiveClockTimeRef.current
+      if (last < 0 || Math.abs(clampedTime - last) >= 0.03) {
+        lastLiveClockTimeRef.current = clampedTime
+        setLiveTime(clampedTime)
       }
-      liveAnimRef.current = requestAnimationFrame(tick)
+      if (audioRef.current) {
+        setCurrentTime(audioRef.current.currentTime)
+      }
+      syncLiveAudio(clampedTime)
+      lastFrameTs = performance.now()
     }
-    liveAnimRef.current = requestAnimationFrame(tick)
+
+    const supportsVideoFrameCallback = typeof video.requestVideoFrameCallback === 'function'
+
+    // rAF fallback tick (used when requestVideoFrameCallback stalls or isn't supported)
+    const rafTick = () => {
+      if (cancelled) return
+      updateClock(video.currentTime)
+      liveAnimRef.current = requestAnimationFrame(rafTick)
+    }
+
+    if (supportsVideoFrameCallback) {
+      const onFrame = (_now, metadata) => {
+        if (cancelled) return
+        usingRafFallback = false
+        const mediaTime = Number(metadata?.mediaTime)
+        updateClock(Number.isFinite(mediaTime) ? mediaTime : video.currentTime)
+        liveAnimRef.current = video.requestVideoFrameCallback(onFrame)
+      }
+      liveAnimRef.current = video.requestVideoFrameCallback(onFrame)
+
+      // Watchdog: if requestVideoFrameCallback hasn't fired in 500ms while
+      // video is supposed to be playing, fall back to rAF polling so the UI
+      // stays responsive and audio sync continues.
+      watchdogId = setInterval(() => {
+        if (cancelled) return
+        const elapsed = performance.now() - lastFrameTs
+        if (elapsed > 500 && !video.paused && !video.ended) {
+          if (!usingRafFallback) {
+            usingRafFallback = true
+            // Cancel stalled VFC and switch to rAF
+            if (typeof video.cancelVideoFrameCallback === 'function' && typeof liveAnimRef.current === 'number') {
+              video.cancelVideoFrameCallback(liveAnimRef.current)
+            }
+            liveAnimRef.current = requestAnimationFrame(rafTick)
+          }
+          // Also nudge the video to recover from decode stalls
+          if (video.readyState < 3) {
+            const cur = video.currentTime
+            video.currentTime = cur // force re-seek to unstick decoder
+          }
+        }
+      }, 500)
+    } else {
+      liveAnimRef.current = requestAnimationFrame(rafTick)
+    }
+
     return () => {
-      if (liveAnimRef.current) cancelAnimationFrame(liveAnimRef.current)
+      cancelled = true
+      if (watchdogId) clearInterval(watchdogId)
+      if (!usingRafFallback && supportsVideoFrameCallback && typeof video.cancelVideoFrameCallback === 'function' && typeof liveAnimRef.current === 'number') {
+        video.cancelVideoFrameCallback(liveAnimRef.current)
+      } else if (typeof liveAnimRef.current === 'number') {
+        cancelAnimationFrame(liveAnimRef.current)
+      }
+      liveAnimRef.current = null
+      lastLiveClockTimeRef.current = -1
     }
-  }, [mode, liveIsPlaying])
+  }, [mode, liveIsPlaying, liveAudioMode, syncLiveAudio])
 
   // ========== VIDEO SYNC ==========
 
@@ -1361,13 +1695,17 @@ export default function Choreography() {
 
   // ========== RENDER ==========
   const playheadLeft = duration > 0 ? `${(currentTime / duration) * 100}%` : '0%'
-  const liveProgressTime = isLiveVideoPlayback ? liveTime : currentTime
+  const liveProgressTimeRaw = isLiveVideoPlayback
+    ? (effectiveLiveTime + syncOffset)
+    : currentTime
+  const liveProgressTime = Math.max(0, Math.min(liveProgressTimeRaw, liveTotalDuration || liveProgressTimeRaw || 0))
   const liveProgressLeft = liveTotalDuration > 0
     ? `${(liveProgressTime / liveTotalDuration) * 100}%`
     : '0%'
   const displayMusicName = toDisplayFileName(musicFileName)
   const displayVideoName = toDisplayFileName(videoFileName)
-  const hasSyncResult = Number.isFinite(Number(choreography.videoSyncOffset)) || (!!syncResult && !syncResult.error)
+  const hasSyncResult = (!!syncResult && !syncResult.error)
+    || Number.isFinite(choreography.videoSyncConfidence)
   const syncOffsetMs = Math.round(syncResult?.offsetMs ?? choreography.videoSyncOffset ?? 0)
   const syncConfidence = syncResult?.error
     ? null
@@ -1382,6 +1720,23 @@ export default function Choreography() {
     : (hasSyncResult
       ? `✅ Synced • ${syncOffsetMs}ms${syncConfidencePct != null ? ` • ${syncConfidencePct}%` : ''}`
       : '🔗 Tap to Sync')
+  const hasVideoProgress = typeof videoDownloadProgress === 'number'
+  const videoProgressLabel = hasVideoProgress ? `${Math.max(0, Math.min(100, Math.round(videoDownloadProgress)))}%` : ''
+  const compressionPctLabel = typeof videoCompressionProgress === 'number'
+    ? `${Math.max(0, Math.min(100, Math.round(videoCompressionProgress)))}%`
+    : ''
+  const compressingLabel = videoProcessStage === 'compressing'
+    ? `Compressing video...${compressionPctLabel ? ` ${compressionPctLabel}` : ''}`
+    : videoProcessStage === 'preparing'
+      ? 'Preparing video...'
+      : videoProcessStage === 'finalizing'
+        ? 'Finalizing video...'
+        : videoProcessStage === 'caching'
+          ? 'Caching video...'
+          : `Compressing video...${videoProgressLabel ? ` ${videoProgressLabel}` : ''}`
+  const videoUploadButtonLabel = videoProcessing
+    ? compressingLabel
+    : (liveVideoUrl ? '🎥 Change video' : '📹 Upload practice video')
 
   return (
     <div className={styles['choreo-page']}>
@@ -1599,13 +1954,22 @@ export default function Choreography() {
           {/* Video & Sync section */}
           <div className={styles['sync-section']}>
             <h3>🔗 Practice Video</h3>
+            {videoProcessingMessage && videoProcessing && (
+              <p style={{ margin: '4px 0 8px', fontSize: '0.85rem', color: '#7c3aed' }}>{videoProcessingMessage}</p>
+            )}
+            {videoError && (
+              <p style={{ margin: '4px 0 8px', fontSize: '0.85rem', color: '#dc2626', fontWeight: 600 }}>
+                ❌ {videoError}
+              </p>
+            )}
             <div className={styles['sync-row']}>
               <label className={styles['sync-video-upload']}>
-                {liveVideoUrl ? '🎥 Change video' : '📹 Upload practice video'}
+                {videoUploadButtonLabel}
                 <input
                   type="file"
                   accept="video/*"
                   onChange={handleVideoUpload}
+                  disabled={videoProcessing}
                   style={{ display: 'none' }}
                 />
               </label>
@@ -1660,10 +2024,7 @@ export default function Choreography() {
               className={styles['live-video-bg']}
               muted={liveAudioMode === 'music' && !!audioUrl}
               playsInline
-              onTimeUpdate={(e) => {
-                const t = e.target.currentTime
-                syncLiveAudio(t)
-              }}
+              preload="auto"
               onLoadedMetadata={(e) => setLiveDuration(e.target.duration)}
               onPlay={() => setLiveIsPlaying(true)}
               onPause={() => setLiveIsPlaying(false)}
@@ -1724,13 +2085,6 @@ export default function Choreography() {
             />
           )}
 
-          {isVideoDownloading && (
-            <div className={styles['video-download-status']}>
-              ⬇️ Caching video locally...
-              {typeof videoDownloadProgress === 'number' ? ` ${videoDownloadProgress}%` : ''}
-            </div>
-          )}
-
           {!isKidLiveView && (
             <>
               {/* Top bar: exit + upload + clock */}
@@ -1741,7 +2095,11 @@ export default function Choreography() {
                     liveVideoRef.current?.pause()
                     audioRef.current?.pause()
                     setLiveIsPlaying(false)
-                    if (isLiveOnly) {
+                    if (routineId) {
+                      navigate(`/timeline/routine/${routineId}`)
+                    } else if (activeSession?.disciplineId) {
+                      navigate(`/timeline/discipline/${activeSession.disciplineId}`)
+                    } else if (isLiveOnly) {
                       navigate('/')
                     } else {
                       setMode('edit')
@@ -1763,9 +2121,14 @@ export default function Choreography() {
                   type="button"
                   className={styles['live-upload-btn']}
                   title={videoFileName || 'No video loaded'}
+                  disabled={videoProcessing}
                   onClick={() => openMediaPicker('video')}
                 >
-                  <span className={styles['live-upload-text']}>🎥 {displayVideoName}</span>
+                  <span className={styles['live-upload-text']}>
+                    {videoProcessing
+                      ? compressingLabel
+                      : `🎥 ${displayVideoName}`}
+                  </span>
                   <span className={styles['live-upload-pencil']} aria-hidden="true">✏️</span>
                 </button>
                 <button
@@ -1821,8 +2184,13 @@ export default function Choreography() {
                       type="button"
                       className={styles['media-picker-upload']}
                       onClick={handlePickerUploadClick}
+                      disabled={videoProcessing && mediaPickerType === 'video'}
                     >
-                      {mediaPickerType === 'video' ? '📁 Upload new video' : '📁 Upload new song'}
+                      {mediaPickerType === 'video'
+                        ? (videoProcessing
+                          ? compressingLabel
+                          : '📁 Upload new video')
+                        : '📁 Upload new song'}
                     </button>
 
                     <div className={styles['media-picker-subtitle']}>
@@ -1913,13 +2281,11 @@ export default function Choreography() {
           )}
 
           {/* Current instruction — big animated card */}
-          {(!filesLoaded || isVideoDownloading) ? (
+          {!filesLoaded ? (
             <div className={styles['live-cue-idle']}>
               <span style={{ fontSize: '2.5rem' }}>⏳</span>
               <p style={{ fontWeight: 600, marginTop: 8 }}>
-                {isVideoDownloading
-                  ? `Caching video…${typeof videoDownloadProgress === 'number' ? ` ${videoDownloadProgress}%` : ''}`
-                  : 'Loading music & video…'}
+                Loading music & video…
               </p>
               <p style={{ fontSize: '0.8rem', opacity: 0.6, marginTop: 4 }}>Almost ready!</p>
             </div>
@@ -1966,7 +2332,7 @@ export default function Choreography() {
                 className={styles['live-progress-fill']}
                 style={{
                   width: liveTotalDuration > 0
-                    ? `${((isLiveVideoPlayback ? liveTime : currentTime) / liveTotalDuration) * 100}%`
+                    ? `${(liveProgressTime / liveTotalDuration) * 100}%`
                     : '0%',
                   transition: isLiveSeeking ? 'none' : undefined,
                 }}
@@ -2021,10 +2387,10 @@ export default function Choreography() {
               <button
                 className={styles['live-play-btn']}
                 onClick={toggleLivePlay}
-                disabled={!filesLoaded || isVideoDownloading}
-                style={(!filesLoaded || isVideoDownloading) ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                disabled={!filesLoaded || videoProcessing}
+                style={(!filesLoaded || videoProcessing) ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
               >
-                {(!filesLoaded || isVideoDownloading) ? '⏳' : (isLiveVideoPlayback ? liveIsPlaying : isPlaying) ? '⏸' : '▶️'}
+                {(!filesLoaded || videoProcessing) ? '⏳' : (isLiveVideoPlayback ? liveIsPlaying : isPlaying) ? '⏸' : '▶️'}
               </button>
               {!isKidLiveView && (
                 <>

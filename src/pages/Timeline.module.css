@@ -214,9 +214,101 @@
   gap: 0.75rem;
 }
 
+.sessionMediaCard {
+  position: relative;
+  border-radius: 0.9rem;
+  overflow: hidden;
+  min-height: 168px;
+  aspect-ratio: 16 / 10;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+  background: #111827;
+}
+
+.sessionMediaPoster {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.sessionMediaFallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #7c3aed, #ec4899);
+}
+
+.sessionMediaFallbackIcon {
+  font-size: 2.2rem;
+  color: #fff;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.35);
+}
+
+.sessionMediaOverlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  background: linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.52) 52%, transparent 100%);
+  padding: 1.05rem 0.8rem 0.72rem;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.sessionMediaInfo {
+  min-width: 0;
+  flex: 1;
+}
+
+.sessionMediaTitle {
+  font-weight: 800;
+  font-size: 0.96rem;
+  color: #fff;
+  line-height: 1.2;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+}
+
+.sessionMediaNote {
+  font-size: 0.74rem;
+  color: rgba(255,255,255,0.86);
+  margin-top: 0.1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sessionMediaActions {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
 .cardIcon {
   font-size: 1.5rem;
   flex-shrink: 0;
+}
+
+.cardThumbWrap {
+  width: 56px;
+  height: 56px;
+  border-radius: 0.6rem;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: #111827;
+  border: 1px solid #e5e7eb;
+}
+
+.cardThumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .cardInfo {
@@ -257,6 +349,12 @@
   color: #666;
   transition: background 0.15s;
   flex-shrink: 0;
+}
+
+.reflectBtnOverlay {
+  background: rgba(255,255,255,0.9);
+  border-color: rgba(255,255,255,0.95);
+  color: #374151;
 }
 
 .reflectBtn:hover {
