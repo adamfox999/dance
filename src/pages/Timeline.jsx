@@ -58,12 +58,17 @@ const SESSION_ICONS = {
   'competition': '🏆',
 }
 
-function SessionVideoPoster({ rehearsalVideoKey, rehearsalVideoName, className }) {
+function SessionVideoPoster({ rehearsalVideoKey, rehearsalVideoName, videoSrc, className, fallback = null }) {
   const [videoUrl, setVideoUrl] = useState('')
 
   useEffect(() => {
     let mounted = true
     let objectUrl = ''
+
+    if (videoSrc) {
+      setVideoUrl(videoSrc)
+      return () => {}
+    }
 
     const loadPoster = async () => {
       if (!rehearsalVideoKey) {
@@ -91,9 +96,9 @@ function SessionVideoPoster({ rehearsalVideoKey, rehearsalVideoName, className }
       mounted = false
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [rehearsalVideoKey])
+  }, [rehearsalVideoKey, videoSrc])
 
-  if (!videoUrl) return null
+  if (!videoUrl) return fallback
 
   return (
     <video
@@ -109,6 +114,15 @@ function SessionVideoPoster({ rehearsalVideoKey, rehearsalVideoName, className }
       title={rehearsalVideoName || 'Practice video'}
     />
   )
+}
+
+function getVideoPreviewSource(video = {}) {
+  const firstValid = (...values) => values.find((value) => typeof value === 'string' && value.trim()) || ''
+  return {
+    key: firstValid(video.rehearsalVideoKey, video.videoKey, video.key),
+    src: firstValid(video.content, video.videoUrl, video.url, video.src),
+    name: firstValid(video.rehearsalVideoName, video.videoName, video.fileName, video.name),
+  }
 }
 
 export default function Timeline() {
@@ -784,6 +798,13 @@ export default function Timeline() {
                           rehearsalVideoKey={item.data.rehearsalVideoKey}
                           rehearsalVideoName={item.data.rehearsalVideoName}
                           className={styles.sessionMediaPoster}
+                          fallback={(
+                            <div className={styles.sessionMediaFallback}>
+                              <span className={styles.sessionMediaFallbackIcon}>
+                                {SESSION_ICONS[item.data.type] || '📝'}
+                              </span>
+                            </div>
+                          )}
                         />
                         <div className={styles.sessionMediaPlayOverlay} aria-hidden="true">
                           <span className={styles.sessionMediaPlayIcon}>▶</span>
@@ -840,7 +861,24 @@ export default function Timeline() {
                     onClick={() => routine && navigate(`/choreography/${routine.id}`)}
                     style={{ cursor: 'pointer' }}
                   >
-                    <span className={styles.cardIcon}>📹</span>
+                    {(() => {
+                      const preview = getVideoPreviewSource(item.data)
+                      return (
+                        <div className={styles.cardThumbWrap}>
+                          <SessionVideoPoster
+                            rehearsalVideoKey={preview.key}
+                            rehearsalVideoName={preview.name}
+                            videoSrc={preview.src}
+                            className={styles.cardThumb}
+                            fallback={(
+                              <div className={styles.sessionMediaFallback}>
+                                <span className={styles.sessionMediaFallbackIcon}>📹</span>
+                              </div>
+                            )}
+                          />
+                        </div>
+                      )
+                    })()}
                     <div className={styles.cardInfo}>
                       <div className={styles.cardTitle}>Practice Video</div>
                       {item.data.dancerNote && (
