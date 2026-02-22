@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { generateId } from '../utils/helpers'
 import { fetchStateFromBackend } from '../utils/backendApi'
@@ -21,6 +22,7 @@ export default function Settings() {
     outgoingGuardians, incomingGuardians,
     createGuardianInvite, acceptGuardianInvite, updateGuardianKids, revokeGuardianInvite, removeGuardian,
   } = useApp()
+  const navigate = useNavigate()
   const importRef = useRef(null)
   const [authBusy, setAuthBusy] = useState(false)
 
@@ -393,7 +395,19 @@ export default function Settings() {
 
   return (
     <div className={styles['settings-page']}>
-      <h1>Settings ⚙️</h1>
+      <h1 className={styles['page-title']}>
+        <button
+          type="button"
+          className={styles['back-arrow']}
+          onClick={() => navigate('/')}
+          aria-label="Back to home"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="22" height="22">
+            <path fillRule="evenodd" d="M17 10a.75.75 0 0 1-.75.75H5.612l4.158 3.96a.75.75 0 0 1-1.04 1.08l-5.5-5.25a.75.75 0 0 1 0-1.08l5.5-5.25a.75.75 0 0 1 1.04 1.08L5.612 9.25H16.25A.75.75 0 0 1 17 10Z" clipRule="evenodd" />
+          </svg>
+        </button>
+        Settings ⚙️
+      </h1>
 
       {hasSupabaseAuth && authUser && (
         <div className={styles['settings-section']}>
@@ -690,7 +704,7 @@ export default function Settings() {
       {/* Guardians */}
       {hasSupabaseAuth && isAdmin && (
         <div className={styles['settings-section']}>
-          <h3>Guardians</h3>
+          <h3>Parents & Guardians</h3>
           <div className={styles['setting-card']}>
             <div style={{ fontSize: '0.78rem', color: '#9ca3af', marginBottom: 12, lineHeight: 1.4 }}>
               A parent or guardian can manage a child's profile, see all their dances, progress and more.
