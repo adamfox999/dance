@@ -748,10 +748,10 @@ export function AppProvider({ children }) {
         members.push({ type: 'child', profile: kid, relationship: 'Child', isOwn: false })
       }
       units.push({
-        id: fam.guardian?.id || `fam-${fam.ownerProfile?.id}`,
-        name: fam.ownerProfile?.display_name
+        id: fam.familyUnit?.id || fam.guardian?.id || `fam-${fam.ownerProfile?.id}`,
+        name: fam.familyUnit?.name || (fam.ownerProfile?.display_name
           ? `${fam.ownerProfile.display_name}'s Family`
-          : 'Family',
+          : 'Family'),
         isOwner: false,
         members,
       })
@@ -929,9 +929,12 @@ export function AppProvider({ children }) {
       const families = await Promise.all(
         accepted.map(async (guardian) => {
           try {
+            const unitRow = guardian.family_unit_id
+              ? (guardianUnits || []).find(u => u.id === guardian.family_unit_id)
+              : null
             // If the invite is linked to a family_unit, use unit's kid_profile_ids
             const unitKidIds = guardian.family_unit_id
-              ? (guardianUnits || []).find(u => u.id === guardian.family_unit_id)?.kid_profile_ids
+              ? unitRow?.kid_profile_ids
               : guardian.kid_profile_ids
             const [ownerProfile, kids] = await Promise.all([
               fetchGuardianOwnerProfile(guardian.owner_user_id),
@@ -939,7 +942,7 @@ export function AppProvider({ children }) {
                 ? fetchGuardianKidProfiles(guardian.owner_user_id, unitKidIds)
                 : Promise.resolve([]),
             ])
-            return { guardian, ownerProfile, kids }
+            return { guardian, ownerProfile, kids, familyUnit: unitRow }
           } catch {
             return null
           }
