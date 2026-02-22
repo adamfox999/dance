@@ -16,7 +16,7 @@ export default function Settings() {
     userProfile, kidProfiles, saveUserProfile, addKidProfile, editKidProfile, removeKidProfile,
     // Shares
     outgoingShares, incomingShares, sharedDances,
-    createShareInvite, acceptShareInvite, revokeShareInvite, removeShare, loadShares,
+    createShareInvite, acceptShareInvite, removeShare, loadShares,
     // Guardians
     outgoingGuardians, incomingGuardians,
     createGuardianInvite, acceptGuardianInvite, updateGuardianKids, revokeGuardianInvite, removeGuardian,
@@ -165,14 +165,6 @@ export default function Settings() {
       await acceptShareInvite(shareId)
     } catch (err) {
       alert(err?.message || 'Could not accept invite')
-    }
-  }
-
-  const handleRevokeShare = async (shareId) => {
-    try {
-      await revokeShareInvite(shareId)
-    } catch (err) {
-      alert(err?.message || 'Could not revoke invite')
     }
   }
 
@@ -630,9 +622,9 @@ export default function Settings() {
                 {outgoingShares.map(share => {
                   const routine = share.routine_id ? state.routines.find(r => r.id === share.routine_id) : null
                   return (
-                    <div key={share.id} className={styles['item-row']} style={{ marginBottom: 4 }}>
+                    <div key={share.id} className={styles['item-row']} style={{ marginBottom: 4, alignItems: 'center' }}>
                       <span style={{ fontSize: '0.88rem', flex: 1 }}>
-                        📧 {share.invited_email || (share.invite_token ? 'Invite link' : 'Pending')}
+                        {share.status === 'accepted' ? '✅' : '🔗'} {share.invited_email || (share.invite_token ? 'Invite link' : 'Pending')}
                         {routine && <span style={{ color: '#6b7280' }}> — {routine.name}</span>}
                         {!share.routine_id && <span style={{ color: '#6b7280' }}> — All routines</span>}
                       </span>
@@ -643,34 +635,21 @@ export default function Settings() {
                       }}>
                         {share.status}
                       </span>
-                      {share.status !== 'revoked' && (
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          {share.status === 'pending' && share.invite_token && (
-                            <button
-                              onClick={() => handleCopyShareLink(`${window.location.origin}${window.location.pathname}?share=${share.invite_token}`)}
-                              style={{ background: '#dcfce7', color: '#166534', borderRadius: 6, padding: '4px 8px', fontSize: '0.75rem', border: 'none', cursor: 'pointer', fontWeight: 600 }}
-                            >
-                              Copy Link
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleRevokeShare(share.id)}
-                            title="Revoke"
-                            style={{ background: '#fee2e2', color: '#dc2626', borderRadius: 6, padding: '4px 8px', fontSize: '0.75rem', border: 'none', cursor: 'pointer', fontWeight: 600 }}
-                          >
-                            Revoke
-                          </button>
-                        </div>
-                      )}
-                      {share.status === 'revoked' && (
+                      {share.status === 'pending' && share.invite_token && (
                         <button
-                          onClick={() => handleDeleteShare(share.id)}
-                          title="Delete"
-                          style={{ background: '#f3f4f6', color: '#6b7280', borderRadius: 6, padding: '4px 8px', fontSize: '0.75rem', border: 'none', cursor: 'pointer' }}
+                          onClick={() => handleCopyShareLink(`${window.location.origin}${window.location.pathname}?share=${share.invite_token}`)}
+                          style={{ background: '#dcfce7', color: '#166534', borderRadius: 6, padding: '4px 8px', fontSize: '0.75rem', border: 'none', cursor: 'pointer', fontWeight: 600 }}
                         >
-                          Delete
+                          Copy Link
                         </button>
                       )}
+                      <button
+                        onClick={() => handleDeleteShare(share.id)}
+                        title="Remove share"
+                        style={{ background: 'none', color: '#dc2626', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '2px 6px', lineHeight: 1 }}
+                      >
+                        ✕
+                      </button>
                     </div>
                   )
                 })}

@@ -2205,6 +2205,19 @@ export default function Choreography() {
                   },
                 })
               }}
+              onUpdateAnnotation={(annId, updates) => {
+                const updated = videoAnnotations.map((ann) => (
+                  ann.id === annId ? { ...ann, ...updates } : ann
+                ))
+                dispatch({
+                  type: 'UPDATE_CHOREOGRAPHY_VERSION',
+                  payload: {
+                    routineId,
+                    versionId: selectedVersion?.id,
+                    updates: { videoAnnotations: updated },
+                  },
+                })
+              }}
             />
           )}
 

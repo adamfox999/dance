@@ -69,6 +69,15 @@ function screenToVideoCoords(clientX, clientY, videoRect) {
   return { x, y }
 }
 
+function screenToClampedVideoCoords(clientX, clientY, videoRect) {
+  if (!videoRect) return null
+  const rawX = (clientX - videoRect.left) / videoRect.width
+  const rawY = (clientY - videoRect.top) / videoRect.height
+  const x = Math.min(1, Math.max(0, rawX))
+  const y = Math.min(1, Math.max(0, rawY))
+  return { x, y }
+}
+
 export default function VideoAnnotationLayer({
   videoRef,
   annotations,
@@ -78,14 +87,21 @@ export default function VideoAnnotationLayer({
   onTogglePlay,
   onAddAnnotation,
   onDeleteAnnotation,
+  onUpdateAnnotation,
 }) {
   const [popover, setPopover] = useState(null)
   const [, setSelectedEmoji] = useState('')
   const [commentText, setCommentText] = useState('')
   const [videoRect, setVideoRect] = useState(null)
+  const [dragPreview, setDragPreview] = useState(null)
   const commentInputRef = useRef(null)
   const overlayRef = useRef(null)
   const longPressTimerRef = useRef(null)
+  const dragStateRef = useRef({
+    isDragging: false,
+    pointerId: null,
+    annId: null,
+  })
   const pressStateRef = useRef({
     isPressing: false,
     pointerId: null,
@@ -230,6 +246,77 @@ export default function VideoAnnotationLayer({
     clearLongPressTimer()
   }, [clearLongPressTimer])
 
+  const isPausedIdle = !isPlaying && !popover
+
+  const finishDrag = useCallback((e, shouldCommit = true) => {
+    const drag = dragStateRef.current
+    if (!drag.isDragging) return
+    if (drag.pointerId !== null && e.pointerId !== drag.pointerId) return
+
+    e.stopPropagation()
+    e.preventDefault()
+
+    const coords = screenToClampedVideoCoords(e.clientX, e.clientY, videoRect)
+    if (coords) {
+      setDragPreview({ annId: drag.annId, x: coords.x, y: coords.y })
+      if (shouldCommit && onUpdateAnnotation) {
+        onUpdateAnnotation(drag.annId, { x: coords.x, y: coords.y })
+      }
+    }
+
+    if (e.currentTarget?.hasPointerCapture?.(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    }
+
+    dragStateRef.current = {
+      isDragging: false,
+      pointerId: null,
+      annId: null,
+    }
+    setDragPreview(null)
+  }, [videoRect, onUpdateAnnotation])
+
+  const handleAnnotationPointerDown = useCallback((e, annId) => {
+    if (!isPausedIdle || popover || !videoRect || !onUpdateAnnotation) return
+    if (e.button !== undefined && e.button !== 0) return
+    if (e.target.closest('button')) return
+
+    const coords = screenToClampedVideoCoords(e.clientX, e.clientY, videoRect)
+    if (!coords) return
+
+    e.stopPropagation()
+    e.preventDefault()
+    e.currentTarget?.setPointerCapture?.(e.pointerId)
+
+    dragStateRef.current = {
+      isDragging: true,
+      pointerId: e.pointerId,
+      annId,
+    }
+    setDragPreview({ annId, x: coords.x, y: coords.y })
+  }, [isPausedIdle, popover, videoRect, onUpdateAnnotation])
+
+  const handleAnnotationPointerMove = useCallback((e) => {
+    const drag = dragStateRef.current
+    if (!drag.isDragging) return
+    if (drag.pointerId !== null && e.pointerId !== drag.pointerId) return
+
+    const coords = screenToClampedVideoCoords(e.clientX, e.clientY, videoRect)
+    if (!coords) return
+
+    e.stopPropagation()
+    e.preventDefault()
+    setDragPreview({ annId: drag.annId, x: coords.x, y: coords.y })
+  }, [videoRect])
+
+  const handleAnnotationPointerUp = useCallback((e) => {
+    finishDrag(e, true)
+  }, [finishDrag])
+
+  const handleAnnotationPointerCancel = useCallback((e) => {
+    finishDrag(e, false)
+  }, [finishDrag])
+
   const handleSave = useCallback(() => {
     if (!popover) return
     if (!commentText.trim()) return
@@ -260,14 +347,13 @@ export default function VideoAnnotationLayer({
 
   if (!videoRect) return null
 
-  // Determine which annotations to show (same timing behavior for play and pause)
+  // Show annotations starting at the placed timestamp, visible for the window duration after
   const visibleAnnotations = (annotations || []).filter((ann) => {
-    const diff = Math.abs(currentTime - ann.timestamp)
-    return diff <= ANNOTATION_VISIBLE_WINDOW
+    const elapsed = currentTime - ann.timestamp
+    return elapsed >= 0 && elapsed <= ANNOTATION_VISIBLE_WINDOW
   })
 
-  // When paused (and no popover open), allow delete on currently visible annotations
-  const isPausedIdle = !isPlaying && !popover
+  // When paused (and no popover open), allow delete/drag on currently visible annotations
 
   return (
     <>
@@ -293,10 +379,14 @@ export default function VideoAnnotationLayer({
         const isInTimeWindow = timeDiff <= ANNOTATION_VISIBLE_WINDOW
         const isVisible = isInTimeWindow
         const canDelete = isPausedIdle
+        const isDraggable = canDelete && !!onUpdateAnnotation
         const { color, angle } = getAnnStyle(ann.id)
 
-        const posLeft = videoRect.relLeft + ann.x * videoRect.width
-        const posTop = videoRect.relTop + ann.y * videoRect.height
+        const isDraggingThis = dragPreview?.annId === ann.id
+        const annX = isDraggingThis ? dragPreview.x : ann.x
+        const annY = isDraggingThis ? dragPreview.y : ann.y
+        const posLeft = videoRect.relLeft + annX * videoRect.width
+        const posTop = videoRect.relTop + annY * videoRect.height
 
         const hasEmoji = !!ann.emoji
         const hasText = !!ann.text
@@ -306,12 +396,22 @@ export default function VideoAnnotationLayer({
           const cls = [
             styles['reaction'],
             isVisible ? (isPausedIdle ? styles['reaction-paused'] : styles['reaction-visible']) : '',
+            isDraggable ? styles['annotation-draggable'] : '',
+            isDraggingThis ? styles['annotation-dragging'] : '',
           ].filter(Boolean).join(' ')
 
           const inner = <span className={styles['reaction-emoji']}>{ann.emoji}</span>
 
           return (
-            <div key={ann.id} className={cls} style={{ left: posLeft, top: posTop }}>
+            <div
+              key={ann.id}
+              className={cls}
+              style={{ left: posLeft, top: posTop }}
+              onPointerDown={(e) => handleAnnotationPointerDown(e, ann.id)}
+              onPointerMove={handleAnnotationPointerMove}
+              onPointerUp={handleAnnotationPointerUp}
+              onPointerCancel={handleAnnotationPointerCancel}
+            >
               {canDelete ? (
                 <div className={styles['delete-wrap']}>
                   {inner}
@@ -327,6 +427,8 @@ export default function VideoAnnotationLayer({
           const cls = [
             styles['comment-bubble'],
             isVisible ? (isPausedIdle ? styles['comment-bubble-paused'] : styles['comment-bubble-visible']) : '',
+            isDraggable ? styles['annotation-draggable'] : '',
+            isDraggingThis ? styles['annotation-dragging'] : '',
           ].filter(Boolean).join(' ')
 
           const inner = (
@@ -336,7 +438,15 @@ export default function VideoAnnotationLayer({
           )
 
           return (
-            <div key={ann.id} className={cls} style={{ left: posLeft, top: posTop }}>
+            <div
+              key={ann.id}
+              className={cls}
+              style={{ left: posLeft, top: posTop }}
+              onPointerDown={(e) => handleAnnotationPointerDown(e, ann.id)}
+              onPointerMove={handleAnnotationPointerMove}
+              onPointerUp={handleAnnotationPointerUp}
+              onPointerCancel={handleAnnotationPointerCancel}
+            >
               {canDelete ? (
                 <div className={styles['delete-wrap']}>
                   {inner}
@@ -351,6 +461,8 @@ export default function VideoAnnotationLayer({
         const cls = [
           styles['combo'],
           isVisible ? (isPausedIdle ? styles['combo-paused'] : styles['combo-visible']) : '',
+          isDraggable ? styles['annotation-draggable'] : '',
+          isDraggingThis ? styles['annotation-dragging'] : '',
         ].filter(Boolean).join(' ')
 
         const inner = (
@@ -363,7 +475,15 @@ export default function VideoAnnotationLayer({
         )
 
         return (
-          <div key={ann.id} className={cls} style={{ left: posLeft, top: posTop }}>
+          <div
+            key={ann.id}
+            className={cls}
+            style={{ left: posLeft, top: posTop }}
+            onPointerDown={(e) => handleAnnotationPointerDown(e, ann.id)}
+            onPointerMove={handleAnnotationPointerMove}
+            onPointerUp={handleAnnotationPointerUp}
+            onPointerCancel={handleAnnotationPointerCancel}
+          >
             {canDelete ? (
               <div className={styles['delete-wrap']}>
                 {inner}
