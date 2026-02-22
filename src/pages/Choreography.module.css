@@ -2075,8 +2075,8 @@
   }
 
   .live-bottom-bar {
-    bottom: clamp(86px, 18vh, 124px);
-    padding: 0 14px 10px;
+    bottom: 0;
+    padding: 0 14px calc(10px + env(safe-area-inset-bottom, 0px));
   }
 
   .live-progress-meta {
@@ -2095,6 +2095,11 @@
   .live-cue-card,
   .live-cue-idle {
     bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .live-screen-controls-visible .live-cue-card,
+  .live-screen-controls-visible .live-cue-idle {
+    bottom: calc(6.25rem + env(safe-area-inset-bottom, 0px));
   }
 
   .live-beat-move-label {

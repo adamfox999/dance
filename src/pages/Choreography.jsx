@@ -2087,7 +2087,7 @@ export default function Choreography() {
       {(mode === 'live' || isKidLiveView) && (
         <div
           ref={liveScreenRef}
-          className={styles['live-screen']}
+          className={`${styles['live-screen']} ${liveUiVisible ? styles['live-screen-controls-visible'] : ''}`}
           onPointerMove={revealLiveUi}
           onPointerDown={revealLiveUi}
           onTouchStart={revealLiveUi}
