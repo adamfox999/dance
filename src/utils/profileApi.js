@@ -363,6 +363,8 @@ export async function createGuardianInvite({ kidProfileIds, role }) {
   const client = ensureClient()
   const user = await requireUser()
 
+  const normalizedRole = role || 'guardian'
+
   // Generate a short random invite token
   const token = crypto.randomUUID().replace(/-/g, '').slice(0, 12)
 
@@ -372,7 +374,7 @@ export async function createGuardianInvite({ kidProfileIds, role }) {
       owner_user_id: user.id,
       invite_token: token,
       kid_profile_ids: kidProfileIds || [],
-      role: role || 'guardian',
+      role: normalizedRole,
       status: 'pending',
     })
     .select()
