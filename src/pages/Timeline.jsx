@@ -114,7 +114,10 @@ export default function Timeline() {
 
   const discipline = isDiscipline ? state.disciplines.find(d => d.id === id) : null
   const routine = isRoutine ? state.routines.find(r => r.id === id) : null
-  const routineVersions = routine?.choreographyVersions || []
+  const routineVersions = useMemo(
+    () => routine?.choreographyVersions || [],
+    [routine]
+  )
 
   const title = isDiscipline
     ? `${discipline?.icon || ''} ${discipline?.name || 'Discipline'}`
@@ -144,12 +147,6 @@ export default function Timeline() {
       .filter(s => (s.routineIds || []).includes(id))
       .sort((a, b) => new Date(b.date) - new Date(a.date))
   }, [state.shows, id, isRoutine])
-
-  // Related stickers
-  const relatedStickers = useMemo(() => {
-    return [...(state.stickers || [])]
-      .sort((a, b) => new Date(b.earnedDate) - new Date(a.earnedDate))
-  }, [state.stickers])
 
   // Merge all events into a single timeline
   const timelineItems = (() => {

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate, useSearchParams, useParams } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { generateId } from '../utils/helpers'
@@ -179,7 +179,7 @@ export default function Choreography() {
 
   // Find the routine from the new data model
   const routine = state.routines?.find(r => r.id === routineId)
-  const versions = routine?.choreographyVersions || []
+  const versions = useMemo(() => routine?.choreographyVersions || [], [routine])
   const [selectedVersionId, setSelectedVersionId] = useState(() => versions[versions.length - 1]?.id || null)
   const selectedVersion = versions.find(v => v.id === selectedVersionId) || versions[versions.length - 1] || {}
   // Alias so all existing code that reads `choreography.*` still works
@@ -299,7 +299,7 @@ export default function Choreography() {
   const [isLiveSeeking, setIsLiveSeeking] = useState(false)
   const [seekPreviewTime, setSeekPreviewTime] = useState(null)
   const [videoDownloadProgress, setVideoDownloadProgress] = useState(null)
-  const [isVideoDownloading, setIsVideoDownloading] = useState(false)
+  const [, setIsVideoDownloading] = useState(false)
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false)
   const [mediaPickerType, setMediaPickerType] = useState('audio')
   const [mediaPickerItems, setMediaPickerItems] = useState([])
@@ -318,13 +318,6 @@ export default function Choreography() {
       setLiveAudioMode('video')
     }
   }, [isKidLiveView, liveVideoUrl])
-
-  const getSafeSyncOffset = useCallback(() => {
-    const total = liveVideoRef.current?.duration || liveDuration || duration || 0
-    if (!Number.isFinite(total) || total <= 0) return syncOffset
-    const maxPositive = Math.max(0, total - 0.2)
-    return Math.max(-20, Math.min(syncOffset, maxPositive))
-  }, [syncOffset, liveDuration, duration])
 
   const runSyncAnalysis = useCallback(async (musicFile, videoFile) => {
     if (!musicFile || !videoFile) return
@@ -1048,7 +1041,7 @@ export default function Choreography() {
   }, [liveAudioMode, liveVideoUrl, audioUrl, liveIsPlaying, syncOffset, playbackRate])
 
   // Seek live mode to a specific time
-  const seekLive = (time) => {
+  const seekLive = useCallback((time) => {
     const video = liveVideoRef.current
     const audio = audioRef.current
     if (isLiveVideoPlayback && video) {
@@ -1070,7 +1063,7 @@ export default function Choreography() {
       audio.currentTime = time
       setCurrentTime(time)
     }
-  }
+  }, [isLiveVideoPlayback, audioUrl, syncOffset, liveIsPlaying])
 
   const handleProgressClick = (e) => {
     if (liveTotalDuration <= 0) return
@@ -1117,7 +1110,7 @@ export default function Choreography() {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
     }
-  }, [isLiveSeeking, getSeekTimeFromClientX])
+  }, [isLiveSeeking, getSeekTimeFromClientX, seekLive])
 
   const restartLive = () => {
     seekLive(0)
@@ -1247,8 +1240,8 @@ export default function Choreography() {
   const liveBeatInfo = beatData ? getCurrentBeatInfo(effectiveLiveTime, beatData) : null
 
   // ========== SONG-LEVEL INSTRUCTIONS ==========
-  const songInstructions = choreography.songInstructions || []
-  const cues = choreography.cues || []
+  const songInstructions = useMemo(() => choreography.songInstructions || [], [choreography.songInstructions])
+  const cues = useMemo(() => choreography.cues || [], [choreography.cues])
   const songInstructionsRef = useRef(songInstructions)
   songInstructionsRef.current = songInstructions
 
@@ -1289,12 +1282,6 @@ export default function Choreography() {
   }, [beatData, showOffBeats])
 
   // Map a position (beat index or beat+0.5) to a row pixel offset
-  const posToRowY = useCallback((pos) => {
-    const idx = timelineRows.findIndex(r => r.pos >= pos)
-    if (idx === -1) return timelineRows.length * BEAT_ROW_HEIGHT
-    return idx * BEAT_ROW_HEIGHT
-  }, [timelineRows])
-
   // Click handler for two-click range creation (on each beat row)
   const handleBeatClick = (pos) => {
     // Skip if this click is the tail end of a drag gesture
@@ -1571,7 +1558,7 @@ export default function Choreography() {
     if (currentRowIdx === -1) return
     const targetScroll = currentRowIdx * BEAT_ROW_HEIGHT - timelineContainerRef.current.clientHeight / 2
     timelineContainerRef.current.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' })
-  }, [liveBeatInfo?.beatIndex, liveEditOpen])
+  }, [liveEditOpen, liveBeatInfo, timelineRows])
 
   // Frame-accurate update loop for live mode (keeps UI time stable on heavy videos)
   useEffect(() => {
@@ -2528,7 +2515,7 @@ export default function Choreography() {
                 >
                   <div className={styles['song-timeline-inner']} style={{ position: 'relative', minHeight: timelineRows.length * BEAT_ROW_HEIGHT }}>
                     {/* Beat rows */}
-                    {timelineRows.map((row, idx) => {
+                    {timelineRows.map((row) => {
                       const isCurrent = liveBeatInfo?.beatIndex === row.beatIndex &&
                         (row.isOffBeat ? liveBeatInfo.isAnd : !liveBeatInfo.isAnd)
                       const isRangeStart = rangeStartPos === row.pos

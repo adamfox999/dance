@@ -153,7 +153,7 @@ export function detectBeats(buffer) {
 export function getCurrentBeatInfo(time, beatData) {
   if (!beatData || !beatData.beats.length) return null
 
-  const { bpm, firstBeat, beats, eightCounts } = beatData
+  const { bpm, beats } = beatData
   const beatInterval = 60 / bpm
 
   // Find closest beat index

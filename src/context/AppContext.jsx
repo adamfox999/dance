@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useEffect, useState } from 'react'
+import { createContext, useContext, useReducer, useEffect, useState } from 'react'
 import { defaultState } from '../data/defaultState'
 import { checkForNewStickers } from '../utils/milestones'
 import { fetchStateFromBackend, saveStateToBackend } from '../utils/backendApi'
@@ -708,7 +708,7 @@ export function AppProvider({ children }) {
     if (newStickers.length > 0) {
       dispatch({ type: "ADD_STICKERS", payload: newStickers })
     }
-  }, [state.sessions, state.practiceLog, state.disciplines, state.shows])
+  }, [state])
 
   return (
     <AppContext.Provider value={{

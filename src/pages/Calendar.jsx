@@ -25,7 +25,10 @@ export default function Calendar() {
     () => state.routines.find((routine) => routine.id === scheduleRoutineId) || null,
     [state.routines, scheduleRoutineId]
   )
-  const selectedRoutineVersions = selectedRoutine?.choreographyVersions || []
+  const selectedRoutineVersions = useMemo(
+    () => selectedRoutine?.choreographyVersions || [],
+    [selectedRoutine]
+  )
 
   useEffect(() => {
     if (!selectedRoutineVersions.length) return

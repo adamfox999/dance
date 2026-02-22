@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { generateId } from '../utils/helpers'
 import { formatTimestamp } from '../utils/audioSync'
 import styles from './VideoAnnotationLayer.module.css'
@@ -78,7 +78,7 @@ export default function VideoAnnotationLayer({
   onDeleteAnnotation,
 }) {
   const [popover, setPopover] = useState(null)
-  const [selectedEmoji, setSelectedEmoji] = useState('')
+  const [, setSelectedEmoji] = useState('')
   const [commentText, setCommentText] = useState('')
   const [videoRect, setVideoRect] = useState(null)
   const commentInputRef = useRef(null)
