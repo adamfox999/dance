@@ -5,6 +5,34 @@ import { AppProvider } from './context/AppContext'
 import App from './App'
 import './index.css'
 
+// Version check: clear service worker cache on new build, but preserve auth session
+const handleVersionCheck = async () => {
+  const currentBuild = import.meta.env.VITE_APP_BUILD
+  const storedBuild = localStorage.getItem('app_build_version')
+
+  if (storedBuild && storedBuild !== currentBuild) {
+    // Build version changed — clear service worker cache
+    console.log('New build detected, clearing service worker cache...')
+    
+    const registrations = await navigator.serviceWorker.getRegistrations()
+    for (const reg of registrations) {
+      await reg.unregister()
+    }
+    
+    // Clear caches
+    const cacheNames = await caches.keys()
+    await Promise.all(cacheNames.map(name => caches.delete(name)))
+    
+    // Reload to fresh state (auth session preserved in localStorage)
+    window.location.reload()
+  }
+
+  // Store current build version
+  localStorage.setItem('app_build_version', currentBuild)
+}
+
+handleVersionCheck()
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
