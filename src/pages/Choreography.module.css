@@ -757,41 +757,55 @@
 /* Top bar */
 .live-top-bar {
   position: relative;
-  z-index: 2;
+  z-index: 6;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  gap: 6px;
   padding: 18px 18px 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.live-top-bar > * {
+  min-width: 0;
 }
 
 .live-exit-btn {
-  padding: 8px 16px;
+  padding: 7px 12px;
   border-radius: var(--radius-full);
   background: rgba(255, 255, 255, 0.15);
   backdrop-filter: blur(8px);
   color: white;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 600;
   border: 1px solid rgba(255, 255, 255, 0.2);
   transition: background 0.15s;
+  flex: 0 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .live-exit-btn:hover { background: rgba(255,255,255,0.25); }
 
 .live-upload-btn {
-  padding: 8px 16px;
+  padding: 7px 10px;
   border-radius: var(--radius-full);
   background: rgba(168, 85, 247, 0.35);
   backdrop-filter: blur(8px);
   color: white;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 600;
   border: 1px solid rgba(168, 85, 247, 0.4);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  max-width: 280px;
+  gap: 0;
+  width: min(240px, 26vw);
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: none;
   transition: background 0.15s;
 }
 
@@ -801,19 +815,24 @@
 
 .live-upload-text {
   min-width: 0;
+  flex: 1 1 auto;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .live-upload-pencil {
+  display: inline-block;
+  width: 0;
+  overflow: hidden;
   opacity: 0;
   transform: translateX(3px);
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition: width 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
 }
 
 .live-upload-btn:hover .live-upload-pencil,
 .live-upload-btn:focus-visible .live-upload-pencil {
+  width: 1.2em;
   opacity: 1;
   transform: translateX(0);
 }
@@ -945,17 +964,20 @@
 }
 
 .live-sync-btn {
-  padding: 8px 14px;
+  padding: 7px 10px;
   border-radius: var(--radius-full);
   background: rgba(251, 191, 36, 0.25);
   backdrop-filter: blur(8px);
   color: #fde68a;
-  font-size: 0.74rem;
+  font-size: 0.68rem;
   font-weight: 700;
   border: 1px solid rgba(251, 191, 36, 0.45);
   cursor: pointer;
   transition: all 0.15s;
-  max-width: 300px;
+  width: min(170px, 20vw);
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: none;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -987,13 +1009,21 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Next cue preview */
-.live-next-preview {
+.live-top-center-stack {
   position: absolute;
   top: 72px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 2;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  pointer-events: none;
+}
+
+/* Next cue preview */
+.live-next-preview {
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(8px);
   color: rgba(255,255,255,0.75);
@@ -1043,7 +1073,13 @@
     0 0 40px rgba(168, 85, 247, 0.7),
     0 0 80px rgba(236, 72, 153, 0.4);
   line-height: 1.1;
-  padding: 0 20px;
+  width: min(50ch, calc(100vw - 2rem));
+  max-width: calc(100vw - 2rem);
+  box-sizing: border-box;
+  margin-inline: auto;
+  padding: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .live-beat-move-label {
@@ -1056,7 +1092,13 @@
     0 0 80px rgba(236, 72, 153, 0.4);
   margin-top: 6px;
   line-height: 1.1;
-  padding: 0 20px;
+  width: min(50ch, calc(100vw - 2rem));
+  max-width: calc(100vw - 2rem);
+  box-sizing: border-box;
+  margin-inline: auto;
+  padding: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 @keyframes beatMoveFlash {
@@ -1092,24 +1134,20 @@
 
 /* ===== BEAT COUNTER (Live Mode) ===== */
 .live-beat-counter {
-  position: absolute;
-  right: 16px;
-  bottom: 132px;
-  z-index: 3;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  pointer-events: none;
-  max-width: 48vw;
+  gap: 5px;
+  pointer-events: auto;
+  cursor: help;
 }
 
 .live-beat-group {
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   font-weight: 800;
   color: rgba(251, 191, 36, 0.9);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-shadow: 0 2px 8px rgba(0,0,0,0.6);
 }
 
@@ -1124,7 +1162,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
 }
 
 .live-beat-slot-and {
@@ -1133,17 +1171,17 @@
 }
 
 .live-beat-dot {
-  width: 38px;
-  height: 38px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1rem;
+  font-size: 0.78rem;
   font-weight: 800;
   color: rgba(255,255,255,0.3);
   background: rgba(255,255,255,0.08);
-  border: 2px solid rgba(255,255,255,0.1);
+  border: 1.5px solid rgba(255,255,255,0.12);
   transition: all 0.08s;
   text-shadow: 0 1px 4px rgba(0,0,0,0.4);
 }
@@ -1209,7 +1247,7 @@
 .live-bottom-bar {
   position: absolute;
   bottom: 0; left: 0; right: 0;
-  z-index: 2;
+  z-index: 6;
   padding: 0 20px 28px;
 }
 

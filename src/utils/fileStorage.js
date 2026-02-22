@@ -16,6 +16,15 @@ import {
 const DB_NAME = 'dance-tracker-local-files'
 const STORE_NAME = 'files'
 const DB_VERSION = 1
+let currentUserScope = 'signed-out'
+
+function getLocalKey(key) {
+  return `${currentUserScope}:${key}`
+}
+
+export function setFileStorageUserScope(userId) {
+  currentUserScope = userId || 'signed-out'
+}
 
 function getStoragePath(key) {
   return `files/${key}`
@@ -49,13 +58,37 @@ function runRequest(request) {
   })
 }
 
+async function saveFileToIndexedDb(key, blob, meta = {}) {
+  const localKey = getLocalKey(key)
+  const db = await openDb()
+  try {
+    const tx = db.transaction(STORE_NAME, 'readwrite')
+    const store = tx.objectStore(STORE_NAME)
+    await runRequest(store.put({
+      id: localKey,
+      blob,
+      meta,
+      updatedAt: Date.now(),
+    }))
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve
+      tx.onerror = () => reject(tx.error)
+      tx.onabort = () => reject(tx.error)
+    })
+    return true
+  } finally {
+    db.close()
+  }
+}
+
 async function loadFileFromIndexedDb(key) {
   try {
+    const localKey = getLocalKey(key)
     const db = await openDb()
     try {
       const tx = db.transaction(STORE_NAME, 'readonly')
       const store = tx.objectStore(STORE_NAME)
-      const record = await runRequest(store.get(key))
+      const record = await runRequest(store.get(localKey))
       if (!record?.blob) return null
       return {
         blob: record.blob,
@@ -70,52 +103,30 @@ async function loadFileFromIndexedDb(key) {
 }
 
 export async function saveFile(key, blob, meta = {}) {
-  let localSaved = false
+  const path = getStoragePath(key)
+  const contentType = meta?.type || blob?.type || 'application/octet-stream'
 
-  try {
-    const db = await openDb()
-    try {
-      const tx = db.transaction(STORE_NAME, 'readwrite')
-      const store = tx.objectStore(STORE_NAME)
-      await runRequest(store.put({
-        id: key,
-        blob,
-        meta,
-        updatedAt: Date.now(),
-      }))
-      await new Promise((resolve, reject) => {
-        tx.oncomplete = resolve
-        tx.onerror = () => reject(tx.error)
-        tx.onabort = () => reject(tx.error)
-      })
-      localSaved = true
-    } finally {
-      db.close()
-    }
-  } catch {
-    localSaved = false
+  const remoteMeta = {
+    ...meta,
+    storagePath: path,
+    contentType,
+    updatedAt: Date.now(),
   }
 
+  await uploadFileToBackend(key, blob, remoteMeta)
+
   try {
-    const path = getStoragePath(key)
-    const contentType = meta?.type || blob?.type || 'application/octet-stream'
-
-    const remoteMeta = {
-      ...meta,
-      storagePath: path,
-      contentType,
-      updatedAt: Date.now(),
-    }
-
-    await uploadFileToBackend(key, blob, remoteMeta)
-    return true
+    await saveFileToIndexedDb(key, blob, meta)
   } catch (err) {
-    if (localSaved) {
-      console.warn(`Saved ${key} locally, but failed to upload to backend:`, err)
-      return true
-    }
-    throw err
+    console.warn(`Uploaded ${key} to backend, but local cache failed:`, err)
   }
+
+  return true
+}
+
+export async function saveLocalFile(key, blob, meta = {}) {
+  await saveFileToIndexedDb(key, blob, meta)
+  return true
 }
 
 export async function loadFile(key) {
@@ -134,53 +145,26 @@ export async function loadLocalFile(key) {
 }
 
 export async function deleteFile(key) {
-  let localDeleted = false
+  await deleteFileFromBackend(key)
 
   try {
+    const localKey = getLocalKey(key)
     const db = await openDb()
     try {
       const tx = db.transaction(STORE_NAME, 'readwrite')
       const store = tx.objectStore(STORE_NAME)
-      await runRequest(store.delete(key))
+      await runRequest(store.delete(localKey))
       await new Promise((resolve, reject) => {
         tx.oncomplete = resolve
         tx.onerror = () => reject(tx.error)
         tx.onabort = () => reject(tx.error)
       })
-      localDeleted = true
     } finally {
       db.close()
     }
-  } catch {
-    localDeleted = false
-  }
-
-  try {
-    await deleteFileFromBackend(key)
-    return true
   } catch (err) {
-    if (localDeleted) return true
-    throw err
+    console.warn(`Deleted ${key} from backend, but local cache cleanup failed:`, err)
   }
-}
 
-export async function findFirstExistingMediaUrl(candidates = []) {
-  for (const candidate of candidates) {
-    if (!candidate) continue
-    const url = encodeURI(candidate)
-    try {
-      const headRes = await fetch(url, { method: 'HEAD' })
-      if (headRes.ok) return url
-      if (headRes.status === 405) {
-        const getRes = await fetch(url, {
-          method: 'GET',
-          headers: { Range: 'bytes=0-0' },
-        })
-        if (getRes.ok || getRes.status === 206) return url
-      }
-    } catch {
-      // Ignore and try next candidate.
-    }
-  }
-  return null
+  return true
 }

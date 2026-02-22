@@ -7,10 +7,11 @@ import styles from './Settings.module.css'
 const DISCIPLINE_ICONS = ['🩰', '👞', '💃', '🎭', '🤸', '🕺', '✨', '🌟']
 
 export default function Settings() {
-  const { state, dispatch, isAdmin, unlockAdmin, lockAdmin } = useApp()
+  const { state, dispatch, isAdmin, unlockAdmin, lockAdmin, hasSupabaseAuth, authUser, signOut } = useApp()
   const importRef = useRef(null)
   const [pinInput, setPinInput] = useState('')
   const [pinError, setPinError] = useState(false)
+  const [authBusy, setAuthBusy] = useState(false)
 
   const handlePinSubmit = (e) => {
     e.preventDefault()
@@ -24,6 +25,17 @@ export default function Settings() {
 
   const handleSettingsChange = (key, value) => {
     dispatch({ type: 'UPDATE_SETTINGS', payload: { [key]: value } })
+  }
+
+  const handleSignOut = async () => {
+    setAuthBusy(true)
+    try {
+      await signOut()
+    } catch (err) {
+      alert(err?.message || 'Could not sign out')
+    } finally {
+      setAuthBusy(false)
+    }
   }
 
   // ---- Disciplines ----
@@ -163,6 +175,28 @@ export default function Settings() {
   return (
     <div className={styles['settings-page']}>
       <h1>Settings ⚙️</h1>
+
+      {hasSupabaseAuth && authUser && (
+        <div className={styles['settings-section']}>
+          <h3>Account</h3>
+          <div className={styles['setting-card']}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '1.2rem' }}>✅</span>
+              <span style={{ fontWeight: 600, color: '#166534' }}>
+                Signed in as {authUser.email || 'user'}
+              </span>
+              <button
+                className={styles['data-btn']}
+                style={{ marginLeft: 'auto', background: '#fee2e2', color: '#dc2626' }}
+                onClick={handleSignOut}
+                disabled={authBusy}
+              >
+                Sign out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Admin unlock */}
       <div className={styles['settings-section']}>

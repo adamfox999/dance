@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
 import { useApp } from './context/AppContext'
+import Auth from './pages/Auth'
 import Dashboard from './pages/Dashboard'
 import Timeline from './pages/Timeline'
 import Choreography from './pages/Choreography'
@@ -10,7 +11,21 @@ import Calendar from './pages/Calendar'
 import Settings from './pages/Settings'
 
 export default function App() {
-  const { isLoading } = useApp()
+  const { isLoading, authLoading, isAuthenticated, hasSupabaseAuth } = useApp()
+
+  // While checking auth session, show a loading spinner
+  if (authLoading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontSize: '1.2rem', color: '#a855f7' }}>
+        Loading…
+      </div>
+    )
+  }
+
+  // If Supabase auth is configured but user isn't signed in, show auth page
+  if (hasSupabaseAuth && !isAuthenticated) {
+    return <Auth />
+  }
 
   if (isLoading) {
     return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Loading...</div>

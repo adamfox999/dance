@@ -208,8 +208,7 @@ export default function Choreography() {
   const videoPickerInputRef = useRef(null)
   const isLiveVideoPlayback = !!liveVideoUrl
 
-  // Feedback annotation mode
-  const [feedbackMode, setFeedbackMode] = useState(false)
+  // Video annotations
   const videoAnnotations = choreography.videoAnnotations || []
 
   useEffect(() => {
@@ -1375,10 +1374,13 @@ export default function Choreography() {
     : (Number.isFinite(syncResult?.confidence)
       ? syncResult.confidence
       : (Number.isFinite(choreography.videoSyncConfidence) ? choreography.videoSyncConfidence : null))
+  const syncConfidencePct = syncConfidence == null
+    ? null
+    : Math.max(0, Math.min(100, Math.round(syncConfidence * 100)))
   const syncLabel = syncing
     ? '⏳ Syncing...'
     : (hasSyncResult
-      ? `✅ Synced • ${syncOffsetMs}ms${syncConfidence != null ? ` • ${(syncConfidence * 100).toFixed(0)}%` : ''}`
+      ? `✅ Synced • ${syncOffsetMs}ms${syncConfidencePct != null ? ` • ${syncConfidencePct}%` : ''}`
       : '🔗 Tap to Sync')
 
   return (
@@ -1690,13 +1692,13 @@ export default function Choreography() {
               annotations={videoAnnotations}
               currentTime={isLiveVideoPlayback ? liveTime : currentTime}
               isPlaying={liveIsPlaying}
-              feedbackMode={feedbackMode}
               onPause={() => {
                 const video = liveVideoRef.current
                 if (video) video.pause()
                 const audio = audioRef.current
                 if (liveAudioMode === 'music' && audio) audio.pause()
               }}
+              onTogglePlay={toggleLivePlay}
               onAddAnnotation={(ann) => {
                 const updated = [...videoAnnotations, ann]
                 dispatch({
@@ -1774,9 +1776,6 @@ export default function Choreography() {
                 >
                   {syncLabel}
                 </button>
-                <span className={styles['live-time-display']}>
-                  {formatTimestamp(isLiveVideoPlayback ? liveTime : currentTime)} / {formatTimestamp(liveTotalDuration)}
-                </span>
               </div>
 
               <input
@@ -1874,10 +1873,42 @@ export default function Choreography() {
             </>
           )}
 
-          {/* Next instruction preview */}
-          {nextSongInstruction && (isPlaying || liveIsPlaying) && (
-            <div className={styles['live-next-preview']}>
-              Up next: {nextSongInstruction.emoji && <span>{nextSongInstruction.emoji} </span>}{nextSongInstruction.text}
+          {/* Top center stack: next-step prompt + beat counter */}
+          {((nextSongInstruction && (isPlaying || liveIsPlaying)) || showBeats) && (
+            <div className={styles['live-top-center-stack']}>
+              {showBeats && (
+                <div
+                  className={styles['live-beat-counter']}
+                  title={liveBeatInfo
+                    ? `Beat ${liveBeatInfo.count} of 8 • 8-count group ${liveBeatInfo.group}`
+                    : 'Beat counter ready'}
+                  aria-label={liveBeatInfo
+                    ? `Beat ${liveBeatInfo.count} of 8, group ${liveBeatInfo.group}`
+                    : 'Beat counter ready'}
+                >
+                  <div className={styles['live-beat-dots']}>
+                    {BEAT_SLOTS.map((slot) => {
+                      const beatNum = slot
+                      const currentCount = liveBeatInfo?.count ?? 0
+                      const isCurrent = liveBeatInfo ? (beatNum === currentCount && !liveBeatInfo.isAnd) : false
+                      const dotClass = isCurrent ? styles['live-beat-dot-current'] : (beatNum < currentCount ? styles['live-beat-dot-past'] : '')
+                      return (
+                        <div key={slot} className={styles['live-beat-slot']}>
+                          <span className={`${styles['live-beat-dot']} ${dotClass}`}>
+                            {slot}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {nextSongInstruction && (isPlaying || liveIsPlaying) && (
+                <div className={styles['live-next-preview']}>
+                  Up next: {nextSongInstruction.emoji && <span>{nextSongInstruction.emoji} </span>}{nextSongInstruction.text}
+                </div>
+              )}
             </div>
           )}
 
@@ -1903,27 +1934,6 @@ export default function Choreography() {
             <div className={styles['live-cue-idle']}>
               <span style={{ fontSize: '3rem' }}>💃</span>
               <p>Press play and dance!</p>
-            </div>
-          )}
-
-          {/* Beat counter — shows 8 beat dots */}
-          {showBeats && liveBeatInfo && (
-            <div className={styles['live-beat-counter']}>
-              <div className={styles['live-beat-group']}>8-count {liveBeatInfo.group}</div>
-              <div className={styles['live-beat-dots']}>
-                {BEAT_SLOTS.map((slot) => {
-                  const beatNum = slot
-                  const isCurrent = beatNum === liveBeatInfo.count && !liveBeatInfo.isAnd
-                  const dotClass = isCurrent ? styles['live-beat-dot-current'] : (beatNum < liveBeatInfo.count ? styles['live-beat-dot-past'] : '')
-                  return (
-                    <div key={slot} className={styles['live-beat-slot']}>
-                      <span className={`${styles['live-beat-dot']} ${dotClass}`}>
-                        {slot}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
             </div>
           )}
 
@@ -2046,21 +2056,20 @@ export default function Choreography() {
                       </button>
                     </div>
                   )}
-                  {isLiveVideoPlayback && (
-                    <button
-                      className={`${annotationStyles['feedback-toggle']} ${feedbackMode ? annotationStyles['feedback-toggle-active'] : ''}`}
-                      onClick={() => setFeedbackMode(f => !f)}
-                      title={feedbackMode ? 'Exit feedback mode' : 'Tap video to leave feedback'}
+                  {isLiveVideoPlayback && videoAnnotations.length > 0 && (
+                    <span
+                      className={annotationStyles['feedback-toggle']}
+                      title={`${videoAnnotations.length} annotation(s) — pause video to view & delete`}
                     >
-                      {feedbackMode ? '💬 Feedback ON' : '💬 Feedback'}
-                    </button>
+                      💬 {videoAnnotations.length}
+                    </span>
                   )}
                   <button
                     className={`${styles['live-edit-toggle']} ${liveEditOpen ? styles.active : ''}`}
                     onClick={() => setLiveEditOpen(!liveEditOpen)}
                     title="Edit beat instructions"
                   >
-                    ✏️ Edit
+                    ✏️ Choreography
                   </button>
                   {/* Version picker in live controls */}
                   {versions.length > 1 && (

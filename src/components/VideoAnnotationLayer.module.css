@@ -1,0 +1,366 @@
+/* ===== Video Annotation Layer — Twitch-style reactions ===== */
+
+/* Tap overlay — covers the rendered video area */
+.annotation-overlay {
+  position: absolute;
+  z-index: 4;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.annotation-overlay-feedback {
+  cursor: crosshair;
+}
+
+/* ===== EMOJI REACTIONS — float up like Twitch ===== */
+.reaction {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.reaction-visible {
+  animation: material-pop-float 2.5s cubic-bezier(0.2, 0, 0.2, 1) forwards;
+}
+
+.reaction-paused {
+  animation: material-pop-paused 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  pointer-events: auto;
+}
+
+.reaction-emoji {
+  font-size: 2.8rem;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
+  display: block;
+  line-height: 1;
+}
+
+@keyframes material-pop-float {
+  0% {
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 1;
+  }
+  6% {
+    transform: translate(-50%, -50%) scale(1.4);
+    opacity: 1;
+  }
+  10% {
+    transform: translate(-50%, -50%) scale(0.85);
+    opacity: 1;
+  }
+  14% {
+    transform: translate(-50%, -50%) scale(1.05);
+    opacity: 1;
+  }
+  18% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  55% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -350%) scale(0.85);
+    opacity: 0;
+  }
+}
+
+@keyframes material-pop-paused {
+  0% {
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+}
+
+/* ===== TEXT COMMENTS — coloured pills at angles ===== */
+.comment-bubble {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  max-width: 280px;
+}
+
+.comment-bubble-visible {
+  animation: material-pop-float 2.5s cubic-bezier(0.2, 0, 0.2, 1) forwards;
+}
+
+.comment-bubble-paused {
+  animation: material-pop-paused 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  pointer-events: auto;
+}
+
+.comment-pill {
+  display: inline-block;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 1.18rem;
+  font-weight: 700;
+  color: white;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.35);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  letter-spacing: 0.02em;
+}
+
+/* ===== TEXT COMMENTS — coloured pills at angles ===== */
+.combo {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 300px;
+}
+
+.combo-visible {
+  animation: material-pop-float 2.5s cubic-bezier(0.2, 0, 0.2, 1) forwards;
+}
+
+.combo-paused {
+  animation: material-pop-paused 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  pointer-events: auto;
+}
+
+/* ===== DELETE BUTTON — hover only ===== */
+.delete-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.delete-btn {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid white;
+  background: #ef4444;
+  color: white;
+  font-size: 0.62rem;
+  font-weight: 800;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 6;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  transition: transform 0.12s;
+}
+
+.delete-btn:hover {
+  transform: scale(1.2);
+  background: #dc2626;
+}
+
+.delete-wrap:hover .delete-btn {
+  display: flex;
+}
+
+/* ===== Input Popover ===== */
+.popover-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 14;
+}
+
+.popover {
+  position: absolute;
+  z-index: 15;
+  transform: translate(-50%, -100%);
+  width: 260px;
+  background: rgba(15, 10, 30, 0.95);
+  backdrop-filter: blur(16px);
+  border: 1.5px solid rgba(168, 85, 247, 0.4);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  padding: 14px;
+  animation: popover-in 0.25s ease-out both;
+}
+
+@keyframes popover-in {
+  from {
+    transform: translate(-50%, -100%) scale(0.85);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, -100%) scale(1);
+    opacity: 1;
+  }
+}
+
+.popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.popover-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.popover-time {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: rgba(168, 85, 247, 0.8);
+  background: rgba(168, 85, 247, 0.12);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.emoji-btn {
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1.5px solid transparent;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 1.3rem;
+  cursor: pointer;
+  transition: all 0.12s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.emoji-btn:hover {
+  background: rgba(168, 85, 247, 0.2);
+  border-color: rgba(168, 85, 247, 0.4);
+  transform: scale(1.12);
+}
+
+.emoji-btn-selected {
+  background: rgba(168, 85, 247, 0.3);
+  border-color: #a855f7;
+  box-shadow: 0 0 8px rgba(168, 85, 247, 0.4);
+}
+
+.comment-input {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1.5px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06);
+  color: white;
+  font-size: 0.78rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+  margin-bottom: 10px;
+  box-sizing: border-box;
+}
+
+.comment-input:focus {
+  border-color: rgba(168, 85, 247, 0.6);
+}
+
+.comment-input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.popover-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.popover-cancel-btn {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.popover-cancel-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.popover-save-btn {
+  padding: 6px 16px;
+  border-radius: 999px;
+  border: none;
+  background: #a855f7;
+  color: white;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.popover-save-btn:hover {
+  background: #9333ea;
+  transform: scale(1.04);
+}
+
+.popover-save-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ===== Feedback mode toggle button ===== */
+.feedback-toggle {
+  padding: 7px 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: default;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.feedback-toggle-active {
+  background: rgba(236, 72, 153, 0.25);
+  color: #f472b6;
+  border-color: rgba(236, 72, 153, 0.4);
+}
+
+/* ===== Annotation dots on progress bar ===== */
+.annotation-progress-dot {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(251, 191, 36, 0.8);
+  border: 1.5px solid rgba(255, 255, 255, 0.6);
+  transition: all 0.2s;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.annotation-progress-dot:hover {
+  transform: translate(-50%, -50%) scale(1.5);
+  background: #fbbf24;
+  box-shadow: 0 0 6px rgba(251, 191, 36, 0.6);
+}

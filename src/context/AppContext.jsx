@@ -2,6 +2,8 @@ import React, { createContext, useContext, useReducer, useEffect, useState } fro
 import { defaultState } from '../data/defaultState'
 import { checkForNewStickers } from '../utils/milestones'
 import { fetchStateFromBackend, saveStateToBackend } from '../utils/backendApi'
+import { setFileStorageUserScope } from '../utils/fileStorage'
+import { hasSupabaseConfig, supabase } from '../utils/supabaseClient'
 
 const AppContext = createContext(null)
 const ADMIN_PIN = '6789'
@@ -20,6 +22,7 @@ function normalizeVersion(version = {}, index = 0) {
     videoSyncOffset: version.videoSyncOffset || 0,
     videoSyncConfidence: Number.isFinite(version.videoSyncConfidence) ? version.videoSyncConfidence : null,
     videoFileName: version.videoFileName || '',
+    videoAnnotations: Array.isArray(version.videoAnnotations) ? version.videoAnnotations : [],
   }
 }
 
@@ -151,6 +154,10 @@ function stateFromDanceRow(row) {
       promptLeadMs: row?.prompt_lead_ms ?? migrated?.settings?.promptLeadMs,
     },
   })
+}
+
+function getLocalStateKey(userId) {
+  return `dance-tracker-state:${userId}`
 }
 
 // ============ REDUCER ============
@@ -472,6 +479,9 @@ export function AppProvider({ children }) {
   const [isLoading, setIsLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
   const [adminTimer, setAdminTimer] = useState(null)
+  const [authLoading, setAuthLoading] = useState(hasSupabaseConfig)
+  const [authSession, setAuthSession] = useState(null)
+  const [authUser, setAuthUser] = useState(null)
 
   // Admin mode: unlock with PIN, auto-lock after timeout
   const unlockAdmin = (pin) => {
@@ -500,56 +510,112 @@ export function AppProvider({ children }) {
     setAdminTimer(timer)
   }
 
-  // Load from localStorage or use defaults
-  const loadInitialState = () => {
-    try {
-      const saved = localStorage.getItem("dance-tracker-state")
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        return mergeStateWithDefaults(migrateOldState(parsed))
-      }
-    } catch (e) {
-      console.warn("Failed to load state from localStorage:", e)
-    }
-    return defaultState
-  }
+  const [state, dispatch] = useReducer(appReducer, defaultState)
 
-  const [state, dispatch] = useReducer(appReducer, null, loadInitialState)
-
-  // Load from backend on mount
   useEffect(() => {
-    async function fetchState() {
-      try {
-        const payload = await fetchStateFromBackend()
+    let mounted = true
 
-        if (payload?.source === 'dance' && payload?.danceData?.state_data) {
-          dispatch({ type: 'IMPORT_STATE', payload: stateFromDanceRow(payload.danceData) })
-        } else if (payload?.source === 'app_state' && payload?.appStateData?.state_data) {
-          const merged = mergeStateWithDefaults(payload.appStateData.state_data)
-          dispatch({ type: 'IMPORT_STATE', payload: merged })
-        }
-      } catch (err) {
-        console.warn('Backend state fetch unavailable; using local state only:', err)
-      } finally {
-        setIsLoading(false)
+    if (!hasSupabaseConfig || !supabase) {
+      setFileStorageUserScope(null)
+      setAuthSession(null)
+      setAuthUser(null)
+      setAuthLoading(false)
+      return () => {
+        mounted = false
       }
     }
 
-    fetchState()
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return
+      const session = data?.session || null
+      setAuthSession(session)
+      setAuthUser(session?.user || null)
+      setFileStorageUserScope(session?.user?.id || null)
+      setAuthLoading(false)
+    }).catch(() => {
+      if (!mounted) return
+      setFileStorageUserScope(null)
+      setAuthSession(null)
+      setAuthUser(null)
+      setAuthLoading(false)
+    })
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthSession(session || null)
+      setAuthUser(session?.user || null)
+      setFileStorageUserScope(session?.user?.id || null)
+    })
+
+    return () => {
+      mounted = false
+      sub?.subscription?.unsubscribe()
+    }
   }, [])
+
+  useEffect(() => {
+    if (authLoading) return
+
+    let cancelled = false
+
+    async function hydrateState() {
+      if (hasSupabaseConfig && !authUser?.id) {
+        dispatch({ type: 'RESET_STATE' })
+        setIsLoading(false)
+        return
+      }
+
+      setIsLoading(true)
+
+      if (authUser?.id) {
+        try {
+          const saved = localStorage.getItem(getLocalStateKey(authUser.id))
+          if (saved) {
+            const parsed = JSON.parse(saved)
+            if (!cancelled) {
+              dispatch({ type: 'IMPORT_STATE', payload: mergeStateWithDefaults(migrateOldState(parsed)) })
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to load state from localStorage:', e)
+        }
+
+        try {
+          const payload = await fetchStateFromBackend()
+          if (cancelled) return
+
+          if (payload?.source === 'dance' && payload?.danceData?.state_data) {
+            dispatch({ type: 'IMPORT_STATE', payload: stateFromDanceRow(payload.danceData) })
+          }
+        } catch (err) {
+          console.warn('Backend state fetch unavailable; using local state only:', err)
+        }
+      }
+
+      if (!cancelled) setIsLoading(false)
+    }
+
+    hydrateState()
+    return () => {
+      cancelled = true
+    }
+  }, [authLoading, authUser?.id])
 
   // Persist to localStorage and backend on every state change
   useEffect(() => {
     if (isLoading) return // Don't save while initially loading
+    if (hasSupabaseConfig && !authUser?.id) return
 
     try {
-      localStorage.setItem("dance-tracker-state", JSON.stringify(state))
+      if (authUser?.id) {
+        localStorage.setItem(getLocalStateKey(authUser.id), JSON.stringify(state))
+      }
     } catch (e) {
       console.warn("Failed to save state to localStorage:", e)
     }
 
     // Debounce backend saves to avoid too many requests
     const saveToBackend = async () => {
+      if (!authUser?.id) return
       try {
         await saveStateToBackend(state)
       } catch (err) {
@@ -559,7 +625,57 @@ export function AppProvider({ children }) {
 
     const timeoutId = setTimeout(saveToBackend, 1000) // 1 second debounce
     return () => clearTimeout(timeoutId)
-  }, [state, isLoading])
+  }, [state, isLoading, authUser?.id])
+
+  // Check whether a user with this email already exists.
+  // Uses signInWithOtp with shouldCreateUser:false — if it succeeds the user
+  // is known; if it errors out the email is new.
+  const checkUserExists = async (email) => {
+    if (!supabase) throw new Error('Supabase auth is not configured.')
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: false, emailRedirectTo: window.location.origin },
+    })
+    // Supabase returns an error when the user doesn't exist and shouldCreateUser is false
+    if (error) return false
+    return true
+  }
+
+  // Login — existing user, just send magic link
+  const signInWithMagicLink = async (email) => {
+    if (!supabase) throw new Error('Supabase auth is not configured.')
+    const trimmedEmail = String(email || '').trim()
+    if (!trimmedEmail) throw new Error('Email is required.')
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email: trimmedEmail,
+      options: { shouldCreateUser: false, emailRedirectTo: window.location.origin },
+    })
+    if (error) throw error
+    return true
+  }
+
+  // Sign-up — create user with metadata then send magic link
+  const signUpWithMagicLink = async (email, metadata) => {
+    if (!supabase) throw new Error('Supabase auth is not configured.')
+    const trimmedEmail = String(email || '').trim()
+    if (!trimmedEmail) throw new Error('Email is required.')
+
+    const opts = { emailRedirectTo: window.location.origin }
+    if (metadata) opts.data = metadata
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email: trimmedEmail,
+      options: { ...opts, shouldCreateUser: true },
+    })
+    if (error) throw error
+    return true
+  }
+
+  const signOut = async () => {
+    if (!supabase) return
+    await supabase.auth.signOut()
+  }
 
   // Check for new sticker unlocks on state changes
   useEffect(() => {
@@ -570,7 +686,24 @@ export function AppProvider({ children }) {
   }, [state.sessions, state.practiceLog, state.disciplines, state.shows])
 
   return (
-    <AppContext.Provider value={{ state, dispatch, isLoading, isAdmin, unlockAdmin, lockAdmin, resetAdminTimer }}>
+    <AppContext.Provider value={{
+      state,
+      dispatch,
+      isLoading,
+      isAdmin,
+      unlockAdmin,
+      lockAdmin,
+      resetAdminTimer,
+      authLoading,
+      authSession,
+      authUser,
+      isAuthenticated: Boolean(authUser),
+      hasSupabaseAuth: hasSupabaseConfig,
+      signInWithMagicLink,
+      signUpWithMagicLink,
+      checkUserExists,
+      signOut,
+    }}>
       {children}
     </AppContext.Provider>
   )
