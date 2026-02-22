@@ -154,13 +154,14 @@ export async function fetchIncomingShares() {
 export async function createShare({ danceId, routineId }) {
   const client = ensureClient()
   const user = await requireUser()
+  if (!routineId) throw new Error('A specific dance must be selected to share.')
   const token = crypto.randomUUID().replace(/-/g, '').slice(0, 12)
 
   const { data, error } = await client
     .from('dance_share')
     .insert({
       dance_id: danceId,
-      routine_id: routineId || null,
+      routine_id: routineId,
       owner_user_id: user.id,
       invite_token: token,
       role: 'viewer',
@@ -327,7 +328,7 @@ export async function updateSharePartnerKids(shareId, partnerKidIds) {
   return data
 }
 
-// ============ FAMILY GUARDIANS (co-parents) ============
+// ============ FAMILY GUARDIANS ============
 
 export async function fetchMyGuardians() {
   const client = ensureClient()
@@ -371,7 +372,7 @@ export async function createGuardianInvite({ kidProfileIds, role }) {
       owner_user_id: user.id,
       invite_token: token,
       kid_profile_ids: kidProfileIds || [],
-      role: role || 'co-parent',
+      role: role || 'guardian',
       status: 'pending',
     })
     .select()

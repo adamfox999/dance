@@ -39,7 +39,6 @@ export default function Settings() {
   const [shareLink, setShareLink] = useState(null)
 
   // Guardian state
-  const [guardianRole, setGuardianRole] = useState('co-parent')
   const [guardianKids, setGuardianKids] = useState([])
   const [guardianBusy, setGuardianBusy] = useState(false)
   const [guardianMsg, setGuardianMsg] = useState(null)
@@ -127,11 +126,12 @@ export default function Settings() {
     setShareMsg(null)
     setShareLink(null)
     try {
+      if (!shareRoutineId) throw new Error('Please select a dance to share.')
       const res = await fetchStateFromBackend()
       if (!res?.danceData?.id) throw new Error('No dance data found to share.')
       const share = await createShareInvite({
         danceId: res.danceData.id,
-        routineId: shareRoutineId || null,
+        routineId: shareRoutineId,
       })
       setShareRoutineId('')
       const link = `${window.location.origin}${window.location.pathname}?share=${share.invite_token}`
@@ -185,12 +185,12 @@ export default function Settings() {
     try {
       const guardian = await createGuardianInvite({
         kidProfileIds: guardianKids,
-        role: guardianRole,
+        role: 'guardian',
       })
       setGuardianKids([])
       const link = `${window.location.origin}${window.location.pathname}?invite=${guardian.invite_token}`
       setGuardianLink(link)
-      setGuardianMsg({ type: 'success', text: 'Invite link created! Share it with the other parent.' })
+      setGuardianMsg({ type: 'success', text: 'Invite link created! Share it with your parent or guardian.' })
     } catch (err) {
       setGuardianMsg({ type: 'error', text: err?.message || 'Could not create invite' })
     } finally {
@@ -556,14 +556,14 @@ export default function Settings() {
       {/* Sharing */}
       {hasSupabaseAuth && authUser && isAdmin && (
         <div className={styles['settings-section']}>
-          <h3>Share This Dance</h3>
+          <h3>Share a Dance</h3>
           <div className={styles['setting-card']}>
             {/* Invite form */}
             <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#6b7280', marginBottom: 6 }}>
-              Invite a parent or guardian to view this dance
+              Share a specific dance with another parent or guardian
             </div>
             <div style={{ fontSize: '0.78rem', color: '#9ca3af', marginBottom: 12, lineHeight: 1.4 }}>
-              Generate a one-time link to share this dance routine with another parent or guardian. They'll be able to view the routine without needing an account.
+              Generate a link to share a dance routine. They'll only be able to see that dance and any of their children assigned to it.
             </div>
             <form onSubmit={handleCreateShare} style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
               <div style={{ display: 'flex', gap: 8 }}>
@@ -572,7 +572,7 @@ export default function Settings() {
                   onChange={(e) => setShareRoutineId(e.target.value)}
                   style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e5e5', fontSize: '0.85rem' }}
                 >
-                  <option value="">All routines</option>
+                  <option value="">Select a dance…</option>
                   {state.routines.map(r => (
                     <option key={r.id} value={r.id}>{r.name}</option>
                   ))}
@@ -626,7 +626,6 @@ export default function Settings() {
                       <span style={{ fontSize: '0.88rem', flex: 1 }}>
                         {share.status === 'accepted' ? '✅' : '🔗'} {share.invited_email || (share.invite_token ? 'Invite link' : 'Pending')}
                         {routine && <span style={{ color: '#6b7280' }}> — {routine.name}</span>}
-                        {!share.routine_id && <span style={{ color: '#6b7280' }}> — All routines</span>}
                       </span>
                       <span style={{
                         fontSize: '0.75rem', fontWeight: 600, padding: '2px 8px', borderRadius: 6,
@@ -688,26 +687,18 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Guardians / Co-parents */}
+      {/* Guardians */}
       {hasSupabaseAuth && isAdmin && (
         <div className={styles['settings-section']}>
-          <h3>Guardians / Co-parents</h3>
+          <h3>Guardians</h3>
           <div className={styles['setting-card']}>
+            <div style={{ fontSize: '0.78rem', color: '#9ca3af', marginBottom: 12, lineHeight: 1.4 }}>
+              A parent or guardian can manage a child's profile, see all their dances, progress and more.
+            </div>
 
             {/* Invite a guardian */}
             <form onSubmit={handleCreateGuardian} style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
               <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#6b7280', marginBottom: 2 }}>Invite a parent or guardian</div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <label style={{ fontSize: '0.82rem', color: '#6b7280', fontWeight: 600 }}>Role:</label>
-                <select
-                  value={guardianRole}
-                  onChange={(e) => setGuardianRole(e.target.value)}
-                  style={{ padding: '6px 10px', borderRadius: 8, border: '2px solid #e5e5e5', fontSize: '0.85rem' }}
-                >
-                  <option value="co-parent">Co-parent</option>
-                  <option value="viewer">Viewer</option>
-                </select>
-              </div>
               {kidProfiles.length > 0 && (
                 <div>
                   <div style={{ fontSize: '0.82rem', color: '#6b7280', fontWeight: 600, marginBottom: 4 }}>Assign children:</div>
@@ -775,7 +766,6 @@ export default function Settings() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                       <span style={{ fontSize: '0.88rem', fontWeight: 600, flex: 1 }}>
                         👥 {g.guardian_email || (g.invite_token ? 'Invite link' : 'Pending')}
-                        <span style={{ fontSize: '0.75rem', color: '#6b7280', marginLeft: 6 }}>({g.role})</span>
                       </span>
                       <span style={{
                         fontSize: '0.72rem', fontWeight: 600, padding: '2px 8px', borderRadius: 6,
@@ -856,7 +846,6 @@ export default function Settings() {
                   <div key={g.id} className={styles['item-row']} style={{ marginBottom: 4 }}>
                     <span style={{ fontSize: '0.88rem', flex: 1 }}>
                       From family owner
-                      <span style={{ fontSize: '0.75rem', color: '#6b7280', marginLeft: 6 }}>({g.role})</span>
                     </span>
                     <span style={{
                       fontSize: '0.72rem', fontWeight: 600, padding: '2px 8px', borderRadius: 6,
