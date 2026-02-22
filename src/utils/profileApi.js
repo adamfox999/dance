@@ -328,6 +328,88 @@ export async function updateSharePartnerKids(shareId, partnerKidIds) {
   return data
 }
 
+// ============ FAMILY UNITS ============
+
+export async function fetchMyFamilyUnits() {
+  const client = ensureClient()
+  const user = await requireUser()
+
+  const { data, error } = await client
+    .from('family_unit')
+    .select('*')
+    .eq('owner_user_id', user.id)
+    .order('created_at')
+
+  if (error) throw new Error(error.message)
+  return data || []
+}
+
+export async function fetchGuardianFamilyUnits() {
+  const client = ensureClient()
+  await requireUser()
+
+  // RLS will only return units where the user is an accepted guardian
+  const { data, error } = await client
+    .from('family_unit')
+    .select('*')
+    .order('created_at')
+
+  if (error) throw new Error(error.message)
+  // Filter out ones I own (those come from fetchMyFamilyUnits)
+  const user = (await client.auth.getUser()).data.user
+  return (data || []).filter(u => u.owner_user_id !== user.id)
+}
+
+export async function createFamilyUnit({ name, kidProfileIds }) {
+  const client = ensureClient()
+  const user = await requireUser()
+
+  const { data, error } = await client
+    .from('family_unit')
+    .insert({
+      owner_user_id: user.id,
+      name: name || 'My Family',
+      kid_profile_ids: kidProfileIds || [],
+    })
+    .select()
+    .single()
+
+  if (error) throw new Error(error.message)
+  return data
+}
+
+export async function updateFamilyUnit(unitId, { name, kidProfileIds }) {
+  const client = ensureClient()
+  await requireUser()
+
+  const updates = {}
+  if (name !== undefined) updates.name = name
+  if (kidProfileIds !== undefined) updates.kid_profile_ids = kidProfileIds
+
+  const { data, error } = await client
+    .from('family_unit')
+    .update(updates)
+    .eq('id', unitId)
+    .select()
+    .single()
+
+  if (error) throw new Error(error.message)
+  return data
+}
+
+export async function deleteFamilyUnit(unitId) {
+  const client = ensureClient()
+  await requireUser()
+
+  const { error } = await client
+    .from('family_unit')
+    .delete()
+    .eq('id', unitId)
+
+  if (error) throw new Error(error.message)
+  return { ok: true }
+}
+
 // ============ FAMILY GUARDIANS ============
 
 export async function fetchMyGuardians() {
@@ -359,7 +441,7 @@ export async function fetchIncomingGuardianInvites() {
   return data || []
 }
 
-export async function createGuardianInvite({ kidProfileIds, role }) {
+export async function createGuardianInvite({ familyUnitId, kidProfileIds, role }) {
   const client = ensureClient()
   const user = await requireUser()
 
@@ -368,15 +450,18 @@ export async function createGuardianInvite({ kidProfileIds, role }) {
   // Generate a short random invite token
   const token = crypto.randomUUID().replace(/-/g, '').slice(0, 12)
 
+  const row = {
+    owner_user_id: user.id,
+    invite_token: token,
+    kid_profile_ids: kidProfileIds || [],
+    role: normalizedRole,
+    status: 'pending',
+  }
+  if (familyUnitId) row.family_unit_id = familyUnitId
+
   const { data, error } = await client
     .from('family_guardian')
-    .insert({
-      owner_user_id: user.id,
-      invite_token: token,
-      kid_profile_ids: kidProfileIds || [],
-      role: normalizedRole,
-      status: 'pending',
-    })
+    .insert(row)
     .select()
     .single()
 

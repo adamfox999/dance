@@ -14,14 +14,15 @@ export default function Settings() {
   const {
     state, dispatch, isAdmin, hasSupabaseAuth, authUser, signOut,
     // Profiles
-    userProfile, kidProfiles, ownKidProfiles, familyMembers,
+    userProfile, kidProfiles, ownKidProfiles, familyUnits,
     saveUserProfile, addKidProfile, editKidProfile, removeKidProfile,
+    createFamilyUnit, updateFamilyUnit, deleteFamilyUnit,
     // Shares
     outgoingShares, incomingShares, sharedDances,
     createShareInvite, acceptShareInvite, removeShare, loadShares,
     // Guardians
     outgoingGuardians, incomingGuardians,
-    createGuardianInvite, acceptGuardianInvite, updateGuardianKids, revokeGuardianInvite, removeGuardian,
+    createGuardianInvite, acceptGuardianInvite, revokeGuardianInvite, removeGuardian,
   } = useApp()
   const navigate = useNavigate()
   const importRef = useRef(null)
@@ -42,10 +43,19 @@ export default function Settings() {
   const [shareLink, setShareLink] = useState(null)
 
   // Guardian state
-  const [guardianKids, setGuardianKids] = useState([])
   const [guardianBusy, setGuardianBusy] = useState(false)
   const [guardianMsg, setGuardianMsg] = useState(null)
   const [guardianLink, setGuardianLink] = useState(null)
+  const [invitingUnitId, setInvitingUnitId] = useState(null)  // which unit is showing invite form
+
+  // Family unit creation / editing state
+  const [creatingUnit, setCreatingUnit] = useState(false)
+  const [newUnitName, setNewUnitName] = useState('')
+  const [newUnitKids, setNewUnitKids] = useState([])
+  const [editingUnitId, setEditingUnitId] = useState(null)
+  const [editUnitName, setEditUnitName] = useState('')
+  const [editUnitKids, setEditUnitKids] = useState([])
+  const [unitBusy, setUnitBusy] = useState(false)
 
   // Kid profile editing state
   const [editingKidId, setEditingKidId] = useState(null)
@@ -180,19 +190,20 @@ export default function Settings() {
   }
 
   // ---- Guardian handlers ----
-  const handleCreateGuardian = async (e) => {
+  const handleCreateGuardian = async (e, familyUnitId) => {
     e.preventDefault()
     setGuardianBusy(true)
     setGuardianMsg(null)
     setGuardianLink(null)
     try {
       const guardian = await createGuardianInvite({
-        kidProfileIds: guardianKids,
+        familyUnitId,
+        kidProfileIds: [],
         role: 'guardian',
       })
-      setGuardianKids([])
       const link = `${window.location.origin}${window.location.pathname}?invite=${guardian.invite_token}`
       setGuardianLink(link)
+      setInvitingUnitId(familyUnitId)
       setGuardianMsg({ type: 'success', text: 'Invite link created! Share it with your parent or guardian.' })
     } catch (err) {
       setGuardianMsg({ type: 'error', text: err?.message || 'Could not create invite' })
@@ -226,17 +237,6 @@ export default function Settings() {
     }
   }
 
-  const handleToggleGuardianKid = async (guardianId, kidId, currentKids) => {
-    const updated = currentKids.includes(kidId)
-      ? currentKids.filter(k => k !== kidId)
-      : [...currentKids, kidId]
-    try {
-      await updateGuardianKids(guardianId, updated)
-    } catch (err) {
-      alert(err?.message || 'Could not update kids')
-    }
-  }
-
   const handleRevokeGuardian = async (id) => {
     try {
       await revokeGuardianInvite(id)
@@ -245,18 +245,41 @@ export default function Settings() {
     }
   }
 
-  const handleDeleteGuardian = async (id) => {
+  const handleDeleteUnit = async (unitId) => {
+    if (!window.confirm('Delete this family unit? Members will lose access.')) return
     try {
-      await removeGuardian(id)
+      await deleteFamilyUnit(unitId)
     } catch (err) {
-      alert(err?.message || 'Could not delete guardian')
+      alert(err?.message || 'Could not delete family unit')
     }
   }
 
-  const toggleGuardianKidSelection = (kidId) => {
-    setGuardianKids(prev =>
-      prev.includes(kidId) ? prev.filter(k => k !== kidId) : [...prev, kidId]
-    )
+  const handleCreateUnit = async () => {
+    if (!newUnitName.trim()) return
+    setUnitBusy(true)
+    try {
+      await createFamilyUnit({ name: newUnitName.trim(), kidProfileIds: newUnitKids })
+      setNewUnitName('')
+      setNewUnitKids([])
+      setCreatingUnit(false)
+    } catch (err) {
+      alert(err?.message || 'Could not create family unit')
+    } finally {
+      setUnitBusy(false)
+    }
+  }
+
+  const handleUpdateUnit = async (unitId) => {
+    if (!editUnitName.trim()) return
+    setUnitBusy(true)
+    try {
+      await updateFamilyUnit(unitId, { name: editUnitName.trim(), kidProfileIds: editUnitKids })
+      setEditingUnitId(null)
+    } catch (err) {
+      alert(err?.message || 'Could not update family unit')
+    } finally {
+      setUnitBusy(false)
+    }
   }
 
   // ---- Disciplines ----
@@ -432,196 +455,260 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Family Unit */}
+      {/* Family Units */}
       {hasSupabaseAuth && authUser && (
         <div className={styles['settings-section']}>
-          <h3>Family Unit 👨‍👩‍👧‍👦</h3>
-          <div className={styles['setting-card']}>
-            {/* Family members list */}
-            <div style={{ marginBottom: 16 }}>
-              {familyMembers.length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {familyMembers.map((member, idx) => {
-                    const isEditingSelf = member.isSelf && editingProfile
-                    const isEditingKid = member.type === 'child' && member.isOwn && editingKidId === member.profile.id
-                    return (
-                      <div key={member.profile.id || idx}>
-                        {/* Self profile editing */}
-                        {isEditingSelf ? (
-                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            <select
-                              value={profileEmoji}
-                              onChange={(e) => setProfileEmoji(e.target.value)}
-                              style={{ width: 50, fontSize: '1.3rem', textAlign: 'center', border: 'none', background: 'transparent' }}
-                            >
-                              {AVATAR_EMOJIS.map(e => <option key={e} value={e}>{e}</option>)}
-                            </select>
-                            <input
-                              type="text"
-                              placeholder="Your name"
-                              value={profileName}
-                              onChange={(e) => setProfileName(e.target.value)}
-                              style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #e5e5e5', fontSize: '0.95rem' }}
-                            />
-                            <button
-                              className={styles['data-btn']}
-                              style={{ background: '#ede9fe', color: '#7c3aed' }}
-                              onClick={handleSaveProfile}
-                              disabled={profileBusy}
-                            >
-                              {profileBusy ? 'Saving…' : 'Save'}
-                            </button>
-                            <button className={styles['data-btn']} onClick={() => setEditingProfile(false)}>Cancel</button>
-                          </div>
-                        ) : isEditingKid ? (
-                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            <select
-                              value={editKidEmoji}
-                              onChange={(e) => setEditKidEmoji(e.target.value)}
-                              style={{ width: 50, fontSize: '1.3rem', textAlign: 'center', border: 'none', background: 'transparent' }}
-                            >
-                              {AVATAR_EMOJIS.map(e => <option key={e} value={e}>{e}</option>)}
-                            </select>
-                            <input
-                              type="text"
-                              value={editKidName}
-                              onChange={(e) => setEditKidName(e.target.value)}
-                              style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.9rem' }}
-                            />
-                            <button
-                              className={styles['data-btn']}
-                              style={{ background: '#ede9fe', color: '#7c3aed' }}
-                              onClick={handleEditKid}
-                              disabled={profileBusy || !editKidName.trim()}
-                            >
-                              {profileBusy ? '…' : 'Save'}
-                            </button>
-                            <button className={styles['data-btn']} onClick={() => setEditingKidId(null)}>Cancel</button>
-                          </div>
-                        ) : (
-                          /* Normal display row */
-                          <div className={styles['item-row']}>
-                            <span style={{ fontSize: '1.3rem' }}>{member.profile.avatar_emoji || (member.type === 'adult' ? '👤' : '💃')}</span>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ fontWeight: 600 }}>{member.profile.display_name || (member.type === 'adult' ? 'Parent' : 'Dancer')}</div>
-                              <div style={{ fontSize: '0.72rem', color: '#9ca3af' }}>{member.relationship}</div>
-                            </div>
-                            {/* Edit / delete buttons for own profiles only */}
-                            {member.isSelf && (
-                              <button
-                                className={styles['data-btn']}
-                                style={{ background: '#ede9fe', color: '#7c3aed', fontSize: '0.75rem' }}
-                                onClick={() => {
-                                  setProfileName(userProfile?.display_name || '')
-                                  setProfileEmoji(userProfile?.avatar_emoji || '👤')
-                                  setEditingProfile(true)
-                                }}
-                              >Edit</button>
-                            )}
-                            {member.type === 'child' && member.isOwn && (
-                              <>
-                                <button
-                                  className={styles['data-btn']}
-                                  style={{ background: '#ede9fe', color: '#7c3aed', fontSize: '0.75rem' }}
-                                  onClick={() => {
-                                    setEditingKidId(member.profile.id)
-                                    setEditKidName(member.profile.display_name || '')
-                                    setEditKidEmoji(member.profile.avatar_emoji || '💃')
-                                  }}
-                                >Edit</button>
-                                <button
-                                  onClick={() => handleDeleteKid(member.profile.id)}
-                                  title="Remove"
-                                  style={{ background: '#fee2e2', color: '#dc2626', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', border: 'none', cursor: 'pointer' }}
-                                >✕</button>
-                              </>
-                            )}
-                          </div>
-                        )}
+          <h3>Family Units 👨‍👩‍👧‍👦</h3>
+
+          {/* My profile (always visible, outside of units) */}
+          <div className={styles['setting-card']} style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: '0.78rem', fontWeight: 600, color: '#9ca3af', marginBottom: 6 }}>Your Profile</div>
+            {editingProfile ? (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <select
+                  value={profileEmoji}
+                  onChange={(e) => setProfileEmoji(e.target.value)}
+                  style={{ width: 50, fontSize: '1.3rem', textAlign: 'center', border: 'none', background: 'transparent' }}
+                >
+                  {AVATAR_EMOJIS.map(e => <option key={e} value={e}>{e}</option>)}
+                </select>
+                <input
+                  type="text"
+                  placeholder="Your name"
+                  value={profileName}
+                  onChange={(e) => setProfileName(e.target.value)}
+                  style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #e5e5e5', fontSize: '0.95rem' }}
+                />
+                <button
+                  className={styles['data-btn']}
+                  style={{ background: '#ede9fe', color: '#7c3aed' }}
+                  onClick={handleSaveProfile}
+                  disabled={profileBusy}
+                >{profileBusy ? 'Saving…' : 'Save'}</button>
+                <button className={styles['data-btn']} onClick={() => setEditingProfile(false)}>Cancel</button>
+              </div>
+            ) : (
+              <div className={styles['item-row']}>
+                <span style={{ fontSize: '1.3rem' }}>{userProfile?.avatar_emoji || '👤'}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600 }}>{userProfile?.display_name || 'Parent'}</div>
+                  <div style={{ fontSize: '0.72rem', color: '#9ca3af' }}>{authUser?.email}</div>
+                </div>
+                <button
+                  className={styles['data-btn']}
+                  style={{ background: '#ede9fe', color: '#7c3aed', fontSize: '0.75rem' }}
+                  onClick={() => {
+                    setProfileName(userProfile?.display_name || '')
+                    setProfileEmoji(userProfile?.avatar_emoji || '👤')
+                    setEditingProfile(true)
+                  }}
+                >Edit</button>
+              </div>
+            )}
+          </div>
+
+          {/* Add child (global, not per-unit) */}
+          {isAdmin && (
+            <div className={styles['setting-card']} style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: '0.78rem', fontWeight: 600, color: '#9ca3af', marginBottom: 6 }}>Your Children</div>
+              {ownKidProfiles.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                  {ownKidProfiles.map(kid => {
+                    const isEditing = editingKidId === kid.id
+                    return isEditing ? (
+                      <div key={kid.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <select
+                          value={editKidEmoji}
+                          onChange={(e) => setEditKidEmoji(e.target.value)}
+                          style={{ width: 50, fontSize: '1.3rem', textAlign: 'center', border: 'none', background: 'transparent' }}
+                        >
+                          {AVATAR_EMOJIS.map(e => <option key={e} value={e}>{e}</option>)}
+                        </select>
+                        <input
+                          type="text"
+                          value={editKidName}
+                          onChange={(e) => setEditKidName(e.target.value)}
+                          style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.9rem' }}
+                        />
+                        <button
+                          className={styles['data-btn']}
+                          style={{ background: '#ede9fe', color: '#7c3aed' }}
+                          onClick={handleEditKid}
+                          disabled={profileBusy || !editKidName.trim()}
+                        >{profileBusy ? '…' : 'Save'}</button>
+                        <button className={styles['data-btn']} onClick={() => setEditingKidId(null)}>Cancel</button>
+                      </div>
+                    ) : (
+                      <div key={kid.id} className={styles['item-row']}>
+                        <span style={{ fontSize: '1.3rem' }}>{kid.avatar_emoji || '💃'}</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600 }}>{kid.display_name}</div>
+                        </div>
+                        <button
+                          className={styles['data-btn']}
+                          style={{ background: '#ede9fe', color: '#7c3aed', fontSize: '0.75rem' }}
+                          onClick={() => {
+                            setEditingKidId(kid.id)
+                            setEditKidName(kid.display_name || '')
+                            setEditKidEmoji(kid.avatar_emoji || '💃')
+                          }}
+                        >Edit</button>
+                        <button
+                          onClick={() => handleDeleteKid(kid.id)}
+                          title="Remove"
+                          style={{ background: '#fee2e2', color: '#dc2626', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', border: 'none', cursor: 'pointer' }}
+                        >✕</button>
                       </div>
                     )
                   })}
                 </div>
-              ) : (
-                <div style={{ fontSize: '0.85rem', color: '#9ca3af' }}>No family members yet.</div>
               )}
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <select
+                  value={newKidEmoji}
+                  onChange={(e) => setNewKidEmoji(e.target.value)}
+                  style={{ width: 50, fontSize: '1.3rem', textAlign: 'center', border: 'none', background: 'transparent' }}
+                >
+                  {AVATAR_EMOJIS.map(e => <option key={e} value={e}>{e}</option>)}
+                </select>
+                <input
+                  type="text"
+                  placeholder="Child's name"
+                  value={newKidName}
+                  onChange={(e) => setNewKidName(e.target.value)}
+                  style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #e5e5e5', fontSize: '0.95rem' }}
+                />
+                <button
+                  className={styles['add-btn']}
+                  onClick={handleAddKid}
+                  disabled={profileBusy || !newKidName.trim()}
+                  style={{ whiteSpace: 'nowrap' }}
+                >+ Add Child</button>
+              </div>
             </div>
+          )}
 
-            {/* Add child (own) */}
-            {isAdmin && (
-              <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: 12, marginBottom: 16 }}>
-                <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#6b7280', marginBottom: 6 }}>Add a child</div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <select
-                    value={newKidEmoji}
-                    onChange={(e) => setNewKidEmoji(e.target.value)}
-                    style={{ width: 50, fontSize: '1.3rem', textAlign: 'center', border: 'none', background: 'transparent' }}
-                  >
-                    {AVATAR_EMOJIS.map(e => <option key={e} value={e}>{e}</option>)}
-                  </select>
+          {/* Each family unit as a card */}
+          {familyUnits.map(unit => (
+            <div key={unit.id} className={styles['setting-card']} style={{ marginBottom: 12, border: '2px solid #e5e7eb' }}>
+              {/* Unit header */}
+              {editingUnitId === unit.id ? (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
                   <input
                     type="text"
-                    placeholder="Child's name"
-                    value={newKidName}
-                    onChange={(e) => setNewKidName(e.target.value)}
-                    style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #e5e5e5', fontSize: '0.95rem' }}
+                    value={editUnitName}
+                    onChange={(e) => setEditUnitName(e.target.value)}
+                    style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.95rem', fontWeight: 600 }}
                   />
                   <button
-                    className={styles['add-btn']}
-                    onClick={handleAddKid}
-                    disabled={profileBusy || !newKidName.trim()}
-                    style={{ whiteSpace: 'nowrap' }}
-                  >
-                    + Add Child
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Invite a parent / guardian */}
-            {isAdmin && (
-              <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: 12 }}>
-                <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#6b7280', marginBottom: 4 }}>Invite a parent or guardian</div>
-                <div style={{ fontSize: '0.78rem', color: '#9ca3af', marginBottom: 10, lineHeight: 1.4 }}>
-                  Generate a link to add another adult to the family. They'll see all the children's dances and progress.
-                </div>
-                <form onSubmit={handleCreateGuardian} style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 10 }}>
-                  {ownKidProfiles.length > 0 && (
-                    <div>
-                      <div style={{ fontSize: '0.82rem', color: '#6b7280', fontWeight: 600, marginBottom: 4 }}>Assign children:</div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                        {ownKidProfiles.map(kid => {
-                          const selected = guardianKids.includes(kid.id)
-                          return (
-                            <button
-                              key={kid.id}
-                              type="button"
-                              onClick={() => toggleGuardianKidSelection(kid.id)}
-                              style={{
-                                padding: '4px 12px', borderRadius: 12, fontSize: '0.82rem', fontWeight: 600,
-                                border: '2px solid', cursor: 'pointer',
-                                background: selected ? '#ede9fe' : '#f9fafb',
-                                borderColor: selected ? '#a78bfa' : '#e5e7eb',
-                                color: selected ? '#7c3aed' : '#6b7280',
-                              }}
-                            >
-                              {kid.avatar_emoji} {kid.display_name}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-                  <button
-                    type="submit"
-                    disabled={guardianBusy}
                     className={styles['data-btn']}
-                    style={{ background: '#f0e6ff', color: '#7c3aed', alignSelf: 'flex-start' }}
-                  >
-                    {guardianBusy ? 'Creating…' : '🔗 Generate Invite Link'}
-                  </button>
-                  {guardianLink && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f0fdf4', borderRadius: 8, padding: '8px 12px', border: '1px solid #bbf7d0' }}>
+                    style={{ background: '#ede9fe', color: '#7c3aed' }}
+                    onClick={() => handleUpdateUnit(unit.id)}
+                    disabled={unitBusy || !editUnitName.trim()}
+                  >{unitBusy ? '…' : 'Save'}</button>
+                  <button className={styles['data-btn']} onClick={() => setEditingUnitId(null)}>Cancel</button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
+                  <div style={{ flex: 1, fontWeight: 700, fontSize: '1rem' }}>{unit.name}</div>
+                  {unit.isOwner && isAdmin && (
+                    <>
+                      <button
+                        className={styles['data-btn']}
+                        style={{ background: '#ede9fe', color: '#7c3aed', fontSize: '0.72rem', marginRight: 4 }}
+                        onClick={() => {
+                          setEditingUnitId(unit.id)
+                          setEditUnitName(unit.name)
+                          setEditUnitKids(unit.kidProfileIds || [])
+                        }}
+                      >Edit</button>
+                      <button
+                        onClick={() => handleDeleteUnit(unit.id)}
+                        title="Delete unit"
+                        style={{ background: '#fee2e2', color: '#dc2626', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', border: 'none', cursor: 'pointer' }}
+                      >✕</button>
+                    </>
+                  )}
+                  {!unit.isOwner && (
+                    <span style={{ fontSize: '0.72rem', fontWeight: 600, padding: '2px 8px', borderRadius: 6, background: '#dbeafe', color: '#1d4ed8' }}>Guardian</span>
+                  )}
+                </div>
+              )}
+
+              {/* Edit unit kids */}
+              {editingUnitId === unit.id && unit.isOwner && ownKidProfiles.length > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: '0.78rem', color: '#6b7280', fontWeight: 600, marginBottom: 4 }}>Children in this unit:</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {ownKidProfiles.map(kid => {
+                      const selected = editUnitKids.includes(kid.id)
+                      return (
+                        <button
+                          key={kid.id}
+                          type="button"
+                          onClick={() => setEditUnitKids(prev => selected ? prev.filter(k => k !== kid.id) : [...prev, kid.id])}
+                          style={{
+                            padding: '4px 12px', borderRadius: 12, fontSize: '0.82rem', fontWeight: 600,
+                            border: '2px solid', cursor: 'pointer',
+                            background: selected ? '#ede9fe' : '#f9fafb',
+                            borderColor: selected ? '#a78bfa' : '#e5e7eb',
+                            color: selected ? '#7c3aed' : '#6b7280',
+                          }}
+                        >{kid.avatar_emoji} {kid.display_name}</button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Members list */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {unit.members.map((member, idx) => (
+                  <div key={member.profile.id || idx} className={styles['item-row']} style={{ padding: '4px 0' }}>
+                    <span style={{ fontSize: '1.2rem' }}>{member.profile.avatar_emoji || (member.type === 'adult' ? '👤' : '💃')}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{member.profile.display_name || (member.type === 'adult' ? 'Parent' : 'Dancer')}</div>
+                      <div style={{ fontSize: '0.7rem', color: '#9ca3af' }}>{member.relationship}</div>
+                    </div>
+                    {member.guardianId && unit.isOwner && (
+                      <button
+                        onClick={() => handleRevokeGuardian(member.guardianId)}
+                        title="Remove"
+                        style={{ background: 'none', color: '#dc2626', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '2px 6px', lineHeight: 1 }}
+                      >✕</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Pending invites for this unit */}
+              {unit.pendingInvites && unit.pendingInvites.length > 0 && (
+                <div style={{ marginTop: 8, borderTop: '1px solid #f3f4f6', paddingTop: 8 }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: 600, color: '#9ca3af', marginBottom: 4 }}>Pending Invites</div>
+                  {unit.pendingInvites.map(g => (
+                    <div key={g.id} className={styles['item-row']} style={{ marginBottom: 4 }}>
+                      <span style={{ fontSize: '0.82rem', flex: 1 }}>🔗 Invite link</span>
+                      <button
+                        onClick={() => handleRevokeGuardian(g.id)}
+                        title="Remove"
+                        style={{ background: 'none', color: '#dc2626', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '2px 6px', lineHeight: 1 }}
+                      >✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Invite someone to this unit */}
+              {unit.isOwner && isAdmin && (
+                <div style={{ marginTop: 10, borderTop: '1px solid #f3f4f6', paddingTop: 10 }}>
+                  <button
+                    className={styles['data-btn']}
+                    style={{ background: '#f0e6ff', color: '#7c3aed', fontSize: '0.78rem' }}
+                    onClick={(e) => handleCreateGuardian(e, unit.id)}
+                    disabled={guardianBusy}
+                  >{guardianBusy && invitingUnitId === unit.id ? 'Creating…' : '🔗 Invite Adult'}</button>
+                  {invitingUnitId === unit.id && guardianLink && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f0fdf4', borderRadius: 8, padding: '8px 12px', border: '1px solid #bbf7d0', marginTop: 8 }}>
                       <input
                         readOnly
                         value={guardianLink}
@@ -629,87 +716,92 @@ export default function Settings() {
                         onClick={(e) => e.target.select()}
                       />
                       <button
-                        type="button"
                         onClick={handleCopyGuardianLink}
                         style={{ background: '#16a34a', color: '#fff', borderRadius: 6, padding: '4px 12px', fontSize: '0.78rem', border: 'none', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
-                      >
-                        Copy
-                      </button>
+                      >Copy</button>
                     </div>
                   )}
-                  {guardianMsg && (
-                    <span style={{ fontSize: '0.82rem', color: guardianMsg.type === 'error' ? '#dc2626' : '#16a34a' }}>
+                  {invitingUnitId === unit.id && guardianMsg && (
+                    <div style={{ fontSize: '0.78rem', color: guardianMsg.type === 'error' ? '#dc2626' : '#16a34a', marginTop: 4 }}>
                       {guardianMsg.text}
-                    </span>
+                    </div>
                   )}
-                </form>
+                </div>
+              )}
+            </div>
+          ))}
 
-                {/* Pending / sent invites */}
-                {outgoingGuardians.length > 0 && (
-                  <div style={{ marginTop: 8 }}>
-                    <div style={{ fontSize: '0.78rem', fontWeight: 600, color: '#9ca3af', marginBottom: 4 }}>Sent Invites</div>
-                    {outgoingGuardians.map(g => (
-                      <div key={g.id} className={styles['item-row']} style={{ marginBottom: 4, alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.85rem', flex: 1 }}>
-                          {g.status === 'accepted' ? '✅' : '🔗'} {g.guardian_email || 'Invite link'}
-                        </span>
-                        <span style={{
-                          fontSize: '0.72rem', fontWeight: 600, padding: '2px 8px', borderRadius: 6,
-                          background: g.status === 'accepted' ? '#dcfce7' : g.status === 'revoked' ? '#fee2e2' : '#fef3c7',
-                          color: g.status === 'accepted' ? '#166534' : g.status === 'revoked' ? '#dc2626' : '#92400e',
-                        }}>
-                          {g.status}
-                        </span>
-                        {g.status === 'pending' && g.invite_token && (
-                          <button
-                            onClick={() => handleCopyGuardianLink()}
-                            style={{ background: '#dcfce7', color: '#166534', borderRadius: 6, padding: '4px 8px', fontSize: '0.75rem', border: 'none', cursor: 'pointer', fontWeight: 600 }}
-                          >
-                            Copy Link
-                          </button>
-                        )}
-                        {g.status !== 'revoked' && (
-                          <button
-                            onClick={() => handleRevokeGuardian(g.id)}
-                            title="Remove"
-                            style={{ background: 'none', color: '#dc2626', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '2px 6px', lineHeight: 1 }}
-                          >
-                            ✕
-                          </button>
-                        )}
-                        {g.status === 'revoked' && (
-                          <button
-                            onClick={() => handleDeleteGuardian(g.id)}
-                            style={{ background: '#f3f4f6', color: '#6b7280', borderRadius: 6, padding: '4px 8px', fontSize: '0.72rem', border: 'none', cursor: 'pointer' }}
-                          >
-                            Delete
-                          </button>
-                        )}
+          {/* Create new family unit */}
+          {isAdmin && (
+            <div className={styles['setting-card']} style={{ marginBottom: 12 }}>
+              {creatingUnit ? (
+                <div>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#6b7280', marginBottom: 8 }}>New Family Unit</div>
+                  <input
+                    type="text"
+                    placeholder="Unit name (e.g. Main Family)"
+                    value={newUnitName}
+                    onChange={(e) => setNewUnitName(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #e5e5e5', fontSize: '0.95rem', marginBottom: 10, boxSizing: 'border-box' }}
+                  />
+                  {ownKidProfiles.length > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: '0.78rem', color: '#6b7280', fontWeight: 600, marginBottom: 4 }}>Children in this unit:</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {ownKidProfiles.map(kid => {
+                          const selected = newUnitKids.includes(kid.id)
+                          return (
+                            <button
+                              key={kid.id}
+                              type="button"
+                              onClick={() => setNewUnitKids(prev => selected ? prev.filter(k => k !== kid.id) : [...prev, kid.id])}
+                              style={{
+                                padding: '4px 12px', borderRadius: 12, fontSize: '0.82rem', fontWeight: 600,
+                                border: '2px solid', cursor: 'pointer',
+                                background: selected ? '#ede9fe' : '#f9fafb',
+                                borderColor: selected ? '#a78bfa' : '#e5e7eb',
+                                color: selected ? '#7c3aed' : '#6b7280',
+                              }}
+                            >{kid.avatar_emoji} {kid.display_name}</button>
+                          )
+                        })}
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Incoming guardian invites (someone invited ME) */}
-            {incomingGuardians.filter(g => g.status === 'pending').length > 0 && (
-              <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: 12, marginTop: 12 }}>
-                <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#6b7280', marginBottom: 6 }}>Pending Invites</div>
-                {incomingGuardians.filter(g => g.status === 'pending').map(g => (
-                  <div key={g.id} className={styles['item-row']} style={{ marginBottom: 4 }}>
-                    <span style={{ fontSize: '0.88rem', flex: 1 }}>Family invite</span>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 8 }}>
                     <button
-                      onClick={() => handleAcceptGuardian(g.id)}
-                      style={{ background: '#dcfce7', color: '#166534', borderRadius: 6, padding: '4px 10px', fontSize: '0.8rem', border: 'none', cursor: 'pointer', fontWeight: 600 }}
-                    >
-                      Accept
-                    </button>
+                      className={styles['add-btn']}
+                      onClick={handleCreateUnit}
+                      disabled={unitBusy || !newUnitName.trim()}
+                    >{unitBusy ? 'Creating…' : 'Create Unit'}</button>
+                    <button className={styles['data-btn']} onClick={() => { setCreatingUnit(false); setNewUnitName(''); setNewUnitKids([]) }}>Cancel</button>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
+                </div>
+              ) : (
+                <button
+                  className={styles['add-btn']}
+                  onClick={() => setCreatingUnit(true)}
+                  style={{ width: '100%' }}
+                >+ Create Family Unit</button>
+              )}
+            </div>
+          )}
+
+          {/* Incoming guardian invites (someone invited ME) */}
+          {incomingGuardians.filter(g => g.status === 'pending').length > 0 && (
+            <div className={styles['setting-card']} style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#6b7280', marginBottom: 6 }}>Pending Invites</div>
+              {incomingGuardians.filter(g => g.status === 'pending').map(g => (
+                <div key={g.id} className={styles['item-row']} style={{ marginBottom: 4 }}>
+                  <span style={{ fontSize: '0.88rem', flex: 1 }}>Family invite</span>
+                  <button
+                    onClick={() => handleAcceptGuardian(g.id)}
+                    style={{ background: '#dcfce7', color: '#166534', borderRadius: 6, padding: '4px 10px', fontSize: '0.8rem', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                  >Accept</button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

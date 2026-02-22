@@ -32,6 +32,11 @@ import {
   deleteGuardian as apiDeleteGuardian,
   fetchGuardianOwnerProfile,
   fetchGuardianKidProfiles,
+  fetchMyFamilyUnits,
+  fetchGuardianFamilyUnits,
+  createFamilyUnit as apiCreateFamilyUnit,
+  updateFamilyUnit as apiUpdateFamilyUnit,
+  deleteFamilyUnit as apiDeleteFamilyUnit,
 } from '../utils/profileApi'
 
 const AppContext = createContext(null)
@@ -661,6 +666,8 @@ export function AppProvider({ children }) {
   const [outgoingGuardians, setOutgoingGuardians] = useState([])   // invites I sent
   const [incomingGuardians, setIncomingGuardians] = useState([])   // invites I received
   const [guardianFamilies, setGuardianFamilies] = useState([])     // [{ guardian, ownerProfile, kids }]
+  const [myFamilyUnitsDB, setMyFamilyUnitsDB] = useState([])       // family_unit rows I own
+  const [guardianFamilyUnitsDB, setGuardianFamilyUnitsDB] = useState([]) // family_unit rows I'm guardian of
 
   // Merge own kids + guardian family kids (deduped) so guardians see children everywhere
   const allKidProfiles = (() => {
@@ -690,44 +697,64 @@ export function AppProvider({ children }) {
     ? (activeKidProfile?.avatar_emoji || '💃')
     : (userProfile?.avatar_emoji || '👤')
 
-  // Build a unified family-member list for the Family Unit view.
-  // Both the inviter (owner) and receiver (guardian) see the same structure.
-  const familyMembers = (() => {
-    const members = []
-    // Self
+  // Build grouped family-unit list for the Family Unit view.
+  // Each unit is a self-contained card: my own family + any families I joined as guardian.
+  const familyUnits = (() => {
+    const units = []
+
+    // --- My own family unit (always present) ---
+    const myMembers = []
     if (userProfile) {
-      members.push({ type: 'adult', profile: userProfile, relationship: 'You', isSelf: true })
+      myMembers.push({ type: 'adult', profile: userProfile, relationship: 'You', isSelf: true })
     }
-    // Own kids
     for (const kid of kidProfiles) {
-      members.push({ type: 'child', profile: kid, relationship: 'Your child', isOwn: true })
+      myMembers.push({ type: 'child', profile: kid, relationship: 'Your child', isOwn: true })
     }
-    // Guardians I invited (other adults)
     for (const g of outgoingGuardians.filter(g => g.status === 'accepted')) {
-      members.push({
+      myMembers.push({
         type: 'adult',
-        profile: { display_name: g.guardian_email || 'Guardian', avatar_emoji: '👤' },
+        profile: { id: g.guardian_user_id, display_name: g.guardian_email || 'Guardian', avatar_emoji: '👤' },
         relationship: 'Parent / Guardian',
         guardianId: g.id,
       })
     }
-    // Families I'm a guardian of (the owner + their kids)
+    units.push({
+      id: 'my-family',
+      name: userProfile?.display_name
+        ? `${userProfile.display_name}'s Family`
+        : 'My Family',
+      isOwner: true,
+      members: myMembers,
+    })
+
+    // --- Families I joined as guardian ---
     for (const fam of guardianFamilies) {
+      const members = []
       if (fam.ownerProfile) {
         members.push({
           type: 'adult',
           profile: fam.ownerProfile,
-          relationship: 'Parent / Guardian',
+          relationship: 'Owner',
           guardianId: fam.guardian?.id,
         })
       }
-      for (const kid of (fam.kids || [])) {
-        if (!kidProfiles.some(k => k.id === kid.id)) {
-          members.push({ type: 'child', profile: kid, relationship: 'Child', isOwn: false })
-        }
+      if (userProfile) {
+        members.push({ type: 'adult', profile: userProfile, relationship: 'You (guardian)', isSelf: true })
       }
+      for (const kid of (fam.kids || [])) {
+        members.push({ type: 'child', profile: kid, relationship: 'Child', isOwn: false })
+      }
+      units.push({
+        id: fam.guardian?.id || `fam-${fam.ownerProfile?.id}`,
+        name: fam.ownerProfile?.display_name
+          ? `${fam.ownerProfile.display_name}'s Family`
+          : 'Family',
+        isOwner: false,
+        members,
+      })
     }
-    return members
+
+    return units
   })()
 
   // Legacy admin helpers — kept for compatibility but simplified
@@ -883,22 +910,30 @@ export function AppProvider({ children }) {
   const loadGuardians = useCallback(async () => {
     if (!hasSupabaseConfig || !authUser?.id) return
     try {
-      const [outgoing, incoming] = await Promise.all([
+      const [outgoing, incoming, myUnits, guardianUnits] = await Promise.all([
         fetchMyGuardians(),
         fetchIncomingGuardianInvites(),
+        fetchMyFamilyUnits(),
+        fetchGuardianFamilyUnits(),
       ])
       setOutgoingGuardians(outgoing || [])
       setIncomingGuardians(incoming || [])
+      setMyFamilyUnitsDB(myUnits || [])
+      setGuardianFamilyUnitsDB(guardianUnits || [])
 
       // For accepted incoming guardian invites, load the owner profile + assigned kids
       const accepted = (incoming || []).filter(g => g.status === 'accepted')
       const families = await Promise.all(
         accepted.map(async (guardian) => {
           try {
+            // If the invite is linked to a family_unit, use unit's kid_profile_ids
+            const unitKidIds = guardian.family_unit_id
+              ? (guardianUnits || []).find(u => u.id === guardian.family_unit_id)?.kid_profile_ids
+              : guardian.kid_profile_ids
             const [ownerProfile, kids] = await Promise.all([
               fetchGuardianOwnerProfile(guardian.owner_user_id),
-              guardian.kid_profile_ids?.length
-                ? fetchGuardianKidProfiles(guardian.owner_user_id, guardian.kid_profile_ids)
+              unitKidIds?.length
+                ? fetchGuardianKidProfiles(guardian.owner_user_id, unitKidIds)
                 : Promise.resolve([]),
             ])
             return { guardian, ownerProfile, kids }
@@ -913,8 +948,8 @@ export function AppProvider({ children }) {
     }
   }, [authUser?.id])
 
-  const createGuardianInvite = useCallback(async ({ kidProfileIds, role }) => {
-    const guardian = await apiCreateGuardian({ kidProfileIds, role })
+  const createGuardianInvite = useCallback(async ({ familyUnitId, kidProfileIds, role }) => {
+    const guardian = await apiCreateGuardian({ familyUnitId, kidProfileIds, role })
     setOutgoingGuardians(prev => [guardian, ...prev])
     return guardian
   }, [])
@@ -1262,7 +1297,23 @@ export function AppProvider({ children }) {
       editKidProfile,
       removeKidProfile,
       loadProfiles,
-      familyMembers,
+      familyUnits,
+
+      // Family unit CRUD
+      createFamilyUnit: async ({ name, kidProfileIds }) => {
+        const unit = await apiCreateFamilyUnit({ name, kidProfileIds })
+        setMyFamilyUnitsDB(prev => [...prev, unit])
+        return unit
+      },
+      updateFamilyUnit: async (unitId, updates) => {
+        const unit = await apiUpdateFamilyUnit(unitId, updates)
+        setMyFamilyUnitsDB(prev => prev.map(u => u.id === unitId ? unit : u))
+        return unit
+      },
+      deleteFamilyUnit: async (unitId) => {
+        await apiDeleteFamilyUnit(unitId)
+        setMyFamilyUnitsDB(prev => prev.filter(u => u.id !== unitId))
+      },
 
       // Sharing
       outgoingShares,
