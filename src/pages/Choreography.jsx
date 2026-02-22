@@ -2021,9 +2021,9 @@ export default function Choreography() {
             <div className={styles['live-no-video']}>
               {!isKidLiveView && (
                 <>
-                  <span style={{ fontSize: '3rem', marginBottom: 8, display: 'block' }}>🎬</span>
-                  <p style={{ fontWeight: 600, marginBottom: 4 }}>No video loaded</p>
-                  <p style={{ fontSize: '0.78rem', opacity: 0.6 }}>Upload a practice video below, or dance along to music only</p>
+                  <span className={styles['live-state-icon']} style={{ marginBottom: 8 }}>🎬</span>
+                  <p className={styles['live-no-video-title']}>No video loaded</p>
+                  <p className={styles['live-no-video-subtitle']}>Upload a practice video below, or dance along to music only</p>
                 </>
               )}
             </div>
@@ -2270,11 +2270,11 @@ export default function Choreography() {
           {/* Current instruction — big animated card */}
           {!filesLoaded ? (
             <div className={styles['live-cue-idle']}>
-              <span style={{ fontSize: '2.5rem' }}>⏳</span>
+              <span className={styles['live-state-icon']}>⏳</span>
               <p style={{ fontWeight: 600, marginTop: 8 }}>
                 Loading music & video…
               </p>
-              <p style={{ fontSize: '0.8rem', opacity: 0.6, marginTop: 4 }}>Almost ready!</p>
+              <p className={styles['live-cue-idle-subtitle']}>Almost ready!</p>
             </div>
           ) : liveSongInstruction ? (
             <div key={liveSongInstruction.id} className={styles['live-cue-card']}>
@@ -2285,7 +2285,7 @@ export default function Choreography() {
             </div>
           ) : (liveIsPlaying || isPlaying) ? null : (
             <div className={styles['live-cue-idle']}>
-              <span style={{ fontSize: '3rem' }}>💃</span>
+              <span className={styles['live-state-icon']}>💃</span>
               <p>Press play and dance!</p>
             </div>
           )}

@@ -717,7 +717,24 @@
   background: linear-gradient(135deg, #1a0533 0%, #0d1b3e 100%);
   color: rgba(255, 255, 255, 0.4);
   text-align: center;
-  padding: 40px;
+  padding: clamp(18px, 6vw, 40px);
+}
+
+.live-state-icon {
+  display: block;
+  font-size: clamp(1.8rem, 8vw, 3rem);
+  line-height: 1;
+}
+
+.live-no-video-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+  font-size: clamp(0.9rem, 3vw, 1rem);
+}
+
+.live-no-video-subtitle {
+  font-size: clamp(0.7rem, 2.6vw, 0.78rem);
+  opacity: 0.6;
 }
 
 .live-top-gradient {
@@ -1038,14 +1055,14 @@
 /* ===== CUE CARD — the big slam-in move ===== */
 .live-cue-card {
   position: absolute;
-  bottom: 155px;
+  bottom: clamp(118px, 16vh, 155px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: clamp(4px, 1.4vw, 6px);
   text-align: center;
   animation: cue-slam 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -1065,7 +1082,7 @@
 }
 
 .live-cue-label {
-  font-size: 2.4rem;
+  font-size: clamp(1.2rem, 6vw, 2.4rem);
   font-weight: 800;
   color: white;
   text-shadow:
@@ -1083,17 +1100,17 @@
 }
 
 .live-beat-move-label {
-  font-size: 2.4rem;
+  font-size: clamp(1.2rem, 6vw, 2.4rem);
   font-weight: 800;
   color: white;
   text-shadow:
     0 2px 0 rgba(0,0,0,0.8),
     0 0 40px rgba(168, 85, 247, 0.7),
     0 0 80px rgba(236, 72, 153, 0.4);
-  margin-top: 6px;
+  margin-top: clamp(2px, 1.4vw, 6px);
   line-height: 1.1;
-  width: min(50ch, calc(100vw - 2rem));
-  max-width: calc(100vw - 2rem);
+  width: min(50ch, calc(100vw - clamp(1rem, 5vw, 2rem)));
+  max-width: calc(100vw - clamp(1rem, 5vw, 2rem));
   box-sizing: border-box;
   margin-inline: auto;
   padding: 0;
@@ -1108,7 +1125,7 @@
 
 /* Emoji shown alongside live instruction */
 .live-inst-emoji {
-  font-size: 2.4rem;
+  font-size: clamp(1.1rem, 5vw, 2.4rem);
   vertical-align: middle;
   filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
 }
@@ -1122,14 +1139,20 @@
 
 .live-cue-idle {
   position: absolute;
-  bottom: 160px;
+  bottom: clamp(122px, 16vh, 160px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 2;
   text-align: center;
   color: rgba(255,255,255,0.4);
-  font-size: 0.9rem;
+  font-size: clamp(0.78rem, 2.8vw, 0.9rem);
   font-weight: 600;
+}
+
+.live-cue-idle-subtitle {
+  font-size: clamp(0.68rem, 2.5vw, 0.8rem);
+  opacity: 0.6;
+  margin-top: 4px;
 }
 
 /* ===== BEAT COUNTER (Live Mode) ===== */
@@ -1152,10 +1175,11 @@
 }
 
 .live-beat-dots {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 4px;
-  flex-wrap: wrap;
-  justify-content: center;
+  justify-items: center;
+  width: min(320px, calc(100vw - 2rem));
 }
 
 .live-beat-slot {
@@ -1171,13 +1195,13 @@
 }
 
 .live-beat-dot {
-  width: 28px;
-  height: 28px;
+  width: clamp(22px, 5.6vw, 28px);
+  height: clamp(22px, 5.6vw, 28px);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.78rem;
+  font-size: clamp(0.66rem, 2vw, 0.78rem);
   font-weight: 800;
   color: rgba(255,255,255,0.3);
   background: rgba(255,255,255,0.08);
@@ -1187,9 +1211,9 @@
 }
 
 .live-beat-dot-and {
-  width: 26px;
-  height: 26px;
-  font-size: 0.7rem;
+  width: clamp(20px, 5.2vw, 26px);
+  height: clamp(20px, 5.2vw, 26px);
+  font-size: clamp(0.62rem, 1.8vw, 0.7rem);
   border-width: 1.5px;
   color: rgba(251, 191, 36, 0.25);
   background: rgba(251, 191, 36, 0.05);
@@ -1221,7 +1245,7 @@
   font-weight: 700;
   color: rgba(251, 191, 36, 0.5);
   text-shadow: 0 1px 3px rgba(0,0,0,0.5);
-  max-width: 42px;
+  max-width: clamp(30px, 8.5vw, 42px);
   text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1241,6 +1265,14 @@
   color: rgba(251, 191, 36, 0.6);
   margin-top: 4px;
   letter-spacing: 0.04em;
+}
+
+@media (max-width: 420px) {
+  .live-beat-dots {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: min(220px, calc(100vw - 2rem));
+    row-gap: 6px;
+  }
 }
 
 /* ===== BOTTOM BAR ===== */
