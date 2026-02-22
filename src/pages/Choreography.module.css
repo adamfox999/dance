@@ -2029,6 +2029,45 @@
 .sync-confidence.medium { color: var(--yellow-500); }
 .sync-confidence.low { color: var(--red-400); }
 
+@media (orientation: landscape) and (max-height: 620px) {
+  .live-top-bar {
+    padding: 10px 12px 0;
+  }
+
+  .live-top-center-stack {
+    top: 54px;
+    gap: 8px;
+  }
+
+  .live-bottom-bar {
+    bottom: clamp(86px, 18vh, 124px);
+    padding: 0 14px 10px;
+  }
+
+  .live-progress-meta {
+    margin-bottom: 5px;
+    font-size: 0.72rem;
+  }
+
+  .live-progress-track {
+    margin-bottom: 10px;
+  }
+
+  .live-controls {
+    gap: 8px;
+  }
+
+  .live-cue-card,
+  .live-cue-idle {
+    bottom: clamp(20px, 6vh, 40px);
+  }
+
+  .live-beat-move-label {
+    font-size: clamp(1rem, 3.8vw, 1.55rem);
+    margin-top: 2px;
+  }
+}
+
 .offset-adjust {
   display: flex;
   align-items: center;
