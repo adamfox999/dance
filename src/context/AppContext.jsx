@@ -669,6 +669,7 @@ export function AppProvider({ children }) {
   const [guardianFamilies, setGuardianFamilies] = useState([])     // [{ guardian, ownerProfile, kids }]
   const [myFamilyUnitsDB, setMyFamilyUnitsDB] = useState([])       // family_unit rows I own
   const [guardianFamilyUnitsDB, setGuardianFamilyUnitsDB] = useState([]) // family_unit rows I'm guardian of
+  const [profilesLoaded, setProfilesLoaded] = useState(false)             // true once loadProfiles + loadGuardians finish
 
   // Merge own kids + guardian family kids (deduped) so guardians see children everywhere
   const allKidProfiles = (() => {
@@ -988,9 +989,10 @@ export function AppProvider({ children }) {
   // Load profiles & shares & guardians when user logs in
   useEffect(() => {
     if (authLoading || !authUser?.id) return
-    loadProfiles()
+    setProfilesLoaded(false)
+    Promise.all([loadProfiles(), loadGuardians()])
+      .finally(() => setProfilesLoaded(true))
     loadShares()
-    loadGuardians()
   }, [authLoading, authUser?.id, loadProfiles, loadShares, loadGuardians])
 
   // ============ INVITE TOKEN HANDLING ============
@@ -1099,19 +1101,24 @@ export function AppProvider({ children }) {
       backendHydratedRef.current = false
 
       if (authUser?.id) {
+        let hasLocalData = false
         try {
           const saved = localStorage.getItem(getLocalStateKey(authUser.id))
           if (saved) {
             const parsed = JSON.parse(saved)
             if (!cancelled) {
               dispatch({ type: 'IMPORT_STATE', payload: mergeStateWithDefaults(migrateOldState(parsed)) })
+              hasLocalData = true
             }
           }
         } catch (e) {
           console.warn('Failed to load state from localStorage:', e)
         }
 
-        if (!cancelled) setIsLoading(false)
+        // Only show the cached UI immediately when localStorage had data.
+        // Otherwise keep isLoading=true until the backend fetch finishes
+        // so we don't flash default dancers before real data arrives.
+        if (hasLocalData && !cancelled) setIsLoading(false)
 
         // Fetch canonical backend state in the background so first paint is fast.
         try {
@@ -1131,6 +1138,9 @@ export function AppProvider({ children }) {
           console.warn('Backend state fetch unavailable; using local state only:', err)
           backendHydratedRef.current = true
         }
+
+        // If we didn't have local data, now we can stop loading
+        if (!hasLocalData && !cancelled) setIsLoading(false)
 
         return
       }
@@ -1308,6 +1318,7 @@ export function AppProvider({ children }) {
       editKidProfile,
       removeKidProfile,
       loadProfiles,
+      profilesLoaded,
       familyUnits,
 
       // Family unit CRUD

@@ -10,7 +10,7 @@ const AVATAR_EMOJIS = ['💃', '🩰', '👧', '👦', '🧒', '🌟', '✨', '�
 export default function Dashboard() {
   const {
     state, dispatch, isKidMode, activeKidProfile, userProfile, sharedDances,
-    hasSupabaseAuth, kidProfiles, addKidProfile, isAdmin,
+    hasSupabaseAuth, kidProfiles, addKidProfile, isAdmin, profilesLoaded,
     guardianFamilies,
   } = useApp()
   const navigate = useNavigate()
@@ -75,7 +75,7 @@ export default function Dashboard() {
       </button>
 
       {/* Kid setup prompt for new users */}
-      {hasSupabaseAuth && !isKidMode && kidProfiles.length === 0 && isAdmin && (
+      {hasSupabaseAuth && profilesLoaded && !isKidMode && kidProfiles.length === 0 && isAdmin && (
         <div className={styles.setupCard}>
           <div style={{ fontSize: '1.3rem', marginBottom: 4 }}>🎉</div>
           <h3 style={{ margin: '0 0 4px', fontSize: '1rem' }}>Add your dancers</h3>
