@@ -1042,6 +1042,18 @@
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.live-top-action-icon {
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.live-top-action-label {
+  line-height: 1;
 }
 
 .live-top-action-btn:hover:not(:disabled) {
@@ -1051,6 +1063,19 @@
 .live-top-action-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+@media (max-width: 900px), (orientation: landscape) and (max-height: 620px) {
+  .live-top-action-btn {
+    padding: 7px 8px;
+    gap: 0;
+    min-width: 34px;
+    justify-content: center;
+  }
+
+  .live-top-action-label {
+    display: none;
+  }
 }
 
 .live-sync-status {
@@ -1444,9 +1469,48 @@
 }
 
 .live-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 10px;
+}
+
+.live-controls-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.live-controls-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.live-controls-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.live-controls-secondary {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.live-controls-secondary-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
 }
 
 .live-restart-btn {
@@ -1495,7 +1559,7 @@
 }
 
 .live-speed-btn {
-  padding: 6px 13px;
+  padding: 6px 10px;
   border-radius: var(--radius-full);
   background: rgba(255,255,255,0.12);
   color: rgba(255,255,255,0.7);
@@ -1511,7 +1575,7 @@
 }
 
 .live-edit-toggle {
-  margin-left: auto;
+  margin-left: 0;
   padding: 7px 16px;
   border-radius: var(--radius-full);
   background: rgba(255,255,255,0.1);
@@ -1527,6 +1591,35 @@
   background: rgba(251, 191, 36, 0.25);
   color: #fbbf24;
   border-color: rgba(251, 191, 36, 0.4);
+}
+
+@media (max-width: 900px), (orientation: landscape) and (max-height: 620px) {
+  .live-controls {
+    column-gap: 8px;
+  }
+
+  .live-controls-left,
+  .live-controls-right,
+  .live-controls-secondary,
+  .live-controls-secondary-right {
+    gap: 6px;
+  }
+
+  .live-controls-left {
+    justify-content: flex-start;
+  }
+
+  .live-controls-right {
+    justify-content: flex-end;
+  }
+
+  .live-controls-secondary {
+    margin-top: 6px;
+  }
+
+  .live-version-select {
+    max-width: 140px;
+  }
 }
 
 /* Live edit panel */

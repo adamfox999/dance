@@ -2271,7 +2271,8 @@ export default function Choreography() {
                     disabled={!isLiveVideoPlayback}
                     title={isLiveVideoPlayback ? 'Cast to external screen' : 'Load a video to cast'}
                   >
-                    📺 Cast
+                    <span className={styles['live-top-action-icon']} aria-hidden="true">📺</span>
+                    <span className={styles['live-top-action-label']}>Cast</span>
                   </button>
                   <button
                     type="button"
@@ -2279,7 +2280,8 @@ export default function Choreography() {
                     onClick={toggleLiveFullscreen}
                     title={isLiveFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
                   >
-                    {isLiveFullscreen ? '🗗 Exit Full' : '⛶ Fullscreen'}
+                    <span className={styles['live-top-action-icon']} aria-hidden="true">{isLiveFullscreen ? '🗗' : '⛶'}</span>
+                    <span className={styles['live-top-action-label']}>{isLiveFullscreen ? 'Exit Full' : 'Fullscreen'}</span>
                   </button>
                 </div>
               </div>
@@ -2524,19 +2526,25 @@ export default function Choreography() {
 
             {/* Controls row */}
             <div className={styles['live-controls']}>
-              <button className={styles['live-restart-btn']} onClick={restartLive} title="Restart">
-                ⏮
-              </button>
-              <button
-                className={styles['live-play-btn']}
-                onClick={toggleLivePlay}
-                disabled={!filesLoaded || videoProcessing}
-                style={(!filesLoaded || videoProcessing) ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
-              >
-                {(!filesLoaded || videoProcessing) ? '⏳' : (isLiveVideoPlayback ? liveIsPlaying : isPlaying) ? '⏸' : '▶️'}
-              </button>
+              <div className={styles['live-controls-left']}>
+                <button className={styles['live-restart-btn']} onClick={restartLive} title="Restart">
+                  ⏮
+                </button>
+              </div>
+
+              <div className={styles['live-controls-center']}>
+                <button
+                  className={styles['live-play-btn']}
+                  onClick={toggleLivePlay}
+                  disabled={!filesLoaded || videoProcessing}
+                  style={(!filesLoaded || videoProcessing) ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                >
+                  {(!filesLoaded || videoProcessing) ? '⏳' : (isLiveVideoPlayback ? liveIsPlaying : isPlaying) ? '⏸' : '▶️'}
+                </button>
+              </div>
+
               {!isKidLiveView && (
-                <>
+                <div className={styles['live-controls-right']}>
                   <div className={styles['live-speed-row']}>
                     {[0.5, 0.75, 1].map((r) => (
                       <button
@@ -2548,31 +2556,32 @@ export default function Choreography() {
                       </button>
                     ))}
                   </div>
-                  {/* Audio mode toggle — only show when both video + music are available */}
-                  {liveVideoUrl && audioUrl && (
-                    <div className={styles['live-audio-toggle']}>
-                      <button
-                        className={`${styles['live-audio-btn']} ${liveAudioMode === 'video' ? styles.active : ''}`}
-                        onClick={() => setLiveAudioMode('video')}
-                      >
-                        🎬 Video
-                      </button>
-                      <button
-                        className={`${styles['live-audio-btn']} ${liveAudioMode === 'music' ? styles.active : ''}`}
-                        onClick={() => setLiveAudioMode('music')}
-                      >
-                        🎵 Music
-                      </button>
-                    </div>
-                  )}
-                  {isLiveVideoPlayback && videoAnnotations.length > 0 && (
-                    <span
-                      className={annotationStyles['feedback-toggle']}
-                      title={`${videoAnnotations.length} annotation(s) — pause video to view & delete`}
+                </div>
+              )}
+            </div>
+
+            {!isKidLiveView && (
+              <div className={styles['live-controls-secondary']}>
+                {/* Audio mode toggle — only show when both video + music are available */}
+                {liveVideoUrl && audioUrl ? (
+                  <div className={styles['live-audio-toggle']}>
+                    <button
+                      className={`${styles['live-audio-btn']} ${liveAudioMode === 'video' ? styles.active : ''}`}
+                      onClick={() => setLiveAudioMode('video')}
                     >
-                      💬 {videoAnnotations.length}
-                    </span>
-                  )}
+                      🎬 Video
+                    </button>
+                    <button
+                      className={`${styles['live-audio-btn']} ${liveAudioMode === 'music' ? styles.active : ''}`}
+                      onClick={() => setLiveAudioMode('music')}
+                    >
+                      🎵 Music
+                    </button>
+                  </div>
+                ) : (
+                  <span />
+                )}
+                <div className={styles['live-controls-secondary-right']}>
                   <button
                     className={`${styles['live-edit-toggle']} ${liveEditOpen ? styles.active : ''}`}
                     onClick={() => setLiveEditOpen(!liveEditOpen)}
@@ -2600,9 +2609,9 @@ export default function Choreography() {
                       ))}
                     </select>
                   )}
-                </>
-              )}
-            </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Live edit panel — full-song beat timeline + instructions */}
