@@ -1017,6 +1017,9 @@ export function AppProvider({ children }) {
           console.warn('Failed to load state from localStorage:', e)
         }
 
+        if (!cancelled) setIsLoading(false)
+
+        // Fetch canonical backend state in the background so first paint is fast.
         try {
           const payload = await fetchStateFromBackend()
           if (cancelled) return
@@ -1027,6 +1030,8 @@ export function AppProvider({ children }) {
         } catch (err) {
           console.warn('Backend state fetch unavailable; using local state only:', err)
         }
+
+        return
       }
 
       if (!cancelled) setIsLoading(false)
