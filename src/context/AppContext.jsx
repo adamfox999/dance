@@ -939,7 +939,9 @@ export function AppProvider({ children }) {
     ;(async () => {
       try {
         await acceptShareByToken(token)
-        alert('Share invite accepted!')
+        alert('Share invite accepted! You now have access to the shared dance.')
+        // Redirect to dashboard where shared dances are visible
+        window.location.replace('/')
       } catch (err) {
         console.warn('Failed to accept share invite:', err)
         alert(err?.message || 'Could not accept share invite. It may have expired or already been used.')
