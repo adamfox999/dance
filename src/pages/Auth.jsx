@@ -65,7 +65,9 @@ export default function Auth() {
     setBusy(true)
     clearMessage()
     try {
-      await verifyEmailOtp(email.trim(), normalizedCode)
+      // Use 'signup' type when creating a new account, 'email' for login
+      const otpType = step === 'create-code' ? 'signup' : 'email'
+      await verifyEmailOtp(email.trim(), normalizedCode, otpType)
     } catch (err) {
       setMessage({ type: 'error', text: err?.message || 'Invalid code. Please try again.' })
     } finally {

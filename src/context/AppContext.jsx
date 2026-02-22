@@ -1101,19 +1101,30 @@ export function AppProvider({ children }) {
     return true
   }
 
-  const verifyEmailOtp = async (email, token) => {
+  const verifyEmailOtp = async (email, token, otpType = 'email') => {
     if (!supabase) throw new Error('Supabase auth is not configured.')
     const trimmedEmail = String(email || '').trim()
     const trimmedToken = String(token || '').trim()
     if (!trimmedEmail) throw new Error('Email is required.')
     if (!trimmedToken) throw new Error('Code is required.')
 
+    // Try the requested type first, fall back to the other if it fails
     const { error } = await supabase.auth.verifyOtp({
       email: trimmedEmail,
       token: trimmedToken,
-      type: 'email',
+      type: otpType,
     })
-    if (error) throw error
+    if (error) {
+      // Supabase uses different OTP types for login vs signup —
+      // if one fails, try the other before giving up
+      const fallbackType = otpType === 'email' ? 'signup' : 'email'
+      const { error: fallbackError } = await supabase.auth.verifyOtp({
+        email: trimmedEmail,
+        token: trimmedToken,
+        type: fallbackType,
+      })
+      if (fallbackError) throw error // throw original error
+    }
     return true
   }
 
