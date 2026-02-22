@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, useEffect, useState, useCallback } from 'react'
+import { createContext, useContext, useReducer, useEffect, useState, useCallback, useRef } from 'react'
 import { defaultState } from '../data/defaultState'
 import { checkForNewStickers } from '../utils/milestones'
 import { fetchStateFromBackend, saveStateToBackend, setDanceOwnerId } from '../utils/backendApi'
@@ -646,6 +646,7 @@ function appReducer(state, action) {
 // ============ PROVIDER ============
 export function AppProvider({ children }) {
   const [isLoading, setIsLoading] = useState(true)
+  const backendHydratedRef = useRef(false)
   const [authLoading, setAuthLoading] = useState(hasSupabaseConfig)
   const [authSession, setAuthSession] = useState(null)
   const [authUser, setAuthUser] = useState(null)
@@ -1090,10 +1091,12 @@ export function AppProvider({ children }) {
       if (hasSupabaseConfig && !authUser?.id) {
         dispatch({ type: 'RESET_STATE' })
         setIsLoading(false)
+        backendHydratedRef.current = true
         return
       }
 
       setIsLoading(true)
+      backendHydratedRef.current = false
 
       if (authUser?.id) {
         try {
@@ -1123,14 +1126,19 @@ export function AppProvider({ children }) {
             setDanceOwnerId(effectiveOwner)
             setFileStorageUserScope(effectiveOwner)
           }
+          backendHydratedRef.current = true
         } catch (err) {
           console.warn('Backend state fetch unavailable; using local state only:', err)
+          backendHydratedRef.current = true
         }
 
         return
       }
 
-      if (!cancelled) setIsLoading(false)
+      if (!cancelled) {
+        setIsLoading(false)
+        backendHydratedRef.current = true
+      }
     }
 
     hydrateState()
@@ -1155,6 +1163,9 @@ export function AppProvider({ children }) {
     // Debounce backend saves to avoid too many requests
     const saveToBackend = async () => {
       if (!authUser?.id) return
+      // Don't save until backend hydration is complete — otherwise a guardian
+      // may accidentally create their own dance row before _danceOwnerId is set.
+      if (!backendHydratedRef.current) return
       try {
         await saveStateToBackend(state)
       } catch (err) {
