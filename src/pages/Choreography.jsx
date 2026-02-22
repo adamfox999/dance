@@ -309,9 +309,41 @@ export default function Choreography() {
   const musicPickerInputRef = useRef(null)
   const videoPickerInputRef = useRef(null)
   const isLiveVideoPlayback = !!liveVideoUrl
+  const [liveUiVisible, setLiveUiVisible] = useState(true)
+  const liveUiHideTimerRef = useRef(null)
 
   // Video annotations
   const videoAnnotations = choreography.videoAnnotations || []
+
+  const clearLiveUiHideTimer = useCallback(() => {
+    if (liveUiHideTimerRef.current) {
+      clearTimeout(liveUiHideTimerRef.current)
+      liveUiHideTimerRef.current = null
+    }
+  }, [])
+
+  const scheduleLiveUiHide = useCallback(() => {
+    clearLiveUiHideTimer()
+    const isLiveModeActive = mode === 'live' || isKidLiveView
+    if (!isLiveModeActive || liveEditOpen || mediaPickerOpen) return
+
+    const currentlyPlaying = isLiveVideoPlayback ? liveIsPlaying : isPlaying
+    if (!currentlyPlaying) return
+
+    liveUiHideTimerRef.current = setTimeout(() => {
+      setLiveUiVisible(false)
+    }, 2200)
+  }, [clearLiveUiHideTimer, mode, isKidLiveView, liveEditOpen, mediaPickerOpen, isLiveVideoPlayback, liveIsPlaying, isPlaying])
+
+  const revealLiveUi = useCallback(() => {
+    setLiveUiVisible(true)
+    scheduleLiveUiHide()
+  }, [scheduleLiveUiHide])
+
+  useEffect(() => {
+    scheduleLiveUiHide()
+    return clearLiveUiHideTimer
+  }, [scheduleLiveUiHide, clearLiveUiHideTimer])
 
   useEffect(() => {
     if (isKidLiveView && liveVideoUrl) {
@@ -2002,7 +2034,12 @@ export default function Choreography() {
 
       {/* ===== LIVE MODE — fullscreen dance game ===== */}
       {(mode === 'live' || isKidLiveView) && (
-        <div className={styles['live-screen']}>
+        <div
+          className={styles['live-screen']}
+          onPointerMove={revealLiveUi}
+          onPointerDown={revealLiveUi}
+          onTouchStart={revealLiveUi}
+        >
           {/* Background: video (when loaded) or dark gradient */}
           {isLiveVideoPlayback ? (
             <video
@@ -2075,7 +2112,7 @@ export default function Choreography() {
           {!isKidLiveView && (
             <>
               {/* Top bar: exit + upload + clock */}
-              <div className={styles['live-top-bar']}>
+              <div className={`${styles['live-top-bar']} ${!liveUiVisible ? styles['live-top-bar-hidden'] : ''}`}>
                 <button
                   className={styles['live-exit-btn']}
                   onClick={() => {
@@ -2291,7 +2328,7 @@ export default function Choreography() {
           )}
 
           {/* Bottom bar: progress + controls */}
-          <div className={styles['live-bottom-bar']}>
+          <div className={`${styles['live-bottom-bar']} ${!liveUiVisible ? styles['live-bottom-bar-hidden'] : ''}`}>
             <div className={styles['live-progress-meta']}>
               <span>{formatTimestamp(liveProgressTime)}</span>
               <span>{formatTimestamp(liveTotalDuration)}</span>

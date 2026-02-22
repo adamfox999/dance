@@ -783,6 +783,15 @@
   padding: 18px 18px 0;
   min-width: 0;
   overflow: hidden;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.28s ease, transform 0.28s ease;
+}
+
+.live-top-bar-hidden {
+  opacity: 0;
+  transform: translateY(-10px);
+  pointer-events: none;
 }
 
 .live-top-bar > * {
@@ -1175,11 +1184,12 @@
 }
 
 .live-beat-dots {
-  display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
-  gap: 4px;
-  justify-items: center;
-  width: min(320px, calc(100vw - 2rem));
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(2px, 1vw, 4px);
+  width: min(320px, calc(100vw - 1rem));
 }
 
 .live-beat-slot {
@@ -1267,20 +1277,21 @@
   letter-spacing: 0.04em;
 }
 
-@media (max-width: 420px) {
-  .live-beat-dots {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    width: min(220px, calc(100vw - 2rem));
-    row-gap: 6px;
-  }
-}
-
 /* ===== BOTTOM BAR ===== */
 .live-bottom-bar {
   position: absolute;
   bottom: 0; left: 0; right: 0;
   z-index: 6;
   padding: 0 20px 28px;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.28s ease, transform 0.28s ease;
+}
+
+.live-bottom-bar-hidden {
+  opacity: 0;
+  transform: translateY(12px);
+  pointer-events: none;
 }
 
 .live-progress-meta {
