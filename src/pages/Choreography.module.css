@@ -1018,6 +1018,41 @@
   cursor: not-allowed;
 }
 
+.live-top-spacer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.live-top-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.live-top-action-btn {
+  padding: 7px 10px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(8px);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.68rem;
+  font-weight: 700;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.live-top-action-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.live-top-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .live-sync-status {
   font-size: 0.74rem;
   color: rgba(255, 255, 255, 0.82);
@@ -2035,7 +2070,7 @@
   }
 
   .live-top-center-stack {
-    top: 54px;
+    top: calc(1rem + env(safe-area-inset-top, 0px));
     gap: 8px;
   }
 
@@ -2059,7 +2094,7 @@
 
   .live-cue-card,
   .live-cue-idle {
-    bottom: clamp(20px, 6vh, 40px);
+    bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
   }
 
   .live-beat-move-label {

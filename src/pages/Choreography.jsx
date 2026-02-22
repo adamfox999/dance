@@ -289,6 +289,7 @@ export default function Choreography() {
   const [videoProcessStage, setVideoProcessStage] = useState('idle')
   const [videoCompressionProgress, setVideoCompressionProgress] = useState(null)
   const [videoError, setVideoError] = useState('')
+  const liveScreenRef = useRef(null)
   const liveVideoRef = useRef(null)
   const [liveIsPlaying, setLiveIsPlaying] = useState(false)
   const [liveTime, setLiveTime] = useState(0)
@@ -310,6 +311,7 @@ export default function Choreography() {
   const videoPickerInputRef = useRef(null)
   const isLiveVideoPlayback = !!liveVideoUrl
   const [liveUiVisible, setLiveUiVisible] = useState(true)
+  const [isLiveFullscreen, setIsLiveFullscreen] = useState(false)
   const liveUiHideTimerRef = useRef(null)
 
   // Video annotations
@@ -344,6 +346,55 @@ export default function Choreography() {
     scheduleLiveUiHide()
     return clearLiveUiHideTimer
   }, [scheduleLiveUiHide, clearLiveUiHideTimer])
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setIsLiveFullscreen(Boolean(document.fullscreenElement))
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange)
+    onFullscreenChange()
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange)
+  }, [])
+
+  const toggleLiveFullscreen = useCallback(async () => {
+    try {
+      const fullscreenElement = document.fullscreenElement
+      if (fullscreenElement) {
+        await document.exitFullscreen()
+        return
+      }
+      const container = liveScreenRef.current
+      if (container?.requestFullscreen) {
+        await container.requestFullscreen()
+      }
+    } catch (err) {
+      console.warn('Fullscreen toggle failed:', err)
+    }
+  }, [])
+
+  const handleCastToScreen = useCallback(async () => {
+    const video = liveVideoRef.current
+    if (!video) {
+      window.alert('Load a video first to cast to an external screen.')
+      return
+    }
+
+    try {
+      if (video.remote && typeof video.remote.prompt === 'function') {
+        await video.remote.prompt()
+        return
+      }
+      if (typeof video.webkitShowPlaybackTargetPicker === 'function') {
+        video.webkitShowPlaybackTargetPicker()
+        return
+      }
+      window.alert('Casting is not supported in this browser. Try Chrome/Edge for Chromecast or Safari for AirPlay.')
+    } catch (err) {
+      if (err?.name === 'NotAllowedError' || err?.name === 'AbortError') return
+      console.warn('Cast prompt failed:', err)
+      window.alert('Could not start casting on this device.')
+    }
+  }, [])
 
   useEffect(() => {
     if (isKidLiveView && liveVideoUrl) {
@@ -2035,6 +2086,7 @@ export default function Choreography() {
       {/* ===== LIVE MODE — fullscreen dance game ===== */}
       {(mode === 'live' || isKidLiveView) && (
         <div
+          ref={liveScreenRef}
           className={styles['live-screen']}
           onPointerMove={revealLiveUi}
           onPointerDown={revealLiveUi}
@@ -2163,6 +2215,26 @@ export default function Choreography() {
                 >
                   {syncLabel}
                 </button>
+                <div className={styles['live-top-spacer']} />
+                <div className={styles['live-top-actions']}>
+                  <button
+                    type="button"
+                    className={styles['live-top-action-btn']}
+                    onClick={handleCastToScreen}
+                    disabled={!isLiveVideoPlayback}
+                    title={isLiveVideoPlayback ? 'Cast to external screen' : 'Load a video to cast'}
+                  >
+                    📺 Cast
+                  </button>
+                  <button
+                    type="button"
+                    className={styles['live-top-action-btn']}
+                    onClick={toggleLiveFullscreen}
+                    title={isLiveFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                  >
+                    {isLiveFullscreen ? '🗗 Exit Full' : '⛶ Fullscreen'}
+                  </button>
+                </div>
               </div>
 
               <input
