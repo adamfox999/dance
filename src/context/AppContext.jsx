@@ -114,6 +114,7 @@ function normalizeSession(session = {}) {
     scheduledAt: session.scheduledAt || session.date || new Date().toISOString().split('T')[0],
     completedAt: session.completedAt || null,
     dancerReflection: session.dancerReflection || { feeling: '', note: '', goals: [] },
+    videoAnnotations: Array.isArray(session.videoAnnotations) ? session.videoAnnotations : [],
   }
 }
 

@@ -651,6 +651,50 @@
   padding: 8px 0 12px;
 }
 
+.showMediaWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.showMediaArrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255,255,255,0.9);
+  color: #374151;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.18);
+  transition: background 0.15s, transform 0.15s;
+}
+
+.showMediaArrow:hover {
+  background: white;
+  transform: translateY(-50%) scale(1.12);
+}
+
+.showMediaArrow:disabled {
+  opacity: 0.25;
+  cursor: default;
+  pointer-events: none;
+}
+
+.showMediaArrowLeft {
+  left: 2px;
+}
+
+.showMediaArrowRight {
+  right: 2px;
+}
+
 .showMediaTrack {
   display: flex;
   gap: 8px;
@@ -743,6 +787,42 @@
   background: #000;
 }
 
+.lightboxArrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  background: rgba(255,255,255,0.18);
+  color: white;
+  border: none;
+  font-size: 2.4rem;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.lightboxArrow:hover {
+  background: rgba(255,255,255,0.35);
+}
+
+.lightboxArrow:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.lightboxArrowLeft {
+  left: 12px;
+}
+
+.lightboxArrowRight {
+  right: 12px;
+}
+
 @media (prefers-color-scheme: dark) {
   .elementItem, .reflectionPanel {
     background: #1f2937;
@@ -751,6 +831,8 @@
   .statusBtn { background: #374151; }
   .reflectBtn { background: #374151; border-color: #4b5563; color: #9ca3af; }
   .reflectionInput { background: #374151; border-color: #4b5563; color: white; }
+  .showMediaArrow { background: rgba(55,65,81,0.9); color: #e5e7eb; }
+  .showMediaArrow:hover { background: #4b5563; }
 }
 
 /* ===== SHARE PARTNER CARD & KID CHIP ===== */

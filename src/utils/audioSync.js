@@ -52,23 +52,24 @@ export function extractWaveform(buffer, samples = 800) {
 
 /**
  * Cross-correlate two audio buffers to find the time offset.
- * Downsamples to ~4kHz for speed, returns offset in seconds.
+ * Downsamples to ~2kHz for speed, returns offset in milliseconds.
  * Positive offset = video audio starts later than the music.
+ *
+ * Compares up to 30 seconds of audio so repeated intros don't confuse it.
  *
  * @param {AudioBuffer} musicBuffer - the original music track
  * @param {AudioBuffer} videoBuffer - audio extracted from the video
- * @param {number} maxOffsetSec - maximum offset to search (default 30s)
+ * @param {number} maxOffsetSec - maximum offset to search (default 10s)
  * @returns {{ offsetMs: number, confidence: number }}
  */
 export function crossCorrelateSync(musicBuffer, videoBuffer, maxOffsetSec = 10) {
-  // Downsample to ~2kHz for fast correlation on the main thread
   const targetRate = 2000
   const musicData = downsample(musicBuffer.getChannelData(0), musicBuffer.sampleRate, targetRate)
   const videoData = downsample(videoBuffer.getChannelData(0), videoBuffer.sampleRate, targetRate)
 
   const effectiveMaxOffsetSec = Math.max(1, Math.min(10, maxOffsetSec))
   const maxOffset = Math.floor(effectiveMaxOffsetSec * targetRate)
-  const windowLen = Math.min(musicData.length, videoData.length, targetRate * 8) // compare up to 8s
+  const windowLen = Math.min(musicData.length, videoData.length, targetRate * 30)
 
   let bestCorr = -Infinity
   let bestOffset = 0
@@ -89,7 +90,7 @@ export function crossCorrelateSync(musicBuffer, videoBuffer, maxOffsetSec = 10) 
     return corr / count
   }
 
-  // Coarse search first (much faster), then refine around best peak.
+  // Coarse search first, then refine around best peak
   const coarseStep = 16
   for (let offset = -maxOffset; offset <= maxOffset; offset += coarseStep) {
     const corr = correlateAtOffset(offset)
@@ -114,7 +115,6 @@ export function crossCorrelateSync(musicBuffer, videoBuffer, maxOffsetSec = 10) 
   }
 
   const offsetMs = Math.round((bestOffset / targetRate) * 1000)
-  // Confidence: how much the peak stands out from average
   const coarseSamples = Math.floor((2 * maxOffset) / coarseStep) + 1
   const fineSamples = refineEnd - refineStart + 1
   const avgCorr = totalEnergy / Math.max(1, coarseSamples + fineSamples)

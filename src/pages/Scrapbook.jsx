@@ -11,10 +11,11 @@ export default function Scrapbook() {
   const navigate = useNavigate()
   const photoInputRef = useRef(null)
   const videoInputRef = useRef(null)
+  const carouselRef = useRef(null)
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(null) // { stage, progress }
   const [expandedEntry, setExpandedEntry] = useState(null) // entry id for expanded result panel
-  const [lightbox, setLightbox] = useState(null) // { type, src }
+  const [lightboxIndex, setLightboxIndex] = useState(null) // index into mediaEntries
   const [showAddEntry, setShowAddEntry] = useState(false)
 
   const show = state.shows.find(s => s.id === showId)
@@ -73,75 +74,76 @@ export default function Scrapbook() {
   const reactionEmojis = ['🔥', '⭐', '💜', '👏', '🎉']
 
   const handlePhotoUpload = async (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
     setUploading(true)
-    setUploadProgress({ stage: 'compressing', progress: 0 })
-    try {
-      const compressed = await compressImage(file)
-      const reader = new FileReader()
-      reader.onload = (ev) => {
+    for (let i = 0; i < files.length; i++) {
+      setUploadProgress({ stage: `Compressing photo ${i + 1}/${files.length}`, progress: Math.round((i / files.length) * 100) })
+      try {
+        const compressed = await compressImage(files[i])
+        const dataUrl = await new Promise((resolve) => {
+          const reader = new FileReader()
+          reader.onload = (ev) => resolve(ev.target.result)
+          reader.readAsDataURL(compressed)
+        })
         dispatch({
           type: 'ADD_SCRAPBOOK_ENTRY',
           payload: {
             showId,
             entry: {
-              id: `entry-${Date.now()}`,
+              id: `entry-${Date.now()}-${i}`,
               type: 'photo',
-              content: ev.target.result,
+              content: dataUrl,
               author: 'dancer',
               date: new Date().toISOString().split('T')[0],
               emojiReactions: [],
             },
           },
         })
-        setUploading(false)
-        setUploadProgress(null)
+      } catch (err) {
+        console.error(`Photo ${i + 1} compression failed:`, err)
       }
-      reader.readAsDataURL(compressed)
-    } catch (err) {
-      console.error('Photo compression failed:', err)
-      setUploading(false)
-      setUploadProgress(null)
     }
+    setUploading(false)
+    setUploadProgress(null)
     e.target.value = ''
   }
 
   const handleVideoUpload = async (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
     setUploading(true)
-    setUploadProgress({ stage: 'preparing', progress: 0 })
-    try {
-      const compressed = await compressVideo(file, {
-        onProgress: (info) => setUploadProgress(info),
-      })
-      const reader = new FileReader()
-      reader.onload = (ev) => {
+    for (let i = 0; i < files.length; i++) {
+      setUploadProgress({ stage: `Processing video ${i + 1}/${files.length}`, progress: Math.round((i / files.length) * 100) })
+      try {
+        const compressed = await compressVideo(files[i], {
+          onProgress: (info) => setUploadProgress({ ...info, stage: `Video ${i + 1}/${files.length}: ${info.stage || 'compressing'}` }),
+        })
+        const dataUrl = await new Promise((resolve) => {
+          const reader = new FileReader()
+          reader.onload = (ev) => resolve(ev.target.result)
+          reader.readAsDataURL(compressed)
+        })
         dispatch({
           type: 'ADD_SCRAPBOOK_ENTRY',
           payload: {
             showId,
             entry: {
-              id: `entry-${Date.now()}`,
+              id: `entry-${Date.now()}-${i}`,
               type: 'video',
-              content: ev.target.result,
+              content: dataUrl,
               author: 'dancer',
               date: new Date().toISOString().split('T')[0],
               emojiReactions: [],
             },
           },
         })
-        setUploading(false)
-        setUploadProgress(null)
+      } catch (err) {
+        console.error(`Video ${i + 1} compression failed:`, err)
       }
-      reader.readAsDataURL(compressed)
-    } catch (err) {
-      console.error('Video compression failed:', err)
-      alert(err.message || 'Video compression failed')
-      setUploading(false)
-      setUploadProgress(null)
     }
+    setUploading(false)
+    setUploadProgress(null)
     e.target.value = ''
   }
 
@@ -381,21 +383,39 @@ export default function Scrapbook() {
       {mediaEntries.length > 0 && (
         <div className={styles.mediaCarousel}>
           <h3 className={styles.entriesSectionTitle}>Media</h3>
-          <div className={styles.carouselTrack}>
-            {mediaEntries.map((me) => (
-              <div
-                key={me.id}
-                className={styles.carouselItem}
-                onClick={() => setLightbox({ type: me.type, src: me.content })}
-                style={{ cursor: 'pointer' }}
+          <div className={styles.carouselWrap}>
+              <button
+                className={`${styles.carouselArrow} ${styles.carouselArrowLeft}`}
+                onClick={() => carouselRef.current?.scrollBy({ left: -220, behavior: 'smooth' })}
+                disabled={mediaEntries.length <= 1}
+                aria-label="Scroll left"
               >
-                {me.type === 'photo' ? (
-                  <img src={me.content} alt="show photo" className={styles.carouselImg} />
-                ) : (
-                  <video src={me.content} className={styles.carouselVideo} />
-                )}
-              </div>
-            ))}
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+              </button>
+            <div className={styles.carouselTrack} ref={carouselRef}>
+              {mediaEntries.map((me, idx) => (
+                <div
+                  key={me.id}
+                  className={styles.carouselItem}
+                  onClick={() => setLightboxIndex(idx)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  {me.type === 'photo' ? (
+                    <img src={me.content} alt="show photo" className={styles.carouselImg} />
+                  ) : (
+                    <video src={me.content} className={styles.carouselVideo} />
+                  )}
+                </div>
+              ))}
+            </div>
+              <button
+                className={`${styles.carouselArrow} ${styles.carouselArrowRight}`}
+                onClick={() => carouselRef.current?.scrollBy({ left: 220, behavior: 'smooth' })}
+                disabled={mediaEntries.length <= 1}
+                aria-label="Scroll right"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+              </button>
           </div>
         </div>
       )}
@@ -459,20 +479,20 @@ export default function Scrapbook() {
           onClick={() => photoInputRef.current?.click()}
           disabled={uploading}
         >
-          {uploading ? '⏳ Uploading...' : '📸 Add Photo'}
+          {uploading ? '⏳ Uploading...' : '📸 Add Photos'}
         </button>
         <button
           className={styles.addVideoBtn}
           onClick={() => videoInputRef.current?.click()}
           disabled={uploading}
         >
-          {uploading ? '⏳ Uploading...' : '📹 Add Video'}
+          {uploading ? '⏳ Uploading...' : '📹 Add Videos'}
         </button>
         <input
           ref={photoInputRef}
           type="file"
           accept="image/*"
-          capture="environment"
+          multiple
           style={{ display: 'none' }}
           onChange={handlePhotoUpload}
         />
@@ -480,6 +500,7 @@ export default function Scrapbook() {
           ref={videoInputRef}
           type="file"
           accept="video/*"
+          multiple
           style={{ display: 'none' }}
           onChange={handleVideoUpload}
         />
@@ -488,8 +509,8 @@ export default function Scrapbook() {
       {/* Upload progress bar */}
       {uploadProgress !== null && (
         <div className={styles.uploadProgressWrap}>
-          <div className={styles.uploadProgressBar} style={{ width: `${uploadProgress}%` }} />
-          <span className={styles.uploadProgressText}>{Math.round(uploadProgress)}% compressing…</span>
+          <div className={styles.uploadProgressBar} style={{ width: `${uploadProgress.progress || 0}%` }} />
+          <span className={styles.uploadProgressText}>{uploadProgress.stage || 'Processing…'}</span>
         </div>
       )}
 
@@ -550,14 +571,30 @@ export default function Scrapbook() {
       )}
 
       {/* Lightbox overlay */}
-      {lightbox && (
-        <div className={styles.lightboxOverlay} onClick={() => setLightbox(null)}>
-          <button className={styles.lightboxClose} onClick={() => setLightbox(null)}>✕</button>
-          {lightbox.type === 'photo' ? (
-            <img src={lightbox.src} alt="" className={styles.lightboxImg} onClick={e => e.stopPropagation()} />
+      {lightboxIndex !== null && mediaEntries[lightboxIndex] && (
+        <div className={styles.lightboxOverlay} onClick={() => setLightboxIndex(null)}>
+          <button className={styles.lightboxClose} onClick={() => setLightboxIndex(null)}>✕</button>
+            <button
+              className={`${styles.lightboxArrow} ${styles.lightboxArrowLeft}`}
+              disabled={lightboxIndex === 0}
+              onClick={(e) => { e.stopPropagation(); if (lightboxIndex > 0) setLightboxIndex(lightboxIndex - 1); }}
+              aria-label="Previous"
+            >
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+            </button>
+          {mediaEntries[lightboxIndex].type === 'photo' ? (
+            <img src={mediaEntries[lightboxIndex].content} alt="" className={styles.lightboxImg} onClick={e => e.stopPropagation()} />
           ) : (
-            <video src={lightbox.src} controls autoPlay className={styles.lightboxVideo} onClick={e => e.stopPropagation()} />
+            <video src={mediaEntries[lightboxIndex].content} controls autoPlay className={styles.lightboxVideo} onClick={e => e.stopPropagation()} />
           )}
+            <button
+              className={`${styles.lightboxArrow} ${styles.lightboxArrowRight}`}
+              disabled={lightboxIndex === mediaEntries.length - 1}
+              onClick={(e) => { e.stopPropagation(); if (lightboxIndex < mediaEntries.length - 1) setLightboxIndex(lightboxIndex + 1); }}
+              aria-label="Next"
+            >
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+            </button>
         </div>
       )}
     </div>

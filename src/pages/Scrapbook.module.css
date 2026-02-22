@@ -285,6 +285,8 @@
   .addEntryBtn { background: #1f2937; border-color: #374151; color: #c4b5fd; }
   .addEntryPicker { background: #1e1b2e; border-color: #3b2f63; }
   .addEntryOption { background: #1f2937; border-color: #4b5563; color: #e5e7eb; }
+  .carouselArrow { background: rgba(55,65,81,0.9); color: #e5e7eb; }
+  .carouselArrow:hover { background: #4b5563; }
 }
 
 /* ===== EVENT TYPE PILL ===== */
@@ -558,6 +560,52 @@
   margin-bottom: 1.5rem;
 }
 
+.carouselWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.carouselArrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  background: rgba(255,255,255,0.85);
+  border: none;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  font-size: 1.6rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+  color: #374151;
+  transition: background 0.15s, transform 0.15s;
+}
+
+.carouselArrow:hover {
+  background: white;
+  transform: translateY(-50%) scale(1.1);
+}
+
+.carouselArrow:disabled {
+  opacity: 0.25;
+  cursor: default;
+  pointer-events: none;
+}
+
+.carouselArrowLeft {
+  left: 4px;
+}
+
+.carouselArrowRight {
+  right: 4px;
+}
+
 .carouselTrack {
   display: flex;
   gap: 10px;
@@ -634,6 +682,48 @@
   align-items: center;
   justify-content: center;
   z-index: 1;
+}
+
+.lightboxArrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  background: rgba(255,255,255,0.18);
+  border: none;
+  color: white;
+  font-size: 2.4rem;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, transform 0.15s;
+}
+
+.lightboxArrow:hover {
+  background: rgba(255,255,255,0.35);
+  transform: translateY(-50%) scale(1.1);
+}
+
+.lightboxArrow:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.lightboxArrow:disabled:hover {
+  background: rgba(255,255,255,0.18);
+  transform: translateY(-50%);
+}
+
+.lightboxArrowLeft {
+  left: 12px;
+}
+
+.lightboxArrowRight {
+  right: 12px;
 }
 
 .lightboxImg {

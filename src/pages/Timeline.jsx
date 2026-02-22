@@ -147,7 +147,7 @@ export default function Timeline() {
   const [addEventId, setAddEventId] = useState('')
   const [addEntryDate, setAddEntryDate] = useState(() => new Date(Date.now() + 86400000).toISOString().split('T')[0])
   const [addEntryTime, setAddEntryTime] = useState('')
-  const [lightbox, setLightbox] = useState(null) // { type, src }
+  const [lightbox, setLightbox] = useState(null) // { media: [...], index: N }
 
   // Share state
   const [shareBusy, setShareBusy] = useState(false)
@@ -962,21 +962,39 @@ export default function Timeline() {
                   if (media.length === 0) return null
                   return (
                     <div className={styles.showMediaCarousel}>
-                      <div className={styles.showMediaTrack}>
-                        {media.map(me => (
-                          <div
-                            key={me.id}
-                            className={styles.showMediaItem}
-                            onClick={(e) => { e.stopPropagation(); setLightbox({ type: me.type, src: me.content }) }}
-                            style={{ cursor: 'pointer' }}
-                          >
-                            {me.type === 'photo' ? (
-                              <img src={me.content} alt="" className={styles.showMediaImg} />
-                            ) : (
-                              <video src={me.content} className={styles.showMediaVid} />
-                            )}
-                          </div>
-                        ))}
+                      <div className={styles.showMediaWrap}>
+                        <button
+                          className={`${styles.showMediaArrow} ${styles.showMediaArrowLeft}`}
+                          disabled={media.length <= 1}
+                          onClick={(e) => { e.stopPropagation(); e.currentTarget.nextElementSibling.scrollBy({ left: -180, behavior: 'smooth' }) }}
+                          aria-label="Scroll left"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+                        </button>
+                        <div className={styles.showMediaTrack}>
+                          {media.map((me, idx) => (
+                            <div
+                              key={me.id}
+                              className={styles.showMediaItem}
+                              onClick={(e) => { e.stopPropagation(); setLightbox({ media, index: idx }) }}
+                              style={{ cursor: 'pointer' }}
+                            >
+                              {me.type === 'photo' ? (
+                                <img src={me.content} alt="" className={styles.showMediaImg} />
+                              ) : (
+                                <video src={me.content} className={styles.showMediaVid} />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          className={`${styles.showMediaArrow} ${styles.showMediaArrowRight}`}
+                          disabled={media.length <= 1}
+                          onClick={(e) => { e.stopPropagation(); e.currentTarget.previousElementSibling.scrollBy({ left: 180, behavior: 'smooth' }) }}
+                          aria-label="Scroll right"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+                        </button>
                       </div>
                     </div>
                   )
@@ -1027,14 +1045,30 @@ export default function Timeline() {
       </div>
 
       {/* Lightbox overlay */}
-      {lightbox && (
+      {lightbox && lightbox.media[lightbox.index] && (
         <div className={styles.lightboxOverlay} onClick={() => setLightbox(null)}>
           <button className={styles.lightboxClose} onClick={() => setLightbox(null)}>✕</button>
-          {lightbox.type === 'photo' ? (
-            <img src={lightbox.src} alt="" className={styles.lightboxImg} onClick={e => e.stopPropagation()} />
+          <button
+            className={`${styles.lightboxArrow} ${styles.lightboxArrowLeft}`}
+            disabled={lightbox.index === 0}
+            onClick={(e) => { e.stopPropagation(); if (lightbox.index > 0) setLightbox({ ...lightbox, index: lightbox.index - 1 }) }}
+            aria-label="Previous"
+          >
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+          </button>
+          {lightbox.media[lightbox.index].type === 'photo' ? (
+            <img src={lightbox.media[lightbox.index].content} alt="" className={styles.lightboxImg} onClick={e => e.stopPropagation()} />
           ) : (
-            <video src={lightbox.src} controls autoPlay className={styles.lightboxVideo} onClick={e => e.stopPropagation()} />
+            <video src={lightbox.media[lightbox.index].content} controls autoPlay className={styles.lightboxVideo} onClick={e => e.stopPropagation()} />
           )}
+          <button
+            className={`${styles.lightboxArrow} ${styles.lightboxArrowRight}`}
+            disabled={lightbox.index === lightbox.media.length - 1}
+            onClick={(e) => { e.stopPropagation(); if (lightbox.index < lightbox.media.length - 1) setLightbox({ ...lightbox, index: lightbox.index + 1 }) }}
+            aria-label="Next"
+          >
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+          </button>
         </div>
       )}
     </div>

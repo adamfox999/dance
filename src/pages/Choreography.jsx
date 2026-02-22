@@ -314,8 +314,10 @@ export default function Choreography() {
   const [isLiveFullscreen, setIsLiveFullscreen] = useState(false)
   const liveUiHideTimerRef = useRef(null)
 
-  // Video annotations
-  const videoAnnotations = choreography.videoAnnotations || []
+  // Video annotations — per-session when practicing, per-choreography when editing
+  const videoAnnotations = (sessionId && activeSession)
+    ? (activeSession.videoAnnotations || [])
+    : (choreography.videoAnnotations || [])
 
   const clearLiveUiHideTimer = useCallback(() => {
     if (liveUiHideTimerRef.current) {
@@ -2185,38 +2187,38 @@ export default function Choreography() {
               onTogglePlay={toggleLivePlay}
               onAddAnnotation={(ann) => {
                 const updated = [...videoAnnotations, ann]
-                dispatch({
-                  type: 'UPDATE_CHOREOGRAPHY_VERSION',
-                  payload: {
-                    routineId,
-                    versionId: selectedVersion?.id,
-                    updates: { videoAnnotations: updated },
-                  },
-                })
+                if (sessionId) {
+                  dispatch({ type: 'UPDATE_SESSION', payload: { id: sessionId, videoAnnotations: updated } })
+                } else {
+                  dispatch({
+                    type: 'UPDATE_CHOREOGRAPHY_VERSION',
+                    payload: { routineId, versionId: selectedVersion?.id, updates: { videoAnnotations: updated } },
+                  })
+                }
               }}
               onDeleteAnnotation={(annId) => {
                 const updated = videoAnnotations.filter(a => a.id !== annId)
-                dispatch({
-                  type: 'UPDATE_CHOREOGRAPHY_VERSION',
-                  payload: {
-                    routineId,
-                    versionId: selectedVersion?.id,
-                    updates: { videoAnnotations: updated },
-                  },
-                })
+                if (sessionId) {
+                  dispatch({ type: 'UPDATE_SESSION', payload: { id: sessionId, videoAnnotations: updated } })
+                } else {
+                  dispatch({
+                    type: 'UPDATE_CHOREOGRAPHY_VERSION',
+                    payload: { routineId, versionId: selectedVersion?.id, updates: { videoAnnotations: updated } },
+                  })
+                }
               }}
               onUpdateAnnotation={(annId, updates) => {
                 const updated = videoAnnotations.map((ann) => (
                   ann.id === annId ? { ...ann, ...updates } : ann
                 ))
-                dispatch({
-                  type: 'UPDATE_CHOREOGRAPHY_VERSION',
-                  payload: {
-                    routineId,
-                    versionId: selectedVersion?.id,
-                    updates: { videoAnnotations: updated },
-                  },
-                })
+                if (sessionId) {
+                  dispatch({ type: 'UPDATE_SESSION', payload: { id: sessionId, videoAnnotations: updated } })
+                } else {
+                  dispatch({
+                    type: 'UPDATE_CHOREOGRAPHY_VERSION',
+                    payload: { routineId, versionId: selectedVersion?.id, updates: { videoAnnotations: updated } },
+                  })
+                }
               }}
             />
           )}
@@ -2260,8 +2262,8 @@ export default function Choreography() {
                   disabled={videoProcessing}
                   onClick={() => openMediaPicker('video')}
                 >
-                  <span className={styles['live-upload-text']}>🎥 Video</span>
-                  <span className={styles['live-upload-pencil']} aria-hidden="true">✏️</span>
+                  <span className={styles['live-upload-text']}>{videoProcessing ? `🎥 ${compressingLabel}` : '🎥 Video'}</span>
+                  {!videoProcessing && <span className={styles['live-upload-pencil']} aria-hidden="true">✏️</span>}
                 </button>
                 <button
                   className={styles['live-sync-btn']}
