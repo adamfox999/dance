@@ -6,7 +6,6 @@ import styles from './Layout.module.css'
 const navItems = [
   { to: '/', icon: '🏠', label: 'Home' },
   { to: '/calendar', icon: '📅', label: 'Calendar' },
-  { to: '/trophies', icon: '🏆', label: 'Trophies' },
   { to: '/settings', icon: '⚙️', label: 'Settings' },
 ]
 
