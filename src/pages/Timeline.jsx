@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { generateId } from '../utils/helpers'
 import { loadFile } from '../utils/fileStorage'
-import { getEventTypeIcon } from '../data/aedEvents'
+import { getEventTypeIcon, getEventTypeLabel } from '../data/aedEvents'
 import { fetchStateFromBackend } from '../utils/backendApi'
 import styles from './Timeline.module.css'
 
@@ -29,6 +29,18 @@ function formatRehearsalTitle(dateStr) {
           : 'th'
 
   return `${day}${suffix} ${month} rehearsal`
+}
+
+function formatOrdinalPlace(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return ''
+  const mod100 = n % 100
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`
+  const mod10 = n % 10
+  if (mod10 === 1) return `${n}st`
+  if (mod10 === 2) return `${n}nd`
+  if (mod10 === 3) return `${n}rd`
+  return `${n}th`
 }
 
 function isPast(dateStr) {
@@ -124,9 +136,9 @@ export default function Timeline() {
   const [lightbox, setLightbox] = useState(null) // { type, src }
 
   // Share state
-  const [shareEmail, setShareEmail] = useState('')
   const [shareBusy, setShareBusy] = useState(false)
   const [shareMsg, setShareMsg] = useState(null)
+  const [shareLink, setShareLink] = useState(null)
   const [partnerKidsMap, setPartnerKidsMap] = useState({}) // { shareId: [kid, ...] }
 
   // Determine what we're showing a timeline for
@@ -166,7 +178,7 @@ export default function Timeline() {
     if (!isRoutine) return []
     return (state.shows || [])
       .filter(s => (s.entries || []).some(e => e.routineId === id))
-      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .sort((a, b) => new Date(b.startDate || b.date) - new Date(a.startDate || a.date))
   }, [state.shows, id, isRoutine])
 
   // All events available to link an entry to (for the add dialog)
@@ -188,7 +200,9 @@ export default function Timeline() {
     })
 
     relatedShows.forEach(s => {
-      items.push({ type: 'show', date: s.date, data: s })
+      const entry = (s.entries || []).find(e => e.routineId === id)
+      const subEventDate = entry?.scheduledDate || s.startDate || s.date
+      items.push({ type: 'show', date: subEventDate, data: s })
     })
 
     // Sort newest first
@@ -256,8 +270,8 @@ export default function Timeline() {
     setAddEventId(availableEvents[0]?.id || '')
     setAddEntryDate(new Date(Date.now() + 86400000).toISOString().split('T')[0])
     setAddEntryTime('')
-    setShareEmail('')
     setShareMsg(null)
+    setShareLink(null)
     setAddDialogOpen(true)
     // Load partner kids for accepted shares of this routine
     loadPartnerKidsForRoutine()
@@ -290,24 +304,40 @@ export default function Timeline() {
   }
 
   const handleShareInvite = async () => {
-    if (!shareEmail.trim()) return
     setShareBusy(true)
     setShareMsg(null)
+    setShareLink(null)
     try {
       const res = await fetchStateFromBackend()
       if (!res?.danceData?.id) throw new Error('No dance data found to share.')
-      await createShareInvite({
+      const share = await createShareInvite({
         danceId: res.danceData.id,
         routineId: id,
-        invitedEmail: shareEmail.trim(),
       })
-      setShareEmail('')
-      setShareMsg({ type: 'success', text: 'Invite sent!' })
+      const link = `${window.location.origin}${window.location.pathname}?share=${share.invite_token}`
+      setShareLink(link)
+      setShareMsg({ type: 'success', text: 'Share link created!' })
       await loadShares()
     } catch (err) {
-      setShareMsg({ type: 'error', text: err?.message || 'Could not send invite' })
+      setShareMsg({ type: 'error', text: err?.message || 'Could not create invite link' })
     } finally {
       setShareBusy(false)
+    }
+  }
+
+  const handleCopyShareLink = async (value) => {
+    if (!value) return
+    try {
+      await navigator.clipboard.writeText(value)
+      setShareMsg({ type: 'success', text: 'Link copied!' })
+    } catch {
+      const ta = document.createElement('textarea')
+      ta.value = value
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+      setShareMsg({ type: 'success', text: 'Link copied!' })
     }
   }
 
@@ -573,22 +603,32 @@ export default function Timeline() {
                 <div className={styles.addField}>
                   <label>Invite a dance partner's parent</label>
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <input
-                      type="email"
-                      placeholder="Parent's email"
-                      value={shareEmail}
-                      onChange={(e) => setShareEmail(e.target.value)}
-                      style={{ flex: 1 }}
-                    />
                     <button
                       className={styles.addDialogSave}
                       onClick={handleShareInvite}
-                      disabled={shareBusy || !shareEmail.trim()}
+                      disabled={shareBusy}
                       style={{ margin: 0 }}
                     >
-                      {shareBusy ? '…' : '📨 Invite'}
+                      {shareBusy ? '…' : '🔗 Generate Link'}
                     </button>
                   </div>
+                  {shareLink && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, background: '#f0fdf4', borderRadius: 8, padding: '8px 12px', border: '1px solid #bbf7d0' }}>
+                      <input
+                        readOnly
+                        value={shareLink}
+                        style={{ flex: 1, border: 'none', background: 'transparent', fontSize: '0.8rem', color: '#166534', outline: 'none' }}
+                        onClick={(e) => e.target.select()}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleCopyShareLink(shareLink)}
+                        style={{ background: '#16a34a', color: '#fff', borderRadius: 6, padding: '4px 12px', fontSize: '0.78rem', border: 'none', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  )}
                   {shareMsg && (
                     <p style={{ fontSize: '0.78rem', color: shareMsg.type === 'error' ? '#dc2626' : '#16a34a', fontWeight: 500, marginTop: 4 }}>
                       {shareMsg.text}
@@ -602,7 +642,7 @@ export default function Timeline() {
                   return (
                     <div key={share.id} className={styles.sharePartnerCard}>
                       <div style={{ fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: 6 }}>
-                        📧 {share.invited_email}
+                        📧 {share.invited_email || (share.invite_token ? 'Invite link' : 'Partner')}
                         <span style={{ marginLeft: 8, fontSize: '0.7rem', color: '#16a34a', fontWeight: 700 }}>✓ Joined</span>
                       </div>
                       {kids.length > 0 ? (
@@ -640,9 +680,19 @@ export default function Timeline() {
                 {/* Pending shares */}
                 {routineShares.filter(s => s.status === 'pending').map(share => (
                   <div key={share.id} className={styles.sharePartnerCard} style={{ opacity: 0.6 }}>
-                    <div style={{ fontSize: '0.78rem', color: '#6b7280' }}>
-                      📧 {share.invited_email}
-                      <span style={{ marginLeft: 8, fontSize: '0.7rem', color: '#92400e', fontWeight: 600 }}>⏳ Pending</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ fontSize: '0.78rem', color: '#6b7280', flex: 1 }}>
+                        📧 {share.invited_email || 'Invite link'}
+                        <span style={{ marginLeft: 8, fontSize: '0.7rem', color: '#92400e', fontWeight: 600 }}>⏳ Pending</span>
+                      </div>
+                      {share.invite_token && (
+                        <button
+                          onClick={() => handleCopyShareLink(`${window.location.origin}${window.location.pathname}?share=${share.invite_token}`)}
+                          style={{ background: '#dcfce7', color: '#166534', borderRadius: 6, padding: '4px 8px', fontSize: '0.72rem', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                        >
+                          Copy Link
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -815,13 +865,19 @@ export default function Timeline() {
                         {item.data.name}
                         {item.data.eventType && item.data.eventType !== 'show' && (
                           <span className={styles.eventTypeTag}>
-                            {item.data.eventType.replace('-', ' ')}
+                            {(() => {
+                              const entry = (item.data.entries || []).find(e => e.routineId === id)
+                              const isQualifiedQualifier = item.data.eventType === 'qualifier' && entry?.qualified
+                              return (
+                                <>
+                                  {isQualifiedQualifier && <span className={styles.eventTypeQualifiedTick}>✓</span>}
+                                  {isQualifiedQualifier ? 'AED Qualified' : getEventTypeLabel(item.data.eventType)}
+                                </>
+                              )
+                            })()}
                           </span>
                         )}
                       </div>
-                      {item.data.venue && (
-                        <div className={styles.cardNote}>📍 {item.data.venue}</div>
-                      )}
                       {(() => {
                         const entry = (item.data.entries || []).find(e => e.routineId === id)
                         if (!entry) return null
@@ -836,9 +892,6 @@ export default function Timeline() {
                               <span>
                                 ⏰ {hasDate ? dateLabel : ''}{hasDate && hasTime ? ' · ' : ''}{hasTime ? entry.scheduledTime : ''}
                               </span>
-                            )}
-                            {entry.qualified && (
-                              <span className={styles.qualifiedBadge}>✓ Qualified</span>
                             )}
                           </div>
                         )
@@ -857,7 +910,7 @@ export default function Timeline() {
                         return <span className={styles.showPlaceMedal}>{medal}</span>
                       }
 
-                      return <span className={styles.showPlaceCircle}>{parsedPlace}</span>
+                      return <span className={styles.showPlaceCircle}>{formatOrdinalPlace(parsedPlace)}</span>
                     })()}
                     <span className={styles.cardArrow}>→</span>
                   </div>

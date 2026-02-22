@@ -1419,31 +1419,21 @@ export default function Choreography() {
   }, [beatData, showOffBeats])
 
   // Map a position (beat index or beat+0.5) to a row pixel offset
-  // Click handler for two-click range creation (on each beat row)
+  // Click handler for single-tap instruction creation (on each beat row)
   const handleBeatClick = (pos) => {
     // Skip if this click is the tail end of a drag gesture
     if (didDragRef.current) {
       didDragRef.current = false
       return
     }
-    if (rangeStartRef.current === null) {
-      // First click — mark start
-      rangeStartRef.current = pos
-      setRangeStartPos(pos)
-      setDragEndPos(null)
-      setIsDragging(false)
-    } else {
-      // Second click — complete range
-      const startPos = rangeStartRef.current
-      const newId = addSongInstruction(startPos, pos)
-      setEditingInstId(newId)
-      rangeStartRef.current = null
-      dragEndRef.current = null
-      isDraggingRef.current = false
-      setRangeStartPos(null)
-      setDragEndPos(null)
-      setIsDragging(false)
-    }
+    const newId = addSongInstruction(pos, pos)
+    setEditingInstId(newId)
+    rangeStartRef.current = null
+    dragEndRef.current = null
+    isDraggingRef.current = false
+    setRangeStartPos(null)
+    setDragEndPos(null)
+    setIsDragging(false)
   }
 
   // ─── Resize handlers for instruction edge drag ───
@@ -1538,8 +1528,7 @@ export default function Choreography() {
       // If we had a pending two-click start, use that as the drag start
       if (rangeStartRef.current === null) {
         // Fresh drag from pointerDown position
-        const startRowIdx = Math.min(Math.max(Math.floor((dragStartYRef.current - rect.top + container.scrollTop) / BEAT_ROW_HEIGHT), 0), timelineRows.length - 1)
-        rangeStartRef.current = timelineRows[startRowIdx]?.pos ?? newPos
+        rangeStartRef.current = dragEndRef.current ?? newPos
         setRangeStartPos(rangeStartRef.current)
       }
       setIsDragging(true)

@@ -87,9 +87,9 @@ export const AED_TEMPLATES = [
 export const EVENT_TYPES = [
   { value: 'show', label: 'Show / Performance', icon: '🎭' },
   { value: 'exam', label: 'Exam', icon: '🎓' },
-  { value: 'qualifier', label: 'Qualifier', icon: '🎪' },
-  { value: 'regional-final', label: 'Regional Final', icon: '🏅' },
-  { value: 'national-final', label: 'National Final', icon: '🏆' },
+  { value: 'qualifier', label: 'AED Qualifier', icon: '🎪' },
+  { value: 'regional-final', label: 'AED Regional Final', icon: '🏅' },
+  { value: 'national-final', label: 'AED National Final', icon: '🏆' },
   { value: 'festival', label: 'Festival', icon: '🎉' },
 ]
 

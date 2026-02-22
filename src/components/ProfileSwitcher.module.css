@@ -166,6 +166,23 @@
   color: #1e1e2e;
 }
 
+.settingsBtn {
+  display: block;
+  margin: 10px auto 0;
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid #e9d5ff;
+  background: #faf5ff;
+  color: #7e22ce;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.settingsBtn:hover {
+  background: #f3e8ff;
+}
+
 /* Profile header chip (shown in Layout header) */
 .profileChip {
   display: flex;

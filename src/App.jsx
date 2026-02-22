@@ -8,7 +8,6 @@ import Timeline from './pages/Timeline'
 import Choreography from './pages/Choreography'
 import Scrapbook from './pages/Scrapbook'
 import TrophyShelf from './pages/TrophyShelf'
-import Calendar from './pages/Calendar'
 import Settings from './pages/Settings'
 
 export default function App() {
@@ -45,7 +44,6 @@ export default function App() {
           <Route path="/choreography/:routineId" element={<Choreography />} />
           <Route path="/show/:showId" element={<Scrapbook />} />
           <Route path="/trophies" element={<TrophyShelf />} />
-          <Route path="/calendar" element={<Calendar />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

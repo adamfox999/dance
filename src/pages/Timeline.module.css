@@ -428,6 +428,12 @@
   flex-shrink: 0;
 }
 
+@media (max-width: 768px) {
+  .cardArrow {
+    display: none;
+  }
+}
+
 .showPlaceMedal {
   font-size: 1.35rem;
   line-height: 1;
@@ -451,7 +457,9 @@
 
 /* ===== EVENT TYPE TAG ===== */
 .eventTypeTag {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   margin-left: 6px;
   padding: 1px 7px;
   border-radius: var(--radius-full, 999px);
@@ -461,6 +469,11 @@
   background: rgba(168, 85, 247, 0.12);
   color: #7e22ce;
   vertical-align: middle;
+}
+
+.eventTypeQualifiedTick {
+  color: #7e22ce;
+  font-weight: 900;
 }
 
 /* ===== QUALIFIED BADGE ===== */

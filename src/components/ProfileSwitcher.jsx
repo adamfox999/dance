@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import styles from './ProfileSwitcher.module.css'
 
@@ -20,6 +21,7 @@ export default function ProfileSwitcher({ open, onClose }) {
   const [pin, setPin] = useState('')
   const [pinError, setPinError] = useState(false)
   const [showPinEntry, setShowPinEntry] = useState(false)
+  const navigate = useNavigate()
 
   if (!open) return null
 
@@ -54,6 +56,11 @@ export default function ProfileSwitcher({ open, onClose }) {
       setTimeout(() => setPinError(false), 1500)
       setPin('')
     }
+  }
+
+  const handleOpenSettings = () => {
+    onClose()
+    navigate('/settings')
   }
 
   const adultName = userProfile?.display_name || 'Parent'
@@ -117,6 +124,12 @@ export default function ProfileSwitcher({ open, onClose }) {
               </button>
             </form>
           </div>
+        )}
+
+        {!isKidMode && (
+          <button className={styles.settingsBtn} onClick={handleOpenSettings}>
+            ⚙️ Settings
+          </button>
         )}
 
         <button className={styles.closeBtn} onClick={onClose}>

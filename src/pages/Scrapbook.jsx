@@ -260,7 +260,7 @@ export default function Scrapbook() {
                       </span>
                     )}
                     {entry.qualified && (
-                      <span className={styles.qualifiedBadge}>✓ Qualified</span>
+                      <span className={styles.qualifiedBadge}>✓ AED Qualified</span>
                     )}
                     {qualifiedEvent && (
                       <span className={styles.qualifiedThroughLabel}>
@@ -328,7 +328,7 @@ export default function Scrapbook() {
                             payload: { showId, entryId: entry.id, updates: { qualified: !entry.qualified } },
                           })}
                         >
-                          {entry.qualified ? '✓ Yes – Qualified' : '○ Not yet'}
+                          {entry.qualified ? '✓ Yes – AED Qualified' : '○ Not yet'}
                         </button>
                       </div>
 
@@ -402,7 +402,7 @@ export default function Scrapbook() {
 
       {/* Scrapbook entries */}
       <div className={styles.entriesGrid}>
-        {entries.map(entry => (
+        {entries.filter(entry => entry.type !== 'photo' && entry.type !== 'video').map(entry => (
           <div key={entry.id} className={`${styles.entryCard} ${styles[entry.type]}`}>
             {entry.type === 'note' && (
               <>
@@ -426,17 +426,6 @@ export default function Scrapbook() {
                 <p className={styles.entryContent}>{entry.content}</p>
               </>
             )}
-            {entry.type === 'photo' && (
-              <>
-                <img src={entry.content} alt="show photo" className={styles.entryPhoto} />
-              </>
-            )}
-            {entry.type === 'video' && (
-              <>
-                <video src={entry.content} controls className={styles.entryVideo} />
-              </>
-            )}
-
             {/* Reactions */}
             <div className={styles.reactions}>
               {(entry.emojiReactions || []).length > 0 && (

@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext'
 import { generateId } from '../utils/helpers'
 import { fetchStateFromBackend } from '../utils/backendApi'
 import { GRADE_LEVELS } from '../data/defaultState'
+import { EVENT_TYPES } from '../data/aedEvents'
 import styles from './Settings.module.css'
 
 const DISCIPLINE_ICONS = ['🩰', '👞', '💃', '🎭', '🤸', '🕺', '✨', '🌟']
@@ -20,7 +21,6 @@ export default function Settings() {
     outgoingGuardians, incomingGuardians,
     createGuardianInvite, acceptGuardianInvite, updateGuardianKids, revokeGuardianInvite, removeGuardian,
   } = useApp()
-  const buildVersion = import.meta.env.VITE_APP_BUILD || 'dev'
   const importRef = useRef(null)
   const [authBusy, setAuthBusy] = useState(false)
 
@@ -33,10 +33,10 @@ export default function Settings() {
   const [profileBusy, setProfileBusy] = useState(false)
 
   // Share invite state
-  const [shareEmail, setShareEmail] = useState('')
   const [shareRoutineId, setShareRoutineId] = useState('')
   const [shareBusy, setShareBusy] = useState(false)
   const [shareMsg, setShareMsg] = useState(null)
+  const [shareLink, setShareLink] = useState(null)
 
   // Guardian state
   const [guardianRole, setGuardianRole] = useState('co-parent')
@@ -49,10 +49,6 @@ export default function Settings() {
   const [editingKidId, setEditingKidId] = useState(null)
   const [editKidName, setEditKidName] = useState('')
   const [editKidEmoji, setEditKidEmoji] = useState('💃')
-
-  const handleSettingsChange = (key, value) => {
-    dispatch({ type: 'UPDATE_SETTINGS', payload: { [key]: value } })
-  }
 
   const handleSignOut = async () => {
     setAuthBusy(true)
@@ -127,24 +123,40 @@ export default function Settings() {
   // ---- Share handlers ----
   const handleCreateShare = async (e) => {
     e.preventDefault()
-    if (!shareEmail.trim()) return
     setShareBusy(true)
     setShareMsg(null)
+    setShareLink(null)
     try {
       const res = await fetchStateFromBackend()
       if (!res?.danceData?.id) throw new Error('No dance data found to share.')
-      await createShareInvite({
+      const share = await createShareInvite({
         danceId: res.danceData.id,
         routineId: shareRoutineId || null,
-        invitedEmail: shareEmail.trim(),
       })
-      setShareEmail('')
       setShareRoutineId('')
-      setShareMsg({ type: 'success', text: 'Invite sent!' })
+      const link = `${window.location.origin}${window.location.pathname}?share=${share.invite_token}`
+      setShareLink(link)
+      setShareMsg({ type: 'success', text: 'Share link created! Send it to the other parent.' })
     } catch (err) {
-      setShareMsg({ type: 'error', text: err?.message || 'Could not send invite' })
+      setShareMsg({ type: 'error', text: err?.message || 'Could not create share link' })
     } finally {
       setShareBusy(false)
+    }
+  }
+
+  const handleCopyShareLink = async (value) => {
+    if (!value) return
+    try {
+      await navigator.clipboard.writeText(value)
+      setShareMsg({ type: 'success', text: 'Link copied!' })
+    } catch {
+      const ta = document.createElement('textarea')
+      ta.value = value
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+      setShareMsg({ type: 'success', text: 'Link copied!' })
     }
   }
 
@@ -333,14 +345,15 @@ export default function Settings() {
     event.target.value = ''
   }
 
-  // ---- Shows ----
+  // ---- Competitions / Events ----
   const handleAddShow = () => {
     dispatch({
       type: 'ADD_SHOW',
       payload: {
         id: generateId('show'),
-        name: 'New Show',
+        name: 'New Competition',
         date: new Date().toISOString().split('T')[0],
+        eventType: 'qualifier',
         venue: '',
         scrapbook: [],
       },
@@ -558,14 +571,6 @@ export default function Settings() {
               Invite a dance partner's parent to view a routine
             </div>
             <form onSubmit={handleCreateShare} style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-              <input
-                type="email"
-                placeholder="Parent's email address"
-                value={shareEmail}
-                onChange={(e) => setShareEmail(e.target.value)}
-                style={{ padding: '10px 14px', borderRadius: 10, border: '1px solid #e5e5e5', fontSize: '0.95rem' }}
-                required
-              />
               <div style={{ display: 'flex', gap: 8 }}>
                 <select
                   value={shareRoutineId}
@@ -580,12 +585,29 @@ export default function Settings() {
                 <button
                   type="submit"
                   className={styles['add-btn']}
-                  disabled={shareBusy || !shareEmail.trim()}
+                  disabled={shareBusy}
                   style={{ whiteSpace: 'nowrap' }}
                 >
-                  {shareBusy ? 'Sending…' : '📨 Invite'}
+                  {shareBusy ? 'Creating…' : '🔗 Generate Link'}
                 </button>
               </div>
+              {shareLink && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f0fdf4', borderRadius: 8, padding: '8px 12px', border: '1px solid #bbf7d0' }}>
+                  <input
+                    readOnly
+                    value={shareLink}
+                    style={{ flex: 1, border: 'none', background: 'transparent', fontSize: '0.8rem', color: '#166534', outline: 'none' }}
+                    onClick={(e) => e.target.select()}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleCopyShareLink(shareLink)}
+                    style={{ background: '#16a34a', color: '#fff', borderRadius: 6, padding: '4px 12px', fontSize: '0.78rem', border: 'none', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
+                  >
+                    Copy
+                  </button>
+                </div>
+              )}
               {shareMsg && (
                 <div style={{ fontSize: '0.85rem', color: shareMsg.type === 'error' ? '#dc2626' : '#16a34a', fontWeight: 500 }}>
                   {shareMsg.text}
@@ -602,7 +624,7 @@ export default function Settings() {
                   return (
                     <div key={share.id} className={styles['item-row']} style={{ marginBottom: 4 }}>
                       <span style={{ fontSize: '0.88rem', flex: 1 }}>
-                        📧 {share.invited_email}
+                        📧 {share.invited_email || (share.invite_token ? 'Invite link' : 'Pending')}
                         {routine && <span style={{ color: '#6b7280' }}> — {routine.name}</span>}
                         {!share.routine_id && <span style={{ color: '#6b7280' }}> — All routines</span>}
                       </span>
@@ -614,13 +636,23 @@ export default function Settings() {
                         {share.status}
                       </span>
                       {share.status !== 'revoked' && (
-                        <button
-                          onClick={() => handleRevokeShare(share.id)}
-                          title="Revoke"
-                          style={{ background: '#fee2e2', color: '#dc2626', borderRadius: 6, padding: '4px 8px', fontSize: '0.75rem', border: 'none', cursor: 'pointer', fontWeight: 600 }}
-                        >
-                          Revoke
-                        </button>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          {share.status === 'pending' && share.invite_token && (
+                            <button
+                              onClick={() => handleCopyShareLink(`${window.location.origin}${window.location.pathname}?share=${share.invite_token}`)}
+                              style={{ background: '#dcfce7', color: '#166534', borderRadius: 6, padding: '4px 8px', fontSize: '0.75rem', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                            >
+                              Copy Link
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleRevokeShare(share.id)}
+                            title="Revoke"
+                            style={{ background: '#fee2e2', color: '#dc2626', borderRadius: 6, padding: '4px 8px', fontSize: '0.75rem', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                          >
+                            Revoke
+                          </button>
+                        </div>
                       )}
                       {share.status === 'revoked' && (
                         <button
@@ -862,44 +894,6 @@ export default function Settings() {
         </div>
       )}
 
-      {/* General */}
-      <div className={styles['settings-section']}>
-        <h3>General</h3>
-        <div className={styles['setting-card']}>
-          <div className={styles['setting-row']}>
-            <label>Dancer Name</label>
-            <input
-              type="text"
-              value={state.settings.dancerName || ''}
-              onChange={(e) => handleSettingsChange('dancerName', e.target.value)}
-            />
-          </div>
-          <div className={styles['setting-row']}>
-            <label>Theme Colour</label>
-            <input
-              type="color"
-              value={state.settings.themeColor || '#a855f7'}
-              onChange={(e) => handleSettingsChange('themeColor', e.target.value)}
-              style={{ width: 50, height: 36, padding: 2, cursor: 'pointer' }}
-            />
-          </div>
-          <div className={styles['setting-row']}>
-            <label>Prompt Lead (ms)</label>
-            <input
-              type="number"
-              value={state.settings.promptLeadMs ?? 200}
-              onChange={(e) => handleSettingsChange('promptLeadMs', Math.max(0, Math.min(600, Number(e.target.value) || 0)))}
-              min={0}
-              max={600}
-              step={10}
-            />
-          </div>
-          <div className={styles['build-version']}>
-            Build: {new Date(buildVersion).toLocaleString()}
-          </div>
-        </div>
-      </div>
-
       {/* Disciplines (admin only) */}
       {isAdmin && (
         <div className={styles['settings-section']}>
@@ -1023,36 +1017,60 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Shows (admin only) */}
+      {/* Competitions (admin only) */}
       {isAdmin && (
         <div className={styles['settings-section']}>
-          <h3>Shows</h3>
+          <h3>Competitions</h3>
           <div className={styles['setting-card']}>
-            {state.shows.map((show) => (
-              <div key={show.id} className={styles['item-row']}>
+            {state.shows
+              .filter((show) => (show.eventType || 'show') !== 'show')
+              .map((show) => (
+              <div key={show.id} className={styles['item-row']} style={{ flexWrap: 'wrap', rowGap: 8 }}>
+                <select
+                  value={show.eventType || 'qualifier'}
+                  onChange={(e) => dispatch({ type: 'UPDATE_SHOW', payload: { id: show.id, eventType: e.target.value } })}
+                  style={{ flex: '1 1 200px', minWidth: 180, fontSize: '0.82rem', padding: '6px 8px', borderRadius: 6, border: '1px solid #e5e5e5' }}
+                >
+                  {EVENT_TYPES.filter((opt) => opt.value !== 'show').map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.icon} {opt.label}</option>
+                  ))}
+                </select>
                 <input
                   type="text"
                   value={show.name}
                   onChange={(e) => dispatch({ type: 'UPDATE_SHOW', payload: { id: show.id, name: e.target.value } })}
-                  style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.9rem' }}
+                  style={{ flex: '2 1 260px', minWidth: 180, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.9rem' }}
                 />
-                <input
-                  type="date"
-                  value={show.date || ''}
-                  onChange={(e) => dispatch({ type: 'UPDATE_SHOW', payload: { id: show.id, date: e.target.value } })}
-                  style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.82rem' }}
-                />
+                <div style={{ display: 'flex', gap: 8, flex: '1 1 280px', minWidth: 220 }}>
+                  <input
+                    type="date"
+                    value={show.startDate || show.date || ''}
+                    onChange={(e) => dispatch({ type: 'UPDATE_SHOW', payload: { id: show.id, startDate: e.target.value, date: e.target.value } })}
+                    style={{ flex: 1, minWidth: 120, padding: '6px 8px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.82rem' }}
+                  />
+                  <input
+                    type="date"
+                    value={show.endDate || ''}
+                    onChange={(e) => dispatch({ type: 'UPDATE_SHOW', payload: { id: show.id, endDate: e.target.value } })}
+                    style={{ flex: 1, minWidth: 120, padding: '6px 8px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.82rem' }}
+                  />
+                </div>
                 <input
                   type="text"
                   value={show.venue || ''}
                   placeholder="Venue"
                   onChange={(e) => dispatch({ type: 'UPDATE_SHOW', payload: { id: show.id, venue: e.target.value } })}
-                  style={{ width: 120, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.82rem' }}
+                  style={{ flex: '2 1 320px', minWidth: 200, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.82rem' }}
                 />
-                <button onClick={() => handleDeleteShow(show.id)} title="Delete" style={{ background: '#fee2e2', color: '#dc2626', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem' }}>✕</button>
+                <button onClick={() => handleDeleteShow(show.id)} title="Delete" style={{ marginLeft: 'auto', background: '#fee2e2', color: '#dc2626', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem' }}>✕</button>
               </div>
             ))}
-            <button className={styles['add-btn']} onClick={handleAddShow}>+ Add Show</button>
+            {state.shows.filter((show) => (show.eventType || 'show') !== 'show').length === 0 && (
+              <div style={{ fontSize: '0.82rem', color: '#6b7280' }}>
+                No competitions yet.
+              </div>
+            )}
+            <button className={styles['add-btn']} onClick={handleAddShow}>+ Add Competition</button>
           </div>
         </div>
       )}

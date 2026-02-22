@@ -15,6 +15,7 @@ import {
   fetchIncomingShares,
   createShare as apiCreateShare,
   acceptShare as apiAcceptShare,
+  acceptShareByToken as apiAcceptShareByToken,
   revokeShare as apiRevokeShare,
   deleteShare as apiDeleteShare,
   fetchSharedDance,
@@ -780,8 +781,8 @@ export function AppProvider({ children }) {
     }
   }, [authUser?.id])
 
-  const createShareInvite = useCallback(async ({ danceId, routineId, invitedEmail }) => {
-    const share = await apiCreateShare({ danceId, routineId, invitedEmail })
+  const createShareInvite = useCallback(async ({ danceId, routineId }) => {
+    const share = await apiCreateShare({ danceId, routineId })
     setOutgoingShares(prev => [share, ...prev])
     return share
   }, [])
@@ -804,6 +805,12 @@ export function AppProvider({ children }) {
     await apiDeleteShare(shareId)
     setOutgoingShares(prev => prev.filter(s => s.id !== shareId))
   }, [])
+
+  const acceptShareByToken = useCallback(async (token) => {
+    const share = await apiAcceptShareByToken(token)
+    await loadShares()
+    return share
+  }, [loadShares])
 
   const fetchPartnerKids = useCallback(async (partnerUserId) => {
     return apiFetchPartnerKids(partnerUserId)
@@ -894,7 +901,7 @@ export function AppProvider({ children }) {
   }, [authLoading, authUser?.id, loadProfiles, loadShares, loadGuardians])
 
   // ============ INVITE TOKEN HANDLING ============
-  // Check for ?invite=TOKEN in URL and auto-accept after login
+  // Check for ?invite=TOKEN in URL and auto-accept guardian invite after login
   useEffect(() => {
     if (authLoading || !authUser?.id) return
     const params = new URLSearchParams(window.location.search)
@@ -917,6 +924,28 @@ export function AppProvider({ children }) {
       }
     })()
   }, [authLoading, authUser?.id, acceptGuardianByToken])
+
+  // Check for ?share=TOKEN in URL and auto-accept share invite after login
+  useEffect(() => {
+    if (authLoading || !authUser?.id) return
+    const params = new URLSearchParams(window.location.search)
+    const token = params.get('share')
+    if (!token) return
+
+    const url = new URL(window.location)
+    url.searchParams.delete('share')
+    window.history.replaceState({}, '', url.pathname + url.search + url.hash)
+
+    ;(async () => {
+      try {
+        await acceptShareByToken(token)
+        alert('Share invite accepted!')
+      } catch (err) {
+        console.warn('Failed to accept share invite:', err)
+        alert(err?.message || 'Could not accept share invite. It may have expired or already been used.')
+      }
+    })()
+  }, [authLoading, authUser?.id, acceptShareByToken])
 
   useEffect(() => {
     let mounted = true
@@ -1158,6 +1187,7 @@ export function AppProvider({ children }) {
       sharedDances,
       createShareInvite,
       acceptShareInvite,
+      acceptShareByToken,
       revokeShareInvite,
       removeShare,
       loadShares,

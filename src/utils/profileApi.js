@@ -151,9 +151,10 @@ export async function fetchIncomingShares() {
   return data || []
 }
 
-export async function createShare({ danceId, routineId, invitedEmail }) {
+export async function createShare({ danceId, routineId }) {
   const client = ensureClient()
   const user = await requireUser()
+  const token = crypto.randomUUID().replace(/-/g, '').slice(0, 12)
 
   const { data, error } = await client
     .from('dance_share')
@@ -161,7 +162,7 @@ export async function createShare({ danceId, routineId, invitedEmail }) {
       dance_id: danceId,
       routine_id: routineId || null,
       owner_user_id: user.id,
-      invited_email: invitedEmail.trim().toLowerCase(),
+      invite_token: token,
       role: 'viewer',
       status: 'pending',
     })
@@ -178,8 +179,47 @@ export async function acceptShare(shareId) {
 
   const { data, error } = await client
     .from('dance_share')
-    .update({ status: 'accepted', invited_user_id: user.id })
+    .update({ status: 'accepted', invited_user_id: user.id, invited_email: user.email, invite_token: null })
     .eq('id', shareId)
+    .select()
+    .single()
+
+  if (error) throw new Error(error.message)
+  return data
+}
+
+export async function fetchShareByToken(token) {
+  const client = ensureClient()
+  await requireUser()
+
+  const { data, error } = await client
+    .from('dance_share')
+    .select('*')
+    .eq('invite_token', token)
+    .eq('status', 'pending')
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return data
+}
+
+export async function acceptShareByToken(token) {
+  const client = ensureClient()
+  const user = await requireUser()
+
+  const invite = await fetchShareByToken(token)
+  if (!invite) throw new Error('Share invite not found or already used.')
+  if (invite.owner_user_id === user.id) throw new Error('You cannot accept your own share invite.')
+
+  const { data, error } = await client
+    .from('dance_share')
+    .update({
+      status: 'accepted',
+      invited_user_id: user.id,
+      invited_email: user.email,
+      invite_token: null,
+    })
+    .eq('id', invite.id)
     .select()
     .single()
 
