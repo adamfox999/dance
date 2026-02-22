@@ -647,11 +647,37 @@ export function AppProvider({ children }) {
 
   // Profile state
   const [userProfile, setUserProfile] = useState(null)       // { id, display_name, avatar_emoji, ... }
-  const [kidProfiles, setKidProfiles] = useState([])          // [{ id, display_name, avatar_emoji, ... }]
+  const [kidProfiles, setKidProfiles] = useState([])          // own kids only (for CRUD)
   // activeProfile: { type: 'adult' } | { type: 'kid', kidId: '...' }
   const [activeProfile, setActiveProfile] = useState({ type: 'adult' })
   const isKidMode = activeProfile.type === 'kid'
-  const activeKidProfile = isKidMode ? kidProfiles.find(k => k.id === activeProfile.kidId) : null
+
+  // Share state
+  const [outgoingShares, setOutgoingShares] = useState([])
+  const [incomingShares, setIncomingShares] = useState([])
+  const [sharedDances, setSharedDances] = useState([])       // [{ share, dance, ownerProfile }]
+
+  // Guardian state
+  const [outgoingGuardians, setOutgoingGuardians] = useState([])   // invites I sent
+  const [incomingGuardians, setIncomingGuardians] = useState([])   // invites I received
+  const [guardianFamilies, setGuardianFamilies] = useState([])     // [{ guardian, ownerProfile, kids }]
+
+  // Merge own kids + guardian family kids (deduped) so guardians see children everywhere
+  const allKidProfiles = (() => {
+    const merged = [...kidProfiles]
+    const seenIds = new Set(kidProfiles.map(k => k.id))
+    for (const fam of guardianFamilies) {
+      for (const kid of (fam.kids || [])) {
+        if (!seenIds.has(kid.id)) {
+          seenIds.add(kid.id)
+          merged.push(kid)
+        }
+      }
+    }
+    return merged
+  })()
+
+  const activeKidProfile = isKidMode ? allKidProfiles.find(k => k.id === activeProfile.kidId) : null
 
   // Admin = logged-in parent in adult mode (no separate PIN/timeout needed)
   const isAdmin = Boolean(authUser) && !isKidMode
@@ -664,15 +690,45 @@ export function AppProvider({ children }) {
     ? (activeKidProfile?.avatar_emoji || '💃')
     : (userProfile?.avatar_emoji || '👤')
 
-  // Share state
-  const [outgoingShares, setOutgoingShares] = useState([])
-  const [incomingShares, setIncomingShares] = useState([])
-  const [sharedDances, setSharedDances] = useState([])       // [{ share, dance, ownerProfile }]
-
-  // Guardian state
-  const [outgoingGuardians, setOutgoingGuardians] = useState([])   // invites I sent
-  const [incomingGuardians, setIncomingGuardians] = useState([])   // invites I received
-  const [guardianFamilies, setGuardianFamilies] = useState([])     // [{ guardian, ownerProfile, kids }]
+  // Build a unified family-member list for the Family Unit view.
+  // Both the inviter (owner) and receiver (guardian) see the same structure.
+  const familyMembers = (() => {
+    const members = []
+    // Self
+    if (userProfile) {
+      members.push({ type: 'adult', profile: userProfile, relationship: 'You', isSelf: true })
+    }
+    // Own kids
+    for (const kid of kidProfiles) {
+      members.push({ type: 'child', profile: kid, relationship: 'Your child', isOwn: true })
+    }
+    // Guardians I invited (other adults)
+    for (const g of outgoingGuardians.filter(g => g.status === 'accepted')) {
+      members.push({
+        type: 'adult',
+        profile: { display_name: g.guardian_email || 'Guardian', avatar_emoji: '👤' },
+        relationship: 'Parent / Guardian',
+        guardianId: g.id,
+      })
+    }
+    // Families I'm a guardian of (the owner + their kids)
+    for (const fam of guardianFamilies) {
+      if (fam.ownerProfile) {
+        members.push({
+          type: 'adult',
+          profile: fam.ownerProfile,
+          relationship: 'Parent / Guardian',
+          guardianId: fam.guardian?.id,
+        })
+      }
+      for (const kid of (fam.kids || [])) {
+        if (!kidProfiles.some(k => k.id === kid.id)) {
+          members.push({ type: 'child', profile: kid, relationship: 'Child', isOwn: false })
+        }
+      }
+    }
+    return members
+  })()
 
   // Legacy admin helpers — kept for compatibility but simplified
   const unlockAdmin = () => true
@@ -1186,7 +1242,8 @@ export function AppProvider({ children }) {
 
       // Profiles
       userProfile,
-      kidProfiles,
+      kidProfiles: allKidProfiles,
+      ownKidProfiles: kidProfiles,
       activeProfile,
       isKidMode,
       activeKidProfile,
@@ -1199,6 +1256,7 @@ export function AppProvider({ children }) {
       editKidProfile,
       removeKidProfile,
       loadProfiles,
+      familyMembers,
 
       // Sharing
       outgoingShares,

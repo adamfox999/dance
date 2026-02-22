@@ -32,18 +32,36 @@ export async function fetchStateFromBackend() {
   const client = ensureSupabaseClient()
   const user = await requireUser()
 
-  const { data, error } = await client
+  const { data: ownDance, error: ownError } = await client
     .from('dance')
     .select('id, owner_id, name, dancers, theme_color, view_mode, prompt_lead_ms, state_data, updated_at')
     .eq('owner_id', user.id)
     .maybeSingle()
 
-  if (error) throw new Error(error.message)
-  if (!data?.state_data) return { source: 'none', danceData: null }
+  if (ownError) throw new Error(ownError.message)
+  if (ownDance?.state_data) {
+    return {
+      source: 'dance',
+      danceData: ownDance,
+    }
+  }
+
+  // Fallback for accepted guardians / shared users:
+  // load one dance row visible via RLS even when they are not the owner.
+  const { data: accessibleDanceRows, error: accessibleError } = await client
+    .from('dance')
+    .select('id, owner_id, name, dancers, theme_color, view_mode, prompt_lead_ms, state_data, updated_at')
+    .order('updated_at', { ascending: false })
+    .limit(1)
+
+  if (accessibleError) throw new Error(accessibleError.message)
+
+  const danceData = Array.isArray(accessibleDanceRows) ? accessibleDanceRows[0] : null
+  if (!danceData?.state_data) return { source: 'none', danceData: null }
 
   return {
     source: 'dance',
-    danceData: data,
+    danceData,
   }
 }
 

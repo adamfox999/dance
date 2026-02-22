@@ -14,7 +14,8 @@ export default function Settings() {
   const {
     state, dispatch, isAdmin, hasSupabaseAuth, authUser, signOut,
     // Profiles
-    userProfile, kidProfiles, saveUserProfile, addKidProfile, editKidProfile, removeKidProfile,
+    userProfile, kidProfiles, ownKidProfiles, familyMembers,
+    saveUserProfile, addKidProfile, editKidProfile, removeKidProfile,
     // Shares
     outgoingShares, incomingShares, sharedDances,
     createShareInvite, acceptShareInvite, removeShare, loadShares,
@@ -431,138 +432,283 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Profiles */}
+      {/* Family Unit */}
       {hasSupabaseAuth && authUser && (
         <div className={styles['settings-section']}>
-          <h3>Profiles</h3>
+          <h3>Family Unit 👨‍👩‍👧‍👦</h3>
           <div className={styles['setting-card']}>
-            {/* Parent profile */}
+            {/* Family members list */}
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#6b7280', marginBottom: 6 }}>Your Profile (Parent)</div>
-              {editingProfile ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <select
-                      value={profileEmoji}
-                      onChange={(e) => setProfileEmoji(e.target.value)}
-                      style={{ width: 50, fontSize: '1.3rem', textAlign: 'center', border: 'none', background: 'transparent' }}
-                    >
-                      {AVATAR_EMOJIS.map(e => <option key={e} value={e}>{e}</option>)}
-                    </select>
-                    <input
-                      type="text"
-                      placeholder="Your name"
-                      value={profileName}
-                      onChange={(e) => setProfileName(e.target.value)}
-                      style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #e5e5e5', fontSize: '0.95rem' }}
-                    />
-                    <button
-                      className={styles['data-btn']}
-                      style={{ background: '#ede9fe', color: '#7c3aed' }}
-                      onClick={handleSaveProfile}
-                      disabled={profileBusy}
-                    >
-                      {profileBusy ? 'Saving…' : 'Save'}
-                    </button>
-                    <button className={styles['data-btn']} onClick={() => setEditingProfile(false)}>Cancel</button>
-                  </div>
+              {familyMembers.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {familyMembers.map((member, idx) => {
+                    const isEditingSelf = member.isSelf && editingProfile
+                    const isEditingKid = member.type === 'child' && member.isOwn && editingKidId === member.profile.id
+                    return (
+                      <div key={member.profile.id || idx}>
+                        {/* Self profile editing */}
+                        {isEditingSelf ? (
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <select
+                              value={profileEmoji}
+                              onChange={(e) => setProfileEmoji(e.target.value)}
+                              style={{ width: 50, fontSize: '1.3rem', textAlign: 'center', border: 'none', background: 'transparent' }}
+                            >
+                              {AVATAR_EMOJIS.map(e => <option key={e} value={e}>{e}</option>)}
+                            </select>
+                            <input
+                              type="text"
+                              placeholder="Your name"
+                              value={profileName}
+                              onChange={(e) => setProfileName(e.target.value)}
+                              style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #e5e5e5', fontSize: '0.95rem' }}
+                            />
+                            <button
+                              className={styles['data-btn']}
+                              style={{ background: '#ede9fe', color: '#7c3aed' }}
+                              onClick={handleSaveProfile}
+                              disabled={profileBusy}
+                            >
+                              {profileBusy ? 'Saving…' : 'Save'}
+                            </button>
+                            <button className={styles['data-btn']} onClick={() => setEditingProfile(false)}>Cancel</button>
+                          </div>
+                        ) : isEditingKid ? (
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <select
+                              value={editKidEmoji}
+                              onChange={(e) => setEditKidEmoji(e.target.value)}
+                              style={{ width: 50, fontSize: '1.3rem', textAlign: 'center', border: 'none', background: 'transparent' }}
+                            >
+                              {AVATAR_EMOJIS.map(e => <option key={e} value={e}>{e}</option>)}
+                            </select>
+                            <input
+                              type="text"
+                              value={editKidName}
+                              onChange={(e) => setEditKidName(e.target.value)}
+                              style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.9rem' }}
+                            />
+                            <button
+                              className={styles['data-btn']}
+                              style={{ background: '#ede9fe', color: '#7c3aed' }}
+                              onClick={handleEditKid}
+                              disabled={profileBusy || !editKidName.trim()}
+                            >
+                              {profileBusy ? '…' : 'Save'}
+                            </button>
+                            <button className={styles['data-btn']} onClick={() => setEditingKidId(null)}>Cancel</button>
+                          </div>
+                        ) : (
+                          /* Normal display row */
+                          <div className={styles['item-row']}>
+                            <span style={{ fontSize: '1.3rem' }}>{member.profile.avatar_emoji || (member.type === 'adult' ? '👤' : '💃')}</span>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 600 }}>{member.profile.display_name || (member.type === 'adult' ? 'Parent' : 'Dancer')}</div>
+                              <div style={{ fontSize: '0.72rem', color: '#9ca3af' }}>{member.relationship}</div>
+                            </div>
+                            {/* Edit / delete buttons for own profiles only */}
+                            {member.isSelf && (
+                              <button
+                                className={styles['data-btn']}
+                                style={{ background: '#ede9fe', color: '#7c3aed', fontSize: '0.75rem' }}
+                                onClick={() => {
+                                  setProfileName(userProfile?.display_name || '')
+                                  setProfileEmoji(userProfile?.avatar_emoji || '👤')
+                                  setEditingProfile(true)
+                                }}
+                              >Edit</button>
+                            )}
+                            {member.type === 'child' && member.isOwn && (
+                              <>
+                                <button
+                                  className={styles['data-btn']}
+                                  style={{ background: '#ede9fe', color: '#7c3aed', fontSize: '0.75rem' }}
+                                  onClick={() => {
+                                    setEditingKidId(member.profile.id)
+                                    setEditKidName(member.profile.display_name || '')
+                                    setEditKidEmoji(member.profile.avatar_emoji || '💃')
+                                  }}
+                                >Edit</button>
+                                <button
+                                  onClick={() => handleDeleteKid(member.profile.id)}
+                                  title="Remove"
+                                  style={{ background: '#fee2e2', color: '#dc2626', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', border: 'none', cursor: 'pointer' }}
+                                >✕</button>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               ) : (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: '1.4rem' }}>{userProfile?.avatar_emoji || '👤'}</span>
-                  <span style={{ fontWeight: 600 }}>{userProfile?.display_name || 'Not set'}</span>
-                  <button
-                    className={styles['data-btn']}
-                    style={{ marginLeft: 'auto', background: '#ede9fe', color: '#7c3aed' }}
-                    onClick={() => {
-                      setProfileName(userProfile?.display_name || '')
-                      setProfileEmoji(userProfile?.avatar_emoji || '👤')
-                      setEditingProfile(true)
-                    }}
-                  >
-                    Edit
-                  </button>
-                </div>
+                <div style={{ fontSize: '0.85rem', color: '#9ca3af' }}>No family members yet.</div>
               )}
             </div>
 
-            {/* Kid profiles */}
-            <div>
-              <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#6b7280', marginBottom: 6 }}>Children / Dancers</div>
-              {kidProfiles.map((kid) => (
-                <div key={kid.id} style={{ marginBottom: 6 }}>
-                  {editingKidId === kid.id ? (
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <select
-                        value={editKidEmoji}
-                        onChange={(e) => setEditKidEmoji(e.target.value)}
-                        style={{ width: 50, fontSize: '1.3rem', textAlign: 'center', border: 'none', background: 'transparent' }}
-                      >
-                        {AVATAR_EMOJIS.map(e => <option key={e} value={e}>{e}</option>)}
-                      </select>
-                      <input
-                        type="text"
-                        value={editKidName}
-                        onChange={(e) => setEditKidName(e.target.value)}
-                        style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.9rem' }}
-                      />
-                      <button
-                        className={styles['data-btn']}
-                        style={{ background: '#ede9fe', color: '#7c3aed' }}
-                        onClick={handleEditKid}
-                        disabled={profileBusy || !editKidName.trim()}
-                      >
-                        {profileBusy ? '…' : 'Save'}
-                      </button>
-                      <button className={styles['data-btn']} onClick={() => setEditingKidId(null)}>Cancel</button>
-                    </div>
-                  ) : (
-                    <div className={styles['item-row']}>
-                      <span style={{ fontSize: '1.3rem' }}>{kid.avatar_emoji || '💃'}</span>
-                      <span style={{ flex: 1, fontWeight: 600 }}>{kid.display_name || 'Dancer'}</span>
-                      <button
-                        className={styles['data-btn']}
-                        style={{ background: '#ede9fe', color: '#7c3aed', fontSize: '0.75rem' }}
-                        onClick={() => {
-                          setEditingKidId(kid.id)
-                          setEditKidName(kid.display_name || '')
-                          setEditKidEmoji(kid.avatar_emoji || '💃')
-                        }}
-                      >Edit</button>
-                      <button
-                        onClick={() => handleDeleteKid(kid.id)}
-                        title="Remove"
-                        style={{ background: '#fee2e2', color: '#dc2626', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', border: 'none', cursor: 'pointer' }}
-                      >✕</button>
+            {/* Add child (own) */}
+            {isAdmin && (
+              <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: 12, marginBottom: 16 }}>
+                <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#6b7280', marginBottom: 6 }}>Add a child</div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <select
+                    value={newKidEmoji}
+                    onChange={(e) => setNewKidEmoji(e.target.value)}
+                    style={{ width: 50, fontSize: '1.3rem', textAlign: 'center', border: 'none', background: 'transparent' }}
+                  >
+                    {AVATAR_EMOJIS.map(e => <option key={e} value={e}>{e}</option>)}
+                  </select>
+                  <input
+                    type="text"
+                    placeholder="Child's name"
+                    value={newKidName}
+                    onChange={(e) => setNewKidName(e.target.value)}
+                    style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #e5e5e5', fontSize: '0.95rem' }}
+                  />
+                  <button
+                    className={styles['add-btn']}
+                    onClick={handleAddKid}
+                    disabled={profileBusy || !newKidName.trim()}
+                    style={{ whiteSpace: 'nowrap' }}
+                  >
+                    + Add Child
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Invite a parent / guardian */}
+            {isAdmin && (
+              <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: 12 }}>
+                <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#6b7280', marginBottom: 4 }}>Invite a parent or guardian</div>
+                <div style={{ fontSize: '0.78rem', color: '#9ca3af', marginBottom: 10, lineHeight: 1.4 }}>
+                  Generate a link to add another adult to the family. They'll see all the children's dances and progress.
+                </div>
+                <form onSubmit={handleCreateGuardian} style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 10 }}>
+                  {ownKidProfiles.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: '0.82rem', color: '#6b7280', fontWeight: 600, marginBottom: 4 }}>Assign children:</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {ownKidProfiles.map(kid => {
+                          const selected = guardianKids.includes(kid.id)
+                          return (
+                            <button
+                              key={kid.id}
+                              type="button"
+                              onClick={() => toggleGuardianKidSelection(kid.id)}
+                              style={{
+                                padding: '4px 12px', borderRadius: 12, fontSize: '0.82rem', fontWeight: 600,
+                                border: '2px solid', cursor: 'pointer',
+                                background: selected ? '#ede9fe' : '#f9fafb',
+                                borderColor: selected ? '#a78bfa' : '#e5e7eb',
+                                color: selected ? '#7c3aed' : '#6b7280',
+                              }}
+                            >
+                              {kid.avatar_emoji} {kid.display_name}
+                            </button>
+                          )
+                        })}
+                      </div>
                     </div>
                   )}
-                </div>
-              ))}
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
-                <select
-                  value={newKidEmoji}
-                  onChange={(e) => setNewKidEmoji(e.target.value)}
-                  style={{ width: 50, fontSize: '1.3rem', textAlign: 'center', border: 'none', background: 'transparent' }}
-                >
-                  {AVATAR_EMOJIS.map(e => <option key={e} value={e}>{e}</option>)}
-                </select>
-                <input
-                  type="text"
-                  placeholder="Child's name"
-                  value={newKidName}
-                  onChange={(e) => setNewKidName(e.target.value)}
-                  style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #e5e5e5', fontSize: '0.95rem' }}
-                />
-                <button
-                  className={styles['add-btn']}
-                  onClick={handleAddKid}
-                  disabled={profileBusy || !newKidName.trim()}
-                  style={{ whiteSpace: 'nowrap' }}
-                >
-                  + Add Child
-                </button>
+                  <button
+                    type="submit"
+                    disabled={guardianBusy}
+                    className={styles['data-btn']}
+                    style={{ background: '#f0e6ff', color: '#7c3aed', alignSelf: 'flex-start' }}
+                  >
+                    {guardianBusy ? 'Creating…' : '🔗 Generate Invite Link'}
+                  </button>
+                  {guardianLink && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f0fdf4', borderRadius: 8, padding: '8px 12px', border: '1px solid #bbf7d0' }}>
+                      <input
+                        readOnly
+                        value={guardianLink}
+                        style={{ flex: 1, border: 'none', background: 'transparent', fontSize: '0.8rem', color: '#166534', outline: 'none' }}
+                        onClick={(e) => e.target.select()}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCopyGuardianLink}
+                        style={{ background: '#16a34a', color: '#fff', borderRadius: 6, padding: '4px 12px', fontSize: '0.78rem', border: 'none', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  )}
+                  {guardianMsg && (
+                    <span style={{ fontSize: '0.82rem', color: guardianMsg.type === 'error' ? '#dc2626' : '#16a34a' }}>
+                      {guardianMsg.text}
+                    </span>
+                  )}
+                </form>
+
+                {/* Pending / sent invites */}
+                {outgoingGuardians.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 600, color: '#9ca3af', marginBottom: 4 }}>Sent Invites</div>
+                    {outgoingGuardians.map(g => (
+                      <div key={g.id} className={styles['item-row']} style={{ marginBottom: 4, alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.85rem', flex: 1 }}>
+                          {g.status === 'accepted' ? '✅' : '🔗'} {g.guardian_email || 'Invite link'}
+                        </span>
+                        <span style={{
+                          fontSize: '0.72rem', fontWeight: 600, padding: '2px 8px', borderRadius: 6,
+                          background: g.status === 'accepted' ? '#dcfce7' : g.status === 'revoked' ? '#fee2e2' : '#fef3c7',
+                          color: g.status === 'accepted' ? '#166534' : g.status === 'revoked' ? '#dc2626' : '#92400e',
+                        }}>
+                          {g.status}
+                        </span>
+                        {g.status === 'pending' && g.invite_token && (
+                          <button
+                            onClick={() => handleCopyGuardianLink()}
+                            style={{ background: '#dcfce7', color: '#166534', borderRadius: 6, padding: '4px 8px', fontSize: '0.75rem', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                          >
+                            Copy Link
+                          </button>
+                        )}
+                        {g.status !== 'revoked' && (
+                          <button
+                            onClick={() => handleRevokeGuardian(g.id)}
+                            title="Remove"
+                            style={{ background: 'none', color: '#dc2626', border: 'none', cursor: 'pointer', fontSize: '1.1rem', padding: '2px 6px', lineHeight: 1 }}
+                          >
+                            ✕
+                          </button>
+                        )}
+                        {g.status === 'revoked' && (
+                          <button
+                            onClick={() => handleDeleteGuardian(g.id)}
+                            style={{ background: '#f3f4f6', color: '#6b7280', borderRadius: 6, padding: '4px 8px', fontSize: '0.72rem', border: 'none', cursor: 'pointer' }}
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
+            )}
+
+            {/* Incoming guardian invites (someone invited ME) */}
+            {incomingGuardians.filter(g => g.status === 'pending').length > 0 && (
+              <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: 12, marginTop: 12 }}>
+                <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#6b7280', marginBottom: 6 }}>Pending Invites</div>
+                {incomingGuardians.filter(g => g.status === 'pending').map(g => (
+                  <div key={g.id} className={styles['item-row']} style={{ marginBottom: 4 }}>
+                    <span style={{ fontSize: '0.88rem', flex: 1 }}>Family invite</span>
+                    <button
+                      onClick={() => handleAcceptGuardian(g.id)}
+                      style={{ background: '#dcfce7', color: '#166534', borderRadius: 6, padding: '4px 10px', fontSize: '0.8rem', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      Accept
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -688,189 +834,6 @@ export default function Settings() {
                     {share.status === 'pending' && (
                       <button
                         onClick={() => handleAcceptShare(share.id)}
-                        style={{ background: '#dcfce7', color: '#166534', borderRadius: 6, padding: '4px 10px', fontSize: '0.8rem', border: 'none', cursor: 'pointer', fontWeight: 600 }}
-                      >
-                        Accept
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Guardians */}
-      {hasSupabaseAuth && isAdmin && (
-        <div className={styles['settings-section']}>
-          <h3>Parents & Guardians</h3>
-          <div className={styles['setting-card']}>
-            <div style={{ fontSize: '0.78rem', color: '#9ca3af', marginBottom: 12, lineHeight: 1.4 }}>
-              A parent or guardian can manage a child's profile, see all their dances, progress and more.
-            </div>
-
-            {/* Invite a guardian */}
-            <form onSubmit={handleCreateGuardian} style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-              <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#6b7280', marginBottom: 2 }}>Invite a parent or guardian</div>
-              {kidProfiles.length > 0 && (
-                <div>
-                  <div style={{ fontSize: '0.82rem', color: '#6b7280', fontWeight: 600, marginBottom: 4 }}>Assign children:</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {kidProfiles.map(kid => {
-                      const selected = guardianKids.includes(kid.id)
-                      return (
-                        <button
-                          key={kid.id}
-                          type="button"
-                          onClick={() => toggleGuardianKidSelection(kid.id)}
-                          style={{
-                            padding: '4px 12px', borderRadius: 12, fontSize: '0.82rem', fontWeight: 600,
-                            border: '2px solid', cursor: 'pointer',
-                            background: selected ? '#ede9fe' : '#f9fafb',
-                            borderColor: selected ? '#a78bfa' : '#e5e7eb',
-                            color: selected ? '#7c3aed' : '#6b7280',
-                          }}
-                        >
-                          {kid.avatar_emoji} {kid.display_name}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-              <button
-                type="submit"
-                disabled={guardianBusy}
-                className={styles['data-btn']}
-                style={{ background: '#f0e6ff', color: '#7c3aed', alignSelf: 'flex-start' }}
-              >
-                {guardianBusy ? 'Creating…' : '🔗 Generate Invite Link'}
-              </button>
-              {guardianLink && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f0fdf4', borderRadius: 8, padding: '8px 12px', border: '1px solid #bbf7d0' }}>
-                  <input
-                    readOnly
-                    value={guardianLink}
-                    style={{ flex: 1, border: 'none', background: 'transparent', fontSize: '0.8rem', color: '#166534', outline: 'none' }}
-                    onClick={(e) => e.target.select()}
-                  />
-                  <button
-                    type="button"
-                    onClick={handleCopyGuardianLink}
-                    style={{ background: '#16a34a', color: '#fff', borderRadius: 6, padding: '4px 12px', fontSize: '0.78rem', border: 'none', cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap' }}
-                  >
-                    Copy
-                  </button>
-                </div>
-              )}
-              {guardianMsg && (
-                <span style={{ fontSize: '0.82rem', color: guardianMsg.type === 'error' ? '#dc2626' : '#16a34a' }}>
-                  {guardianMsg.text}
-                </span>
-              )}
-            </form>
-
-            {/* Outgoing guardian invites */}
-            {outgoingGuardians.length > 0 && (
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#6b7280', marginBottom: 6 }}>Your Guardians</div>
-                {outgoingGuardians.map(g => (
-                  <div key={g.id} style={{ background: '#f9fafb', borderRadius: 10, padding: 12, marginBottom: 8 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                      <span style={{ fontSize: '0.88rem', fontWeight: 600, flex: 1 }}>
-                        👥 {g.guardian_email || (g.invite_token ? 'Invite link' : 'Pending')}
-                      </span>
-                      <span style={{
-                        fontSize: '0.72rem', fontWeight: 600, padding: '2px 8px', borderRadius: 6,
-                        background: g.status === 'accepted' ? '#dcfce7' : g.status === 'revoked' ? '#fee2e2' : '#fef3c7',
-                        color: g.status === 'accepted' ? '#166534' : g.status === 'revoked' ? '#dc2626' : '#92400e',
-                      }}>
-                        {g.status}
-                      </span>
-                      {g.status !== 'revoked' && (
-                        <button
-                          onClick={() => handleRevokeGuardian(g.id)}
-                          style={{ background: '#fee2e2', color: '#dc2626', borderRadius: 6, padding: '4px 8px', fontSize: '0.72rem', border: 'none', cursor: 'pointer', fontWeight: 600 }}
-                        >
-                          Revoke
-                        </button>
-                      )}
-                      {g.status === 'revoked' && (
-                        <button
-                          onClick={() => handleDeleteGuardian(g.id)}
-                          style={{ background: '#f3f4f6', color: '#6b7280', borderRadius: 6, padding: '4px 8px', fontSize: '0.72rem', border: 'none', cursor: 'pointer' }}
-                        >
-                          Delete
-                        </button>
-                      )}
-                    </div>
-                    {/* Kid assignment chips (editable for accepted) */}
-                    {g.status === 'accepted' && kidProfiles.length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                        {kidProfiles.map(kid => {
-                          const assigned = (g.kid_profile_ids || []).includes(kid.id)
-                          return (
-                            <button
-                              key={kid.id}
-                              onClick={() => handleToggleGuardianKid(g.id, kid.id, g.kid_profile_ids || [])}
-                              style={{
-                                padding: '2px 10px', borderRadius: 10, fontSize: '0.75rem', fontWeight: 600,
-                                border: '2px solid', cursor: 'pointer',
-                                background: assigned ? '#ede9fe' : '#f9fafb',
-                                borderColor: assigned ? '#a78bfa' : '#e5e7eb',
-                                color: assigned ? '#7c3aed' : '#9ca3af',
-                              }}
-                            >
-                              {kid.avatar_emoji} {kid.display_name}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
-                    {/* Show assigned kids for non-accepted */}
-                    {g.status !== 'accepted' && (g.kid_profile_ids || []).length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                        {(g.kid_profile_ids || []).map(kidId => {
-                          const kid = kidProfiles.find(k => k.id === kidId)
-                          return kid ? (
-                            <span
-                              key={kidId}
-                              style={{
-                                padding: '2px 10px', borderRadius: 10, fontSize: '0.75rem', fontWeight: 600,
-                                background: '#ede9fe', color: '#7c3aed',
-                              }}
-                            >
-                              {kid.avatar_emoji} {kid.display_name}
-                            </span>
-                          ) : null
-                        })}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Incoming guardian invites (someone invited ME) */}
-            {incomingGuardians.length > 0 && (
-              <div>
-                <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#6b7280', marginBottom: 6 }}>Guardian Invites Received</div>
-                {incomingGuardians.map(g => (
-                  <div key={g.id} className={styles['item-row']} style={{ marginBottom: 4 }}>
-                    <span style={{ fontSize: '0.88rem', flex: 1 }}>
-                      From family owner
-                    </span>
-                    <span style={{
-                      fontSize: '0.72rem', fontWeight: 600, padding: '2px 8px', borderRadius: 6,
-                      background: g.status === 'accepted' ? '#dcfce7' : '#fef3c7',
-                      color: g.status === 'accepted' ? '#166534' : '#92400e',
-                    }}>
-                      {g.status}
-                    </span>
-                    {g.status === 'pending' && (
-                      <button
-                        onClick={() => handleAcceptGuardian(g.id)}
                         style={{ background: '#dcfce7', color: '#166534', borderRadius: 6, padding: '4px 10px', fontSize: '0.8rem', border: 'none', cursor: 'pointer', fontWeight: 600 }}
                       >
                         Accept
