@@ -379,19 +379,61 @@ export default function Choreography() {
       return
     }
 
+    const canRemotePrompt = !!(video.remote && typeof video.remote.prompt === 'function')
+    const canAirPlayPicker = typeof video.webkitShowPlaybackTargetPicker === 'function'
+
+    if (!canRemotePrompt && !canAirPlayPicker) {
+      window.alert('Casting is not supported in this browser. Try Chrome/Edge for Chromecast or Safari for AirPlay.')
+      return
+    }
+
     try {
-      if (video.remote && typeof video.remote.prompt === 'function') {
+      if (canRemotePrompt && video.remote && typeof video.remote.watchAvailability === 'function') {
+        const maybeAvailable = await new Promise((resolve) => {
+          let settled = false
+          const finish = (value) => {
+            if (settled) return
+            settled = true
+            resolve(value)
+          }
+          const timeoutId = setTimeout(() => finish(null), 700)
+          video.remote.watchAvailability((available) => {
+            clearTimeout(timeoutId)
+            finish(Boolean(available))
+          }).catch(() => {
+            clearTimeout(timeoutId)
+            finish(null)
+          })
+        })
+        if (maybeAvailable === false && !canAirPlayPicker) {
+          window.alert('No cast devices were found. Make sure your device and TV are on the same network.')
+          return
+        }
+      }
+
+      if (canRemotePrompt) {
         await video.remote.prompt()
         return
       }
-      if (typeof video.webkitShowPlaybackTargetPicker === 'function') {
+
+      if (canAirPlayPicker) {
         video.webkitShowPlaybackTargetPicker()
         return
       }
-      window.alert('Casting is not supported in this browser. Try Chrome/Edge for Chromecast or Safari for AirPlay.')
     } catch (err) {
-      if (err?.name === 'NotAllowedError' || err?.name === 'AbortError') return
       console.warn('Cast prompt failed:', err)
+      if (err?.name === 'AbortError') {
+        window.alert('No cast device was selected.')
+        return
+      }
+      if (err?.name === 'NotFoundError') {
+        window.alert('No cast devices were found. Make sure your device and TV are on the same network.')
+        return
+      }
+      if (err?.name === 'NotAllowedError') {
+        window.alert('Casting was blocked by the browser. Try again and allow the cast prompt.')
+        return
+      }
       window.alert('Could not start casting on this device.')
     }
   }, [])
@@ -1756,7 +1798,11 @@ export default function Choreography() {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
       if (e.code === 'Space') {
         e.preventDefault()
-        togglePlay()
+        if (mode === 'live' || isKidLiveView) {
+          toggleLivePlay()
+        } else {
+          togglePlay()
+        }
       }
     }
     window.addEventListener('keydown', handleKey)
@@ -2098,6 +2144,7 @@ export default function Choreography() {
               ref={liveVideoRef}
               src={liveVideoUrl}
               className={styles['live-video-bg']}
+              x-webkit-airplay="allow"
               muted={liveAudioMode === 'music' && !!audioUrl}
               playsInline
               preload="auto"

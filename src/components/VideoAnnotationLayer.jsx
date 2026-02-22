@@ -5,6 +5,8 @@ import styles from './VideoAnnotationLayer.module.css'
 
 const EMOJI_PALETTE = ['💯', '🔥', '⭐', '💪', '👏', '❤️', '😍', '🎯', '✨', '🙌', '⚡', '👀']
 const ANNOTATION_VISIBLE_WINDOW = 2 // seconds before/after to show
+const LONG_PRESS_MS = 420
+const MOVE_CANCEL_PX = 10
 
 // Vibrant pill colours for text comments
 const PILL_COLORS = [
@@ -83,6 +85,16 @@ export default function VideoAnnotationLayer({
   const [videoRect, setVideoRect] = useState(null)
   const commentInputRef = useRef(null)
   const overlayRef = useRef(null)
+  const longPressTimerRef = useRef(null)
+  const pressStateRef = useRef({
+    isPressing: false,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    wasPlayingAtStart: false,
+    longPressTriggered: false,
+    pressTimestamp: 0,
+  })
 
   const updateRect = useCallback(() => {
     if (videoRef?.current) {
@@ -109,29 +121,114 @@ export default function VideoAnnotationLayer({
 
   useEffect(() => { updateRect() }, [updateRect])
 
-  const handleOverlayClick = useCallback((e) => {
+  const openPopoverAt = useCallback((clientX, clientY, timestamp) => {
     if (!videoRect) return
-    e.stopPropagation()
-    if (popover) return
+    const coords = screenToVideoCoords(clientX, clientY, videoRect)
+    if (!coords) return
+    setPopover({
+      x: coords.x,
+      y: coords.y,
+      timestamp,
+      screenX: coords.x * videoRect.width,
+      screenY: coords.y * videoRect.height,
+    })
+    setSelectedEmoji('')
+    setCommentText('')
+    setTimeout(() => commentInputRef.current?.focus(), 100)
+  }, [videoRect])
 
-    if (isPlaying) {
-      const coords = screenToVideoCoords(e.clientX, e.clientY, videoRect)
-      if (!coords) return
-      if (onPause) onPause()
-      setPopover({
-        x: coords.x,
-        y: coords.y,
-        timestamp: currentTime,
-        screenX: coords.x * videoRect.width,
-        screenY: coords.y * videoRect.height,
-      })
-      setSelectedEmoji('')
-      setCommentText('')
-      setTimeout(() => commentInputRef.current?.focus(), 100)
-    } else {
-      if (onTogglePlay) onTogglePlay()
+  const clearLongPressTimer = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
     }
-  }, [videoRect, isPlaying, onPause, onTogglePlay, currentTime, popover])
+  }, [])
+
+  const handleOverlayPointerDown = useCallback((e) => {
+    if (!videoRect || popover) return
+    if (e.button !== undefined && e.button !== 0) return
+
+    e.stopPropagation()
+    const coords = screenToVideoCoords(e.clientX, e.clientY, videoRect)
+    if (!coords) return
+
+    const wasPlayingAtStart = Boolean(isPlaying)
+    pressStateRef.current = {
+      isPressing: true,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      wasPlayingAtStart,
+      longPressTriggered: false,
+      pressTimestamp: currentTime,
+    }
+
+    if (wasPlayingAtStart && onPause) {
+      onPause()
+    }
+
+    clearLongPressTimer()
+    longPressTimerRef.current = setTimeout(() => {
+      const state = pressStateRef.current
+      if (!state.isPressing || state.longPressTriggered) return
+      state.longPressTriggered = true
+      openPopoverAt(e.clientX, e.clientY, state.pressTimestamp)
+    }, LONG_PRESS_MS)
+  }, [videoRect, popover, isPlaying, onPause, currentTime, clearLongPressTimer, openPopoverAt])
+
+  const handleOverlayPointerMove = useCallback((e) => {
+    const state = pressStateRef.current
+    if (!state.isPressing) return
+    if (state.pointerId !== null && e.pointerId !== state.pointerId) return
+
+    const dx = e.clientX - state.startX
+    const dy = e.clientY - state.startY
+    if (Math.hypot(dx, dy) > MOVE_CANCEL_PX) {
+      clearLongPressTimer()
+    }
+  }, [clearLongPressTimer])
+
+  const handleOverlayPointerUp = useCallback((e) => {
+    const state = pressStateRef.current
+    if (!state.isPressing) return
+    if (state.pointerId !== null && e.pointerId !== state.pointerId) return
+
+    e.stopPropagation()
+    clearLongPressTimer()
+
+    if (!state.longPressTriggered && !state.wasPlayingAtStart && onTogglePlay) {
+      onTogglePlay()
+    }
+
+    pressStateRef.current = {
+      isPressing: false,
+      pointerId: null,
+      startX: 0,
+      startY: 0,
+      wasPlayingAtStart: false,
+      longPressTriggered: false,
+      pressTimestamp: 0,
+    }
+  }, [clearLongPressTimer, onTogglePlay])
+
+  const handleOverlayPointerCancel = useCallback((e) => {
+    const state = pressStateRef.current
+    if (state.pointerId !== null && e.pointerId !== state.pointerId) return
+    clearLongPressTimer()
+    pressStateRef.current = {
+      isPressing: false,
+      pointerId: null,
+      startX: 0,
+      startY: 0,
+      wasPlayingAtStart: false,
+      longPressTriggered: false,
+      pressTimestamp: 0,
+    }
+  }, [clearLongPressTimer])
+
+  useEffect(() => () => {
+    clearLongPressTimer()
+  }, [clearLongPressTimer])
 
   const handleSave = useCallback(() => {
     if (!popover) return
@@ -184,7 +281,10 @@ export default function VideoAnnotationLayer({
           width: videoRect.width,
           height: videoRect.height,
         }}
-        onClick={handleOverlayClick}
+        onPointerDown={handleOverlayPointerDown}
+        onPointerMove={handleOverlayPointerMove}
+        onPointerUp={handleOverlayPointerUp}
+        onPointerCancel={handleOverlayPointerCancel}
       />
 
       {/* Annotations */}
