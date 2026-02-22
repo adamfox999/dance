@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { useApp } from '../context/AppContext'
 import styles from './Auth.module.css'
 
-// Steps: 'email' → 'login-sent' | 'create-name' → 'create-sent'
+// Steps: 'email' → 'login-code' | 'create-name' → 'create-code'
 export default function Auth() {
-  const { checkUserExists, signInWithMagicLink, signUpWithMagicLink } = useApp()
+  const { checkUserExists, signInWithMagicLink, signUpWithMagicLink, verifyEmailOtp } = useApp()
 
   const [step, setStep] = useState('email')
   const [email, setEmail] = useState('')
   const [displayName, setDisplayName] = useState('')
+  const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState(null)
 
@@ -23,9 +24,9 @@ export default function Auth() {
     try {
       const exists = await checkUserExists(email.trim())
       if (exists) {
-        // Returning user — send magic link immediately
-        await signInWithMagicLink(email.trim())
-        setStep('login-sent')
+        // Returning user — checkUserExists already sends OTP when user exists
+        setCode('')
+        setStep('login-code')
       } else {
         // New user — collect their name first
         setStep('create-name')
@@ -45,9 +46,54 @@ export default function Auth() {
     clearMessage()
     try {
       await signUpWithMagicLink(email.trim(), { displayName: displayName.trim() })
-      setStep('create-sent')
+      setCode('')
+      setStep('create-code')
     } catch (err) {
       setMessage({ type: 'error', text: err?.message || 'Something went wrong' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleVerifyCode = async (e) => {
+    e.preventDefault()
+    const normalizedCode = code.replace(/\s+/g, '')
+    if (normalizedCode.length !== 6) {
+      setMessage({ type: 'error', text: 'Enter the 6-digit code from your email.' })
+      return
+    }
+    setBusy(true)
+    clearMessage()
+    try {
+      await verifyEmailOtp(email.trim(), normalizedCode)
+    } catch (err) {
+      setMessage({ type: 'error', text: err?.message || 'Invalid code. Please try again.' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const resendLoginCode = async () => {
+    setBusy(true)
+    clearMessage()
+    try {
+      await signInWithMagicLink(email.trim())
+      setMessage({ type: 'success', text: 'A new 6-digit code was sent.' })
+    } catch (err) {
+      setMessage({ type: 'error', text: err?.message || 'Could not resend code.' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const resendSignupCode = async () => {
+    setBusy(true)
+    clearMessage()
+    try {
+      await signUpWithMagicLink(email.trim(), { displayName: displayName.trim() })
+      setMessage({ type: 'success', text: 'A new 6-digit code was sent.' })
+    } catch (err) {
+      setMessage({ type: 'error', text: err?.message || 'Could not resend code.' })
     } finally {
       setBusy(false)
     }
@@ -56,6 +102,7 @@ export default function Auth() {
   const goBack = () => {
     clearMessage()
     setDisplayName('')
+    setCode('')
     setStep('email')
   }
 
@@ -91,17 +138,30 @@ export default function Auth() {
           </form>
         )}
 
-        {/* Login sent */}
-        {step === 'login-sent' && (
-          <div className={styles.sentBox}>
-            <span className={styles.sentIcon}>✉️</span>
-            <p className={styles.sentTitle}>Check your email!</p>
-            <p className={styles.sentText}>
-              We sent a sign-in link to <strong>{email}</strong>.
-              Click the link in the email to continue.
-            </p>
-            <button className={styles.back} onClick={goBack}>← Use a different email</button>
-          </div>
+        {/* Login code */}
+        {step === 'login-code' && (
+          <form className={styles.form} onSubmit={handleVerifyCode}>
+            <p className={styles.hint}>Enter the 6-digit code we sent to <strong>{email}</strong>.</p>
+            <label className={styles.label}>
+              6-digit code
+              <input
+                type="text"
+                className={styles.input}
+                placeholder="123456"
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                autoFocus
+                required
+              />
+            </label>
+            <button type="submit" className={styles.submit} disabled={busy || code.length !== 6}>
+              {busy ? 'Verifying…' : 'Verify code'}
+            </button>
+            <button type="button" className={styles.back} onClick={resendLoginCode} disabled={busy}>Resend code</button>
+            <button type="button" className={styles.back} onClick={goBack} disabled={busy}>← Use a different email</button>
+          </form>
         )}
 
         {/* Create — name step */}
@@ -129,17 +189,30 @@ export default function Auth() {
           </form>
         )}
 
-        {/* Create sent */}
-        {step === 'create-sent' && (
-          <div className={styles.sentBox}>
-            <span className={styles.sentIcon}>✨</span>
-            <p className={styles.sentTitle}>Almost there!</p>
-            <p className={styles.sentText}>
-              We sent a link to <strong>{email}</strong>.
-              Click it to finish creating your account.
-            </p>
-            <button className={styles.back} onClick={goBack}>← Use a different email</button>
-          </div>
+        {/* Create code */}
+        {step === 'create-code' && (
+          <form className={styles.form} onSubmit={handleVerifyCode}>
+            <p className={styles.hint}>Enter the 6-digit code we sent to <strong>{email}</strong> to finish account setup.</p>
+            <label className={styles.label}>
+              6-digit code
+              <input
+                type="text"
+                className={styles.input}
+                placeholder="123456"
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                autoFocus
+                required
+              />
+            </label>
+            <button type="submit" className={styles.submit} disabled={busy || code.length !== 6}>
+              {busy ? 'Verifying…' : 'Verify code'}
+            </button>
+            <button type="button" className={styles.back} onClick={resendSignupCode} disabled={busy}>Resend code</button>
+            <button type="button" className={styles.back} onClick={goBack} disabled={busy}>← Use a different email</button>
+          </form>
         )}
 
         {message && (

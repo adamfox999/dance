@@ -32,7 +32,7 @@ export default function Dashboard() {
   // Latest sticker
   const latestSticker = [...(state.stickers || [])]
     .sort((a, b) => (b.earnedDate || '').localeCompare(a.earnedDate || ''))
-    [0]
+    .at(0)
 
   // Active goals (not completed)
   const activeGoals = (state.islaProfile?.goals || []).filter(g => !g.completedDate)

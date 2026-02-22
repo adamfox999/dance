@@ -190,7 +190,7 @@ export default function Timeline() {
   }
 
   const today = new Date().toISOString().split('T')[0]
-  const nowInserted = useRef(false)
+  let nowInserted = false
 
   return (
     <div className={styles.timelinePage}>
@@ -275,8 +275,8 @@ export default function Timeline() {
 
         {timelineItems.map((item, index) => {
           // Insert NOW marker between past and future items
-          const isNowItem = !nowInserted.current && item.date <= today
-          if (isNowItem) nowInserted.current = true
+          const isNowItem = !nowInserted && item.date <= today
+          if (isNowItem) nowInserted = true
 
           return (
             <div key={`${item.type}-${item.data.id}`}>

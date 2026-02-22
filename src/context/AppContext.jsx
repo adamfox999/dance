@@ -627,6 +627,15 @@ export function AppProvider({ children }) {
     return () => clearTimeout(timeoutId)
   }, [state, isLoading, authUser?.id])
 
+  const getMagicLinkRedirectUrl = () => {
+    const explicitRedirect = import.meta.env.VITE_AUTH_REDIRECT_URL
+    if (explicitRedirect) return explicitRedirect
+    if (typeof window === 'undefined') return undefined
+
+    const basePath = import.meta.env.BASE_URL || '/'
+    return new URL(basePath, window.location.origin).toString()
+  }
+
   // Check whether a user with this email already exists.
   // Uses signInWithOtp with shouldCreateUser:false — if it succeeds the user
   // is known; if it errors out the email is new.
@@ -634,7 +643,7 @@ export function AppProvider({ children }) {
     if (!supabase) throw new Error('Supabase auth is not configured.')
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { shouldCreateUser: false, emailRedirectTo: window.location.origin },
+      options: { shouldCreateUser: false, emailRedirectTo: getMagicLinkRedirectUrl() },
     })
     // Supabase returns an error when the user doesn't exist and shouldCreateUser is false
     if (error) return false
@@ -649,7 +658,23 @@ export function AppProvider({ children }) {
 
     const { error } = await supabase.auth.signInWithOtp({
       email: trimmedEmail,
-      options: { shouldCreateUser: false, emailRedirectTo: window.location.origin },
+      options: { shouldCreateUser: false, emailRedirectTo: getMagicLinkRedirectUrl() },
+    })
+    if (error) throw error
+    return true
+  }
+
+  const verifyEmailOtp = async (email, token) => {
+    if (!supabase) throw new Error('Supabase auth is not configured.')
+    const trimmedEmail = String(email || '').trim()
+    const trimmedToken = String(token || '').trim()
+    if (!trimmedEmail) throw new Error('Email is required.')
+    if (!trimmedToken) throw new Error('Code is required.')
+
+    const { error } = await supabase.auth.verifyOtp({
+      email: trimmedEmail,
+      token: trimmedToken,
+      type: 'email',
     })
     if (error) throw error
     return true
@@ -661,7 +686,7 @@ export function AppProvider({ children }) {
     const trimmedEmail = String(email || '').trim()
     if (!trimmedEmail) throw new Error('Email is required.')
 
-    const opts = { emailRedirectTo: window.location.origin }
+    const opts = { emailRedirectTo: getMagicLinkRedirectUrl() }
     if (metadata) opts.data = metadata
 
     const { error } = await supabase.auth.signInWithOtp({
@@ -701,6 +726,7 @@ export function AppProvider({ children }) {
       hasSupabaseAuth: hasSupabaseConfig,
       signInWithMagicLink,
       signUpWithMagicLink,
+      verifyEmailOtp,
       checkUserExists,
       signOut,
     }}>

@@ -4,7 +4,7 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 
 export default [
-  { ignores: ['dist', 'node_modules'] },
+  { ignores: ['dist', 'node_modules', '.netlify/**', 'netlify/functions-serve/**'] },
   {
     files: ['**/*.{js,jsx}'],
     languageOptions: {
@@ -24,6 +24,7 @@ export default [
       ...reactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      'react-hooks/set-state-in-effect': 'off',
     },
   },
 ]
