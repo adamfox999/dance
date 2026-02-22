@@ -704,32 +704,6 @@ export function AppProvider({ children }) {
   const familyUnits = (() => {
     const units = []
 
-    // --- My own household (synthetic overview — not a DB row, not editable) ---
-    const myMembers = []
-    if (userProfile) {
-      myMembers.push({ type: 'adult', profile: userProfile, relationship: 'You', isSelf: true })
-    }
-    for (const kid of kidProfiles) {
-      myMembers.push({ type: 'child', profile: kid, relationship: 'Your child', isOwn: true })
-    }
-    for (const g of outgoingGuardians.filter(g => g.status === 'accepted')) {
-      myMembers.push({
-        type: 'adult',
-        profile: { id: g.guardian_user_id, display_name: g.guardian_email || 'Guardian', avatar_emoji: '👤' },
-        relationship: 'Parent / Guardian',
-        guardianId: g.id,
-      })
-    }
-    units.push({
-      id: 'my-family',
-      name: userProfile?.display_name
-        ? `${userProfile.display_name}'s Family`
-        : 'My Family',
-      isOwner: true,
-      isSynthetic: true,   // not a DB row — edit/delete disabled
-      members: myMembers,
-    })
-
     // --- DB-backed family units I own (editable) ---
     for (const dbUnit of myFamilyUnitsDB) {
       const members = []
@@ -752,7 +726,6 @@ export function AppProvider({ children }) {
         id: dbUnit.id,
         name: dbUnit.name,
         isOwner: true,
-        isSynthetic: false,
         kidProfileIds: dbUnit.kid_profile_ids || [],
         members,
       })
@@ -781,7 +754,6 @@ export function AppProvider({ children }) {
           ? `${fam.ownerProfile.display_name}'s Family`
           : 'Family',
         isOwner: false,
-        isSynthetic: true,
         members,
       })
     }
