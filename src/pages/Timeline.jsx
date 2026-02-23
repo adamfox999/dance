@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext'
 import { loadFile } from '../utils/fileStorage'
 import { getEventTypeIcon, getEventTypeLabel } from '../data/aedEvents'
 import { fetchStateFromBackend } from '../utils/backendApi'
+import { notify } from '../utils/notify'
 import styles from './Timeline.module.css'
 
 function formatDate(dateStr) {
@@ -404,7 +405,7 @@ export default function Timeline() {
     try {
       await editRoutine(routine.id, { kidProfileIds: updated })
     } catch (err) {
-      alert(err?.message || 'Could not update dancers for this routine.')
+      notify(err?.message || 'Could not update dancers for this routine.')
     } finally {
       setTagBusy(false)
     }
@@ -420,7 +421,7 @@ export default function Timeline() {
     try {
       await updateSharePartnerKids(acceptedIncomingShare.id, updated)
     } catch (err) {
-      alert(err?.message || 'Could not tag your child on this shared dance.')
+      notify(err?.message || 'Could not tag your child on this shared dance.')
     } finally {
       setTagBusy(false)
     }
@@ -504,7 +505,7 @@ export default function Timeline() {
     try {
       if (addType === 'practice') {
         if (!addDate) {
-          window.alert('Please select a practice date.')
+          notify('Please select a practice date.')
           return
         }
         const versionId = addVersionId || routineVersions[routineVersions.length - 1]?.id || null
@@ -519,12 +520,12 @@ export default function Timeline() {
         })
       } else if (addType === 'event-entry') {
         if (!addEventId) {
-          window.alert('Please select an event first.')
+          notify('Please select an event first.')
           return
         }
         const selectedEvent = (events || []).find((eventItem) => eventItem.id === addEventId)
         if (!selectedEvent) {
-          window.alert('Selected event is no longer available. Please pick another one.')
+          notify('Selected event is no longer available. Please pick another one.')
           return
         }
         const existingEntry = (selectedEvent?.entries || []).find((entry) => entry.routineId === routine.id)
@@ -533,7 +534,7 @@ export default function Timeline() {
             scheduledDate: addEntryDate || existingEntry.scheduledDate || '',
             scheduledTime: addEntryTime || existingEntry.scheduledTime || '',
           })
-          window.alert('This routine was already entered, so the existing entry was updated.')
+          notify('This routine was already entered, so the existing entry was updated.')
           setAddDialogOpen(false)
           return
         }
@@ -549,7 +550,7 @@ export default function Timeline() {
         })
       } else if (addType === 'show') {
         if (!addDate) {
-          window.alert('Please select a show date.')
+          notify('Please select a show date.')
           return
         }
         const parsedPlace = Number.parseInt(addShowPlace, 10)
@@ -568,7 +569,7 @@ export default function Timeline() {
 
       setAddDialogOpen(false)
     } catch (err) {
-      window.alert(err?.message || 'Could not save timeline item. Please try again.')
+      notify(err?.message || 'Could not save timeline item. Please try again.')
     }
   }
 

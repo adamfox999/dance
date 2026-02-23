@@ -4,6 +4,7 @@ import { checkForNewStickers } from '../utils/milestones'
 import { setFileStorageUserScope } from '../utils/fileStorage'
 import { hasSupabaseConfig, supabase } from '../utils/supabaseClient'
 import { setDanceOwnerId as setBackendDanceOwnerId } from '../utils/backendApi'
+import { notify } from '../utils/notify'
 import {
   initializeDanceData,
   setDanceOwnerId as setDanceDataOwnerId,
@@ -447,8 +448,8 @@ export function AppProvider({ children }) {
     url.searchParams.delete('invite')
     window.history.replaceState({}, '', url.pathname + url.search + url.hash)
     ;(async () => {
-      try { await acceptGuardianByToken(token); alert('Guardian invite accepted!') }
-      catch (err) { console.warn('Failed to accept guardian invite:', err); alert(err?.message || 'Could not accept invite.') }
+      try { await acceptGuardianByToken(token); notify('Guardian invite accepted!') }
+      catch (err) { console.warn('Failed to accept guardian invite:', err); notify(err?.message || 'Could not accept invite.') }
     })()
   }, [authLoading, authUser?.id, acceptGuardianByToken])
 
@@ -461,8 +462,8 @@ export function AppProvider({ children }) {
     url.searchParams.delete('share')
     window.history.replaceState({}, '', url.pathname + url.search + url.hash)
     ;(async () => {
-      try { await acceptShareByToken(token); alert('Share invite accepted!'); window.location.replace('/') }
-      catch (err) { console.warn('Failed to accept share invite:', err); alert(err?.message || 'Could not accept share invite.') }
+      try { await acceptShareByToken(token); notify('Share invite accepted!'); window.location.replace('/') }
+      catch (err) { console.warn('Failed to accept share invite:', err); notify(err?.message || 'Could not accept share invite.') }
     })()
   }, [authLoading, authUser?.id, acceptShareByToken])
 

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { getEventTypeIcon } from '../data/aedEvents'
+import { notify } from '../utils/notify'
 import styles from './Dashboard.module.css'
 
 const AVATAR_EMOJIS = ['💃', '🩰', '👧', '👦', '🧒', '🌟', '✨', '🦋', '🎀', '🕺', '🤸']
@@ -64,7 +65,7 @@ export default function Dashboard() {
     try {
       await updateSharePartnerKids(share.id, updated)
     } catch (err) {
-      alert(err?.message || 'Could not update dancer tags for this shared dance.')
+      notify(err?.message || 'Could not update dancer tags for this shared dance.')
     } finally {
       setShareTagBusyId(null)
     }
@@ -111,7 +112,7 @@ export default function Dashboard() {
                   setSetupKidName('')
                   setSetupKidEmoji('💃')
                 } catch (err) {
-                  alert(err?.message || 'Could not add child')
+                  notify(err?.message || 'Could not add child')
                 } finally {
                   setSetupBusy(false)
                 }

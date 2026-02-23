@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { fetchStateFromBackend, listMediaFromBackend, getFileFromBackend } from '../utils/backendApi'
 import { saveFile } from '../utils/fileStorage'
+import { notify } from '../utils/notify'
 import MediaPickerDialog from '../components/MediaPickerDialog'
 import { GRADE_LEVELS } from '../data/defaultState'
 import { EVENT_TYPES } from '../data/aedEvents'
@@ -153,7 +154,7 @@ export default function Settings() {
     try {
       await signOut()
     } catch (err) {
-      alert(err?.message || 'Could not sign out')
+      notify(err?.message || 'Could not sign out')
     } finally {
       setAuthBusy(false)
     }
@@ -166,7 +167,7 @@ export default function Settings() {
       await saveUserProfile({ displayName: profileName, avatarEmoji: profileEmoji })
       setEditingProfile(false)
     } catch (err) {
-      alert(err?.message || 'Could not save profile')
+      notify(err?.message || 'Could not save profile')
     } finally {
       setProfileBusy(false)
     }
@@ -180,7 +181,7 @@ export default function Settings() {
       setNewKidName('')
       setNewKidEmoji('💃')
     } catch (err) {
-      alert(err?.message || 'Could not add child profile')
+      notify(err?.message || 'Could not add child profile')
     } finally {
       setProfileBusy(false)
     }
@@ -191,7 +192,7 @@ export default function Settings() {
     try {
       await removeKidProfile(kidId)
     } catch (err) {
-      alert(err?.message || 'Could not remove profile')
+      notify(err?.message || 'Could not remove profile')
     }
   }
 
@@ -202,7 +203,7 @@ export default function Settings() {
       await editKidProfile(editingKidId, { displayName: editKidName.trim(), avatarEmoji: editKidEmoji })
       setEditingKidId(null)
     } catch (err) {
-      alert(err?.message || 'Could not update profile')
+      notify(err?.message || 'Could not update profile')
     } finally {
       setProfileBusy(false)
     }
@@ -263,7 +264,7 @@ export default function Settings() {
     try {
       await acceptShareInvite(shareId)
     } catch (err) {
-      alert(err?.message || 'Could not accept invite')
+      notify(err?.message || 'Could not accept invite')
     }
   }
 
@@ -271,7 +272,7 @@ export default function Settings() {
     try {
       await removeShare(shareId)
     } catch (err) {
-      alert(err?.message || 'Could not delete invite')
+      notify(err?.message || 'Could not delete invite')
     }
   }
 
@@ -319,7 +320,7 @@ export default function Settings() {
     try {
       await acceptGuardianInvite(id)
     } catch (err) {
-      alert(err?.message || 'Could not accept invite')
+      notify(err?.message || 'Could not accept invite')
     }
   }
 
@@ -327,7 +328,7 @@ export default function Settings() {
     try {
       await revokeGuardianInvite(id)
     } catch (err) {
-      alert(err?.message || 'Could not revoke guardian')
+      notify(err?.message || 'Could not revoke guardian')
     }
   }
 
@@ -336,7 +337,7 @@ export default function Settings() {
     try {
       await deleteFamilyUnit(unitId)
     } catch (err) {
-      alert(err?.message || 'Could not delete family unit')
+      notify(err?.message || 'Could not delete family unit')
     }
   }
 
@@ -349,7 +350,7 @@ export default function Settings() {
       setNewUnitKids([])
       setCreatingUnit(false)
     } catch (err) {
-      alert(err?.message || 'Could not create family unit')
+      notify(err?.message || 'Could not create family unit')
     } finally {
       setUnitBusy(false)
     }
@@ -362,7 +363,7 @@ export default function Settings() {
       await updateFamilyUnit(unitId, { name: editUnitName.trim(), kidProfileIds: editUnitKids })
       setEditingUnitId(null)
     } catch (err) {
-      alert(err?.message || 'Could not update family unit')
+      notify(err?.message || 'Could not update family unit')
     } finally {
       setUnitBusy(false)
     }
@@ -587,9 +588,9 @@ export default function Settings() {
     reader.onload = (event) => {
       try {
         JSON.parse(event.target.result) // validate JSON
-        alert('Import is not supported in normalized mode. Use Supabase directly.')
+        notify('Import is not supported in normalized mode. Use Supabase directly.')
       } catch {
-        alert('Failed to import — invalid file format')
+        notify('Failed to import — invalid file format')
       }
     }
     reader.readAsText(file)

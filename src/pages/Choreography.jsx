@@ -6,6 +6,7 @@ import { decodeAudioFile, extractWaveform, crossCorrelateSync, formatTimestamp }
 import { detectBeats, getCurrentBeatInfo } from '../utils/beatDetection'
 import { saveFile, saveLocalFile, loadFile, loadLocalFile } from '../utils/fileStorage'
 import { listMediaFromBackend } from '../utils/backendApi'
+import { notify } from '../utils/notify'
 import {
   Input, Output, Conversion, ALL_FORMATS,
   BlobSource, Mp4OutputFormat, BufferTarget, QUALITY_MEDIUM,
@@ -430,7 +431,7 @@ export default function Choreography() {
   const handleCastToScreen = useCallback(async () => {
     const video = liveVideoRef.current
     if (!video) {
-      window.alert('Load a video first to cast to an external screen.')
+      notify('Load a video first to cast to an external screen.')
       return
     }
 
@@ -439,12 +440,12 @@ export default function Choreography() {
     const canAirPlayPicker = typeof video.webkitShowPlaybackTargetPicker === 'function'
 
     if (!canRemotePrompt && !canAirPlayPicker) {
-      window.alert('Casting is not supported in this browser. Try Chrome/Edge for Chromecast or Safari for AirPlay.')
+      notify('Casting is not supported in this browser. Try Chrome/Edge for Chromecast or Safari for AirPlay.')
       return
     }
 
     if (isLocalBlobSource && !canAirPlayPicker) {
-      window.alert('This video is a local upload. Direct device cast may be unavailable. Use browser menu > Cast and choose This tab/screen, or use a cloud-hosted video URL.')
+      notify('This video is a local upload. Direct device cast may be unavailable. Use browser menu > Cast and choose This tab/screen, or use a cloud-hosted video URL.')
       return
     }
 
@@ -456,16 +457,16 @@ export default function Choreography() {
         console.warn('Cast prompt failed:', err)
 
         if (err?.name === 'AbortError') {
-          window.alert('No cast device was selected.')
+          notify('No cast device was selected.')
           return
         }
 
         if (err?.name === 'NotFoundError') {
           const localSource = typeof liveVideoUrl === 'string' && liveVideoUrl.startsWith('blob:')
           if (localSource) {
-            window.alert('No cast devices were found for this local video source. Try casting the browser tab/screen, or use a cloud-hosted video URL.')
+            notify('No cast devices were found for this local video source. Try casting the browser tab/screen, or use a cloud-hosted video URL.')
           } else {
-            window.alert('No cast devices were found. Make sure your device and TV are on the same network.')
+            notify('No cast devices were found. Make sure your device and TV are on the same network.')
           }
           return
         }
@@ -480,15 +481,15 @@ export default function Choreography() {
             }
           }
           if (isLocalBlobSource) {
-            window.alert('Cast picker was dismissed for this local video source. Use browser menu > Cast and choose This tab/screen, or use a cloud-hosted video URL.')
+            notify('Cast picker was dismissed for this local video source. Use browser menu > Cast and choose This tab/screen, or use a cloud-hosted video URL.')
           } else {
-            window.alert('Cast picker was dismissed or blocked by the browser. Try browser menu > Cast (or AirPlay), then choose your device.')
+            notify('Cast picker was dismissed or blocked by the browser. Try browser menu > Cast (or AirPlay), then choose your device.')
           }
           return
         }
 
         if (!canAirPlayPicker) {
-          window.alert('Could not start casting on this device.')
+          notify('Could not start casting on this device.')
           return
         }
       }
@@ -500,7 +501,7 @@ export default function Choreography() {
         return
       } catch (err) {
         console.warn('AirPlay picker failed:', err)
-        window.alert('Could not open the casting picker on this device.')
+        notify('Could not open the casting picker on this device.')
       }
     }
   }, [liveVideoUrl])
@@ -773,7 +774,7 @@ export default function Choreography() {
     try {
       await applyMusicFile(file)
     } catch (err) {
-      alert(err?.message || 'Could not save song. Check connection and try again.')
+      notify(err?.message || 'Could not save song. Check connection and try again.')
     }
     if (e.target) e.target.value = ''
   }
@@ -1044,7 +1045,7 @@ export default function Choreography() {
     try {
       await applyVideoFile(file)
     } catch (err) {
-      alert(err?.message || 'Could not save video. Check connection and try again.')
+      notify(err?.message || 'Could not save video. Check connection and try again.')
     }
     if (e.target) e.target.value = ''
   }

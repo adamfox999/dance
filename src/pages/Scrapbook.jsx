@@ -1,8 +1,10 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { getEventTypeIcon, getEventTypeLabel } from '../data/aedEvents'
 import { compressImage, compressVideo } from '../utils/mediaCompress'
+import { notify } from '../utils/notify'
+import TextInputDialog from '../components/TextInputDialog'
 import styles from './Scrapbook.module.css'
 
 export default function Scrapbook() {
@@ -17,6 +19,14 @@ export default function Scrapbook() {
   const [expandedEntry, setExpandedEntry] = useState(null) // entry id for expanded result panel
   const [lightboxIndex, setLightboxIndex] = useState(null) // index into mediaEntries
   const [showAddEntry, setShowAddEntry] = useState(false)
+  const [textDialog, setTextDialog] = useState({
+    open: false,
+    title: '',
+    placeholder: '',
+    value: '',
+    type: 'note',
+    author: 'dancer',
+  })
 
   if (isKidMode) {
     return (
@@ -56,16 +66,40 @@ export default function Scrapbook() {
     return `${n}th`
   }
 
+  const openTextDialog = (config) => {
+    setTextDialog({
+      open: true,
+      title: config?.title || 'Add note',
+      placeholder: config?.placeholder || '',
+      value: config?.value || '',
+      type: config?.type || 'note',
+      author: config?.author || 'dancer',
+    })
+  }
+
   const handleAddNote = () => {
-    const note = prompt("What do you want to remember about this show?")
-    if (!note) return
-    addScrapbookEntry(showId, {
+    openTextDialog({
+      title: 'Add note',
+      placeholder: 'What do you want to remember about this show?',
       type: 'note',
-      content: note,
       author: 'dancer',
+    })
+  }
+
+  const handleTextDialogSave = (value) => {
+    const content = String(value || '').trim()
+    if (!content) {
+      setTextDialog((prev) => ({ ...prev, open: false }))
+      return
+    }
+    addScrapbookEntry(showId, {
+      type: textDialog.type,
+      content,
+      author: textDialog.author,
       date: new Date().toISOString().split('T')[0],
       emojiReactions: [],
     })
+    setTextDialog((prev) => ({ ...prev, open: false }))
   }
 
   const handleReaction = (entryId, emoji) => {
@@ -188,7 +222,7 @@ export default function Scrapbook() {
                   onClick={async () => {
                     const alreadyExists = (show.entries || []).some((entry) => entry.routineId === r.id)
                     if (alreadyExists) {
-                      window.alert('This routine is already entered for this festival.')
+                      notify('This routine is already entered for this festival.')
                       return
                     }
 
@@ -204,7 +238,7 @@ export default function Scrapbook() {
                       })
                       setShowAddEntry(false)
                     } catch (err) {
-                      window.alert(err?.message || 'Could not add event entry.')
+                      notify(err?.message || 'Could not add event entry.')
                     }
                   }}
                 >
@@ -282,7 +316,7 @@ export default function Scrapbook() {
                               (other) => other.id !== entry.id && other.routineId === nextRoutineId
                             )
                             if (duplicate) {
-                              window.alert('That routine is already entered for this festival.')
+                              notify('That routine is already entered for this festival.')
                               return
                             }
                             editEventEntry(showId, entry.id, { routineId: nextRoutineId })
@@ -552,27 +586,21 @@ export default function Scrapbook() {
           <p className={styles.adminLabel}>Admin</p>
           <div className={styles.adminButtons}>
             <button onClick={() => {
-              const feedback = prompt("Enter teacher/parent feedback:")
-              if (!feedback) return
-              addScrapbookEntry(showId, {
+              openTextDialog({
+                title: 'Add feedback',
+                placeholder: 'Enter teacher/parent feedback',
                 type: 'feedback',
-                content: feedback,
                 author: 'teacher',
-                date: new Date().toISOString().split('T')[0],
-                emojiReactions: [],
               })
             }}>
               👩‍🏫 Add Feedback
             </button>
             <button onClick={() => {
-              const result = prompt("Enter exam result (e.g. 'Merit - 85%'):")
-              if (!result) return
-              addScrapbookEntry(showId, {
+              openTextDialog({
+                title: 'Add exam result',
+                placeholder: "Enter exam result (e.g. 'Merit - 85%')",
                 type: 'examResult',
-                content: result,
                 author: 'parent',
-                date: new Date().toISOString().split('T')[0],
-                emojiReactions: [],
               })
             }}>
               🎓 Add Exam Result
@@ -604,7 +632,7 @@ export default function Scrapbook() {
                   await removeScrapbookEntry(showId, entry.id)
                   setLightboxIndex(null)
                 } catch (err) {
-                  window.alert(err?.message || 'Could not delete photo.')
+                  notify(err?.message || 'Could not delete photo.')
                 }
               }}
             >
@@ -634,6 +662,17 @@ export default function Scrapbook() {
             </button>
         </div>
       )}
+
+      <TextInputDialog
+        open={textDialog.open}
+        title={textDialog.title}
+        placeholder={textDialog.placeholder}
+        initialValue={textDialog.value}
+        confirmLabel="Save"
+        cancelLabel="Cancel"
+        onCancel={() => setTextDialog((prev) => ({ ...prev, open: false }))}
+        onConfirm={handleTextDialogSave}
+      />
     </div>
   )
 }
