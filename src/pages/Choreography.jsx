@@ -40,6 +40,14 @@ function getFileNameBase(name) {
   return dot > 0 ? name.slice(0, dot) : name
 }
 
+function getPersistableMediaUrl(value) {
+  if (typeof value !== 'string') return ''
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  if (trimmed.startsWith('blob:')) return ''
+  return trimmed
+}
+
 const MAX_VIDEO_UPLOAD_BYTES = 50 * 1024 * 1024
 
 async function compressVideoToMax720p(inputFile, options = {}) {
@@ -176,7 +184,7 @@ export default function Choreography() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { routineId } = useParams()
-  const { routines, sessions, settings, isAdmin, setRehearsalVersion, editChoreographyVersion, attachRehearsalVideo, addChoreographyVersion, editSession, updateSettings } = useApp()
+  const { routines, sessions, settings, isAdmin, isKidMode, isLoading, setRehearsalVersion, editChoreographyVersion, attachRehearsalVideo, addChoreographyVersion, editSession, updateSettings } = useApp()
 
   // Find the routine from the new data model
   const routine = routines?.find(r => r.id === routineId)
@@ -269,7 +277,7 @@ export default function Choreography() {
 
   // Audio state
   const audioRef = useRef(null)
-  const [audioUrl, setAudioUrl] = useState(choreography.musicUrl || '')
+  const [audioUrl, setAudioUrl] = useState(getPersistableMediaUrl(choreography.musicUrl))
   const [musicFileName, setMusicFileName] = useState(choreography.musicFileName || '')
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -584,9 +592,17 @@ export default function Choreography() {
 
   // ========== LOAD PERSISTED FILES ON MOUNT ==========
   useEffect(() => {
+    // Wait for hydration so _danceOwnerId is set correctly (guardians)
+    if (isLoading) return
     let cancelled = false
     const restore = async () => {
       try {
+        if (!cancelled) {
+          setAudioUrl('')
+          setLiveVideoUrl('')
+          setVideoFileName('')
+        }
+
         const applyMusicBlob = async (blob, fileName = choreography.musicFileName || 'music.mp3', durationFromMeta = 0) => {
           const url = URL.createObjectURL(blob)
           setAudioUrl(url)
@@ -693,7 +709,15 @@ export default function Choreography() {
     }
     restore()
     return () => { cancelled = true }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
+    isLoading,
+    routineId,
+    sessionId,
+    selectedVersion?.id,
+    choreography.musicFileName,
+    liveVideoStorageKey,
+    activeSession?.rehearsalVideoName,
+  ])
 
   const applyMusicFile = useCallback(async (file) => {
     if (!file) return
@@ -724,7 +748,7 @@ export default function Choreography() {
 
       localStorage.setItem('choreo-waveform', JSON.stringify(peaks))
 
-      editChoreographyVersion(routineId, selectedVersion?.id, { musicUrl: url, musicFileName: file.name, duration: audioBuffer.duration })
+      editChoreographyVersion(routineId, selectedVersion?.id, { musicUrl: '', musicFileName: file.name, duration: audioBuffer.duration })
 
       if (liveVideoUrl) {
         try {
@@ -1344,7 +1368,7 @@ export default function Choreography() {
 
     const versionData = {
       label: mode === 'clone' ? `v${nextVersionNumber} amendment` : `v${nextVersionNumber} blank`,
-      musicUrl: mode === 'clone' ? (selectedVersion?.musicUrl || '') : '',
+      musicUrl: mode === 'clone' ? getPersistableMediaUrl(selectedVersion?.musicUrl) : '',
       musicFileName: mode === 'clone' ? (selectedVersion?.musicFileName || '') : '',
       duration: mode === 'clone' ? (selectedVersion?.duration || 0) : 0,
       songInstructions: clonedInstructions,
@@ -1876,7 +1900,7 @@ export default function Choreography() {
   const videoUploadButtonLabel = videoProcessing
     ? compressingLabel
     : (liveVideoUrl ? '🎥 Change video' : '📹 Upload practice video')
-  const canManageLiveControls = isAdmin && !isKidLiveView
+  const canManageLiveControls = !isKidMode && !isKidLiveView
 
   return (
     <div className={styles['choreo-page']}>

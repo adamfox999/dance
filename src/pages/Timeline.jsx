@@ -74,15 +74,33 @@ const SESSION_ICONS = {
   'competition': '🏆',
 }
 
-function SessionVideoPoster({ rehearsalVideoKey, rehearsalVideoName, videoSrc, className, fallback = null }) {
+function getShareableVideoSrc(value) {
+  if (typeof value !== 'string') return ''
+  const src = value.trim()
+  if (!src) return ''
+  if (src.startsWith('blob:')) return ''
+  if (src.startsWith('file:')) return ''
+  return src
+}
+
+function SessionVideoPoster({ rehearsalVideoKey, rehearsalVideoName, videoSrc, className, fallback = null, isLoading = false }) {
   const [videoUrl, setVideoUrl] = useState('')
+  const [allowProvidedSrc, setAllowProvidedSrc] = useState(true)
 
   useEffect(() => {
+    setAllowProvidedSrc(true)
+  }, [videoSrc])
+
+  useEffect(() => {
+    // Wait for hydration so effectiveOwnerId returns the correct user (guardian fix)
+    if (isLoading) return
     let mounted = true
     let objectUrl = ''
 
-    if (videoSrc) {
-      setVideoUrl(videoSrc)
+    const safeVideoSrc = allowProvidedSrc ? getShareableVideoSrc(videoSrc) : ''
+
+    if (safeVideoSrc) {
+      setVideoUrl(safeVideoSrc)
       return () => {}
     }
 
@@ -112,7 +130,7 @@ function SessionVideoPoster({ rehearsalVideoKey, rehearsalVideoName, videoSrc, c
       mounted = false
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [rehearsalVideoKey, videoSrc])
+  }, [rehearsalVideoKey, videoSrc, isLoading, allowProvidedSrc])
 
   if (!videoUrl) return fallback
 
@@ -127,6 +145,11 @@ function SessionVideoPoster({ rehearsalVideoKey, rehearsalVideoName, videoSrc, c
         e.currentTarget.currentTime = 0
         e.currentTarget.pause()
       }}
+      onError={() => {
+        if (rehearsalVideoKey && allowProvidedSrc) {
+          setAllowProvidedSrc(false)
+        }
+      }}
       title={rehearsalVideoName || 'Practice video'}
     />
   )
@@ -136,7 +159,7 @@ function getVideoPreviewSource(video = {}) {
   const firstValid = (...values) => values.find((value) => typeof value === 'string' && value.trim()) || ''
   return {
     key: firstValid(video.rehearsalVideoKey, video.videoKey, video.key),
-    src: firstValid(video.content, video.videoUrl, video.url, video.src),
+    src: getShareableVideoSrc(firstValid(video.content, video.videoUrl, video.url, video.src)),
     name: firstValid(video.rehearsalVideoName, video.videoName, video.fileName, video.name),
   }
 }
@@ -145,9 +168,9 @@ export default function Timeline() {
   const { type, id } = useParams()
   const {
     disciplines, routines, sessions, events,
-    setSessionReflection, setElementStatus, scheduleRehearsal, addEventEntry, addShow,
+    setSessionReflection, setElementStatus, scheduleRehearsal, addEventEntry, editEventEntry, addShow,
     editRoutine,
-    isAdmin,
+    isAdmin, isLoading,
     hasSupabaseAuth,
     authUser,
     ownKidProfiles,
@@ -223,6 +246,7 @@ export default function Timeline() {
   // All events available to link an entry to (for the add dialog)
   const availableEvents = useMemo(() => {
     return (events || [])
+      .filter((eventItem) => (eventItem.eventType || 'show') !== 'show')
       .sort((a, b) => dateValueToMs(a.startDate || a.date) - dateValueToMs(b.startDate || b.date))
   }, [events])
 
@@ -265,6 +289,17 @@ export default function Timeline() {
       setAddVersionId(routineVersions[routineVersions.length - 1].id)
     }
   }, [isRoutine, addVersionId, routineVersions])
+
+  useEffect(() => {
+    if (!addDialogOpen || addType !== 'event-entry') return
+    if (!availableEvents.length) {
+      if (addEventId) setAddEventId('')
+      return
+    }
+    if (!addEventId || !availableEvents.some((eventItem) => eventItem.id === addEventId)) {
+      setAddEventId(availableEvents[0].id)
+    }
+  }, [addDialogOpen, addType, addEventId, availableEvents])
 
   useEffect(() => {
     if (!addDialogOpen) return
@@ -463,46 +498,78 @@ export default function Timeline() {
     }
   }
 
-  const handleAddTimelineItem = () => {
-    if (!isRoutine || !routine || !addDate) return
+  const handleAddTimelineItem = async () => {
+    if (!isRoutine || !routine) return
 
-    if (addType === 'practice') {
-      const versionId = addVersionId || routineVersions[routineVersions.length - 1]?.id || null
-      scheduleRehearsal({
-        date: addDate,
-        scheduledAt: addDate,
-        title: `${routine.name} rehearsal`,
-        routineId: routine.id,
-        disciplineId: routine.disciplineId || null,
-        choreographyVersionId: versionId,
-        status: 'scheduled',
-      })
-    } else if (addType === 'event-entry' && addEventId) {
-      // Add an entry (this routine) to an existing event
-      addEventEntry(addEventId, {
-        routineId: routine.id,
-        scheduledDate: addEntryDate || '',
-        scheduledTime: addEntryTime || '',
-        place: null,
-        qualified: false,
-        qualifiedForEventId: '',
-        notes: '',
-      })
-    } else {
-      // Legacy: create a new quick show directly
-      const parsedPlace = Number.parseInt(addShowPlace, 10)
-      const place = Number.isFinite(parsedPlace) && parsedPlace > 0 ? parsedPlace : null
-      addShow({
-        name: addShowName.trim() || `${routine.name} show`,
-        date: addDate,
-        venue: addShowVenue.trim(),
-        place,
-        routineIds: [routine.id],
-        scrapbookEntries: [],
-      })
+    try {
+      if (addType === 'practice') {
+        if (!addDate) {
+          window.alert('Please select a practice date.')
+          return
+        }
+        const versionId = addVersionId || routineVersions[routineVersions.length - 1]?.id || null
+        await scheduleRehearsal({
+          date: addDate,
+          scheduledAt: addDate,
+          title: `${routine.name} rehearsal`,
+          routineId: routine.id,
+          disciplineId: routine.disciplineId || null,
+          choreographyVersionId: versionId,
+          status: 'scheduled',
+        })
+      } else if (addType === 'event-entry') {
+        if (!addEventId) {
+          window.alert('Please select an event first.')
+          return
+        }
+        const selectedEvent = (events || []).find((eventItem) => eventItem.id === addEventId)
+        if (!selectedEvent) {
+          window.alert('Selected event is no longer available. Please pick another one.')
+          return
+        }
+        const existingEntry = (selectedEvent?.entries || []).find((entry) => entry.routineId === routine.id)
+        if (existingEntry) {
+          await editEventEntry(addEventId, existingEntry.id, {
+            scheduledDate: addEntryDate || existingEntry.scheduledDate || '',
+            scheduledTime: addEntryTime || existingEntry.scheduledTime || '',
+          })
+          window.alert('This routine was already entered, so the existing entry was updated.')
+          setAddDialogOpen(false)
+          return
+        }
+
+        await addEventEntry(addEventId, {
+          routineId: routine.id,
+          scheduledDate: addEntryDate || '',
+          scheduledTime: addEntryTime || '',
+          place: null,
+          qualified: false,
+          qualifiedForEventId: '',
+          notes: '',
+        })
+      } else if (addType === 'show') {
+        if (!addDate) {
+          window.alert('Please select a show date.')
+          return
+        }
+        const parsedPlace = Number.parseInt(addShowPlace, 10)
+        const place = Number.isFinite(parsedPlace) && parsedPlace > 0 ? parsedPlace : null
+        await addShow({
+          name: addShowName.trim() || `${routine.name} show`,
+          date: addDate,
+          venue: addShowVenue.trim(),
+          place,
+          routineIds: [routine.id],
+          scrapbookEntries: [],
+        })
+      } else {
+        return
+      }
+
+      setAddDialogOpen(false)
+    } catch (err) {
+      window.alert(err?.message || 'Could not save timeline item. Please try again.')
     }
-
-    setAddDialogOpen(false)
   }
 
   const getSessionVersion = (session) => {
@@ -710,6 +777,7 @@ export default function Timeline() {
                       value={addEventId}
                       onChange={(event) => setAddEventId(event.target.value)}
                     >
+                      <option value="">Select an event…</option>
                       {availableEvents.map((ev) => (
                         <option key={ev.id} value={ev.id}>
                           {getEventTypeIcon(ev.eventType)} {ev.name} ({ev.startDate || ev.date})
@@ -961,6 +1029,7 @@ export default function Timeline() {
                         <SessionVideoPoster
                           rehearsalVideoKey={item.data.rehearsalVideoKey}
                           rehearsalVideoName={item.data.rehearsalVideoName}
+                          isLoading={isLoading}
                           className={styles.sessionMediaPoster}
                           fallback={(
                             <div className={styles.sessionMediaFallback}>
@@ -1033,6 +1102,7 @@ export default function Timeline() {
                             rehearsalVideoKey={preview.key}
                             rehearsalVideoName={preview.name}
                             videoSrc={preview.src}
+                            isLoading={isLoading}
                             className={styles.cardThumb}
                             fallback={(
                               <div className={styles.sessionMediaFallback}>

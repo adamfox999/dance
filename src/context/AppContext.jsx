@@ -39,6 +39,7 @@ import {
   deleteEventEntry       as apiDeleteEventEntry,
   createScrapbookEntry   as apiCreateScrapbookEntry,
   updateScrapbookEntry   as apiUpdateScrapbookEntry,
+  deleteScrapbookEntry   as apiDeleteScrapbookEntry,
   createSticker          as apiCreateSticker,
   createStickers         as apiCreateStickers,
   logPractice            as apiLogPractice,
@@ -107,6 +108,11 @@ export function AppProvider({ children }) {
   const [authLoading, setAuthLoading] = useState(hasSupabaseConfig)
   const [authSession, setAuthSession] = useState(null)
   const [authUser, setAuthUser] = useState(null)
+  const authUserIdRef = useRef(null)
+
+  useEffect(() => {
+    authUserIdRef.current = authUser?.id || null
+  }, [authUser?.id])
 
   // Profile state
   const [userProfile, setUserProfile] = useState(null)
@@ -140,11 +146,20 @@ export function AppProvider({ children }) {
 
   // Refs for read-then-write patterns (stable callbacks that need current data)
   const sessionsRef = useRef(sessions)
-  sessionsRef.current = sessions
   const eventsRef = useRef(events)
-  eventsRef.current = events
   const stickersRef = useRef(stickers)
-  stickersRef.current = stickers
+
+  useEffect(() => {
+    sessionsRef.current = sessions
+  }, [sessions])
+
+  useEffect(() => {
+    eventsRef.current = events
+  }, [events])
+
+  useEffect(() => {
+    stickersRef.current = stickers
+  }, [stickers])
 
   // Merged kid profiles (own + guardian families)
   const allKidProfiles = (() => {
@@ -466,7 +481,15 @@ export function AppProvider({ children }) {
       if (!mounted) return
       setFileStorageUserScope(null); setDanceDataOwnerId(null); setBackendDanceOwnerId(null); setAuthSession(null); setAuthUser(null); setAuthLoading(false)
     })
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      // Only update state if the user actually changed (sign-in, sign-out).
+      // TOKEN_REFRESHED fires when returning to the tab — resetting owner IDs
+      // would clobber the correct guardian→child mapping set during hydration.
+      if (event === 'TOKEN_REFRESHED') return
+
+      const nextUserId = session?.user?.id || null
+      if (nextUserId === authUserIdRef.current) return
+
       setAuthSession(session || null); setAuthUser(session?.user || null); setFileStorageUserScope(session?.user?.id || null); setDanceDataOwnerId(session?.user?.id || null); setBackendDanceOwnerId(session?.user?.id || null)
     })
     return () => { mounted = false; sub?.subscription?.unsubscribe() }
@@ -648,13 +671,14 @@ export function AppProvider({ children }) {
     const created = await apiCreateEventEntry(showId, entry)
     setEvents(prev => prev.map(ev =>
       ev.id === showId
-        ? {
-            ...ev,
-            entries: [...(ev.entries || []), created],
-            routineIds: (ev.routineIds || []).includes(created.routineId)
-              ? ev.routineIds
-              : [...(ev.routineIds || []), created.routineId].filter(Boolean),
-          }
+        ? (() => {
+            const nextEntries = [...(ev.entries || []), created]
+            return {
+              ...ev,
+              entries: nextEntries,
+              routineIds: [...new Set(nextEntries.map((item) => item.routineId).filter(Boolean))],
+            }
+          })()
         : ev
     ))
     return created
@@ -663,14 +687,32 @@ export function AppProvider({ children }) {
   const editEventEntry = useCallback(async (showId, entryId, updates) => {
     const updated = await apiUpdateEventEntry(entryId, updates)
     setEvents(prev => prev.map(ev =>
-      ev.id === showId ? { ...ev, entries: (ev.entries || []).map(e => e.id === entryId ? updated : e) } : ev
+      ev.id === showId
+        ? (() => {
+            const nextEntries = (ev.entries || []).map((entry) => entry.id === entryId ? updated : entry)
+            return {
+              ...ev,
+              entries: nextEntries,
+              routineIds: [...new Set(nextEntries.map((item) => item.routineId).filter(Boolean))],
+            }
+          })()
+        : ev
     ))
     return updated
   }, [])
 
   const removeEventEntry = useCallback(async (showId, entryId) => {
     setEvents(prev => prev.map(ev =>
-      ev.id === showId ? { ...ev, entries: (ev.entries || []).filter(e => e.id !== entryId) } : ev
+      ev.id === showId
+        ? (() => {
+            const nextEntries = (ev.entries || []).filter((entry) => entry.id !== entryId)
+            return {
+              ...ev,
+              entries: nextEntries,
+              routineIds: [...new Set(nextEntries.map((item) => item.routineId).filter(Boolean))],
+            }
+          })()
+        : ev
     ))
     await apiDeleteEventEntry(entryId)
   }, [])
@@ -695,6 +737,15 @@ export function AppProvider({ children }) {
         : e
     ))
     apiUpdateScrapbookEntry(entryId, { emojiReactions: updated }).catch(e => console.warn('Save scrapbook reaction:', e))
+  }, [])
+
+  const removeScrapbookEntry = useCallback(async (showId, entryId) => {
+    setEvents(prev => prev.map(ev =>
+      ev.id === showId
+        ? { ...ev, scrapbookEntries: (ev.scrapbookEntries || []).filter((entry) => entry.id !== entryId) }
+        : ev
+    ))
+    await apiDeleteScrapbookEntry(entryId)
   }, [])
 
   // ---- Stickers ----
@@ -1045,6 +1096,7 @@ export function AppProvider({ children }) {
       removeEventEntry,
       addScrapbookEntry,
       addScrapbookReaction,
+      removeScrapbookEntry,
       addStickers,
       addCustomSticker,
       logPracticeDay,

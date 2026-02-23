@@ -535,6 +535,28 @@
   font-family: inherit;
 }
 
+.scheduleInputs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.deleteEntryBtn {
+  align-self: flex-start;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+  color: #be123c;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.deleteEntryBtn:hover {
+  background: #ffe4e6;
+}
+
 .qualifiedThroughLabel {
   font-size: 0.68rem;
   color: #15803d;
@@ -682,6 +704,25 @@
   align-items: center;
   justify-content: center;
   z-index: 1;
+}
+
+.lightboxDelete {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  background: rgba(190, 24, 93, 0.9);
+  border: none;
+  color: white;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 8px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.lightboxDelete:hover {
+  background: rgba(159, 18, 57, 0.95);
 }
 
 .lightboxArrow {

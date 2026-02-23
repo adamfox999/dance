@@ -7,7 +7,9 @@ import './index.css'
 
 // Version check: clear service worker cache on new build, but preserve auth session
 const handleVersionCheck = async () => {
+  if (import.meta.env.DEV) return
   const currentBuild = import.meta.env.VITE_APP_BUILD
+  if (!currentBuild) return
   const storedBuild = localStorage.getItem('app_build_version')
 
   if (storedBuild && storedBuild !== currentBuild) {
@@ -22,9 +24,13 @@ const handleVersionCheck = async () => {
     // Clear caches
     const cacheNames = await caches.keys()
     await Promise.all(cacheNames.map(name => caches.delete(name)))
+
+    // Persist the new build before reloading to avoid repeat reload loops
+    localStorage.setItem('app_build_version', currentBuild)
     
     // Reload to fresh state (auth session preserved in localStorage)
     window.location.reload()
+    return
   }
 
   // Store current build version

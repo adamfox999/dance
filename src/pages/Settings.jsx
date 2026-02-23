@@ -89,7 +89,9 @@ export default function Settings() {
 
   const updateCoverPreviewUrls = (nextMap) => {
     Object.values(coverPreviewUrlsRef.current).forEach((url) => {
-      try { URL.revokeObjectURL(url) } catch {}
+      try { URL.revokeObjectURL(url) } catch {
+        // Ignore revoke failures
+      }
     })
     coverPreviewUrlsRef.current = nextMap
     setCoverPreviewUrls(nextMap)
@@ -102,7 +104,9 @@ export default function Settings() {
         coverAutoCloseTimerRef.current = null
       }
       Object.values(coverPreviewUrlsRef.current).forEach((url) => {
-        try { URL.revokeObjectURL(url) } catch {}
+        try { URL.revokeObjectURL(url) } catch {
+          // Ignore revoke failures
+        }
       })
       coverPreviewUrlsRef.current = {}
     }
@@ -131,7 +135,9 @@ export default function Settings() {
       const nextMap = Object.fromEntries(entries.filter(Boolean))
       if (cancelled) {
         Object.values(nextMap).forEach((url) => {
-          try { URL.revokeObjectURL(url) } catch {}
+          try { URL.revokeObjectURL(url) } catch {
+            // Ignore revoke failures
+          }
         })
         return
       }
@@ -559,7 +565,12 @@ export default function Settings() {
 
   // ---- Data ----
   const handleExport = () => {
-    const data = JSON.stringify(state, null, 2)
+    const data = JSON.stringify({
+      disciplines,
+      routines,
+      events,
+      settings,
+    }, null, 2)
     const blob = new Blob([data], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')

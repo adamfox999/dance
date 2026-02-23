@@ -962,6 +962,13 @@ export async function updateScrapbookEntry(id, updates) {
   return mapScrapbookEntry(data)
 }
 
+export async function deleteScrapbookEntry(id) {
+  const client = ensureClient()
+  await requireUser()
+  const { error } = await client.from('scrapbook_entry').delete().eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
 // ================================================================
 // STICKERS
 // ================================================================

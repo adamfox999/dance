@@ -7,7 +7,7 @@ import styles from './Scrapbook.module.css'
 
 export default function Scrapbook() {
   const { showId } = useParams()
-  const { events, routines, addScrapbookEntry, addScrapbookReaction, addEventEntry, editEventEntry, isAdmin } = useApp()
+  const { events, routines, addScrapbookEntry, addScrapbookReaction, removeScrapbookEntry, addEventEntry, editEventEntry, removeEventEntry, isAdmin } = useApp()
   const navigate = useNavigate()
   const photoInputRef = useRef(null)
   const videoInputRef = useRef(null)
@@ -126,8 +126,10 @@ export default function Scrapbook() {
   // Get all media scrapbook entries for the carousel
   const mediaEntries = entries.filter((e) => e.type === 'photo' || e.type === 'video')
 
-  // Available events user can select as "qualified through to"
-  const otherEvents = (events || []).filter((s) => s.id !== showId)
+  // Available competitions user can select as "qualified through to"
+  const otherEvents = (events || []).filter(
+    (s) => s.id !== showId && (s.eventType || 'show') !== 'show'
+  )
 
   return (
     <div className={styles.scrapbook}>
@@ -172,17 +174,27 @@ export default function Scrapbook() {
                 <button
                   key={r.id}
                   className={styles.addEntryOption}
-                  onClick={() => {
-                    addEventEntry(showId, {
-                      routineId: r.id,
-                      scheduledDate: '',
-                      scheduledTime: '',
-                      place: null,
-                      qualified: false,
-                      qualifiedForEventId: '',
-                      notes: '',
-                    })
-                    setShowAddEntry(false)
+                  onClick={async () => {
+                    const alreadyExists = (show.entries || []).some((entry) => entry.routineId === r.id)
+                    if (alreadyExists) {
+                      window.alert('This routine is already entered for this festival.')
+                      return
+                    }
+
+                    try {
+                      await addEventEntry(showId, {
+                        routineId: r.id,
+                        scheduledDate: '',
+                        scheduledTime: '',
+                        place: null,
+                        qualified: false,
+                        qualifiedForEventId: '',
+                        notes: '',
+                      })
+                      setShowAddEntry(false)
+                    } catch (err) {
+                      window.alert(err?.message || 'Could not add event entry.')
+                    }
                   }}
                 >
                   🎵 {r.name}
@@ -244,6 +256,54 @@ export default function Scrapbook() {
                   {/* Expanded result panel */}
                   {isExpanded && (
                     <div className={styles.entryResultPanel}>
+                      <div className={styles.resultRow}>
+                        <label className={styles.resultLabel}>Routine</label>
+                        <select
+                          className={styles.qualifiedForSelect}
+                          value={entry.routineId || ''}
+                          onChange={(e) => {
+                            const nextRoutineId = e.target.value || null
+                            if (!nextRoutineId) {
+                              editEventEntry(showId, entry.id, { routineId: null })
+                              return
+                            }
+                            const duplicate = (show.entries || []).some(
+                              (other) => other.id !== entry.id && other.routineId === nextRoutineId
+                            )
+                            if (duplicate) {
+                              window.alert('That routine is already entered for this festival.')
+                              return
+                            }
+                            editEventEntry(showId, entry.id, { routineId: nextRoutineId })
+                          }}
+                        >
+                          <option value="">— Select routine —</option>
+                          {routines.map((routineOption) => (
+                            <option key={routineOption.id} value={routineOption.id}>
+                              🎵 {routineOption.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className={styles.resultRow}>
+                        <label className={styles.resultLabel}>Scheduled</label>
+                        <div className={styles.scheduleInputs}>
+                          <input
+                            type="date"
+                            className={styles.qualifiedForSelect}
+                            value={entry.scheduledDate || ''}
+                            onChange={(e) => editEventEntry(showId, entry.id, { scheduledDate: e.target.value || '' })}
+                          />
+                          <input
+                            type="time"
+                            className={styles.qualifiedForSelect}
+                            value={entry.scheduledTime || ''}
+                            onChange={(e) => editEventEntry(showId, entry.id, { scheduledTime: e.target.value || '' })}
+                          />
+                        </div>
+                      </div>
+
                       <div className={styles.resultRow}>
                         <label className={styles.resultLabel}>Place</label>
                         <div className={styles.placeButtons}>
@@ -314,6 +374,20 @@ export default function Scrapbook() {
                           value={entry.notes || ''}
                           onChange={(e) => editEventEntry(showId, entry.id, { notes: e.target.value })}
                         />
+                      </div>
+
+                      <div className={styles.resultRow}>
+                        <button
+                          className={styles.deleteEntryBtn}
+                          onClick={() => {
+                            const ok = window.confirm('Delete this festival entry? This cannot be undone.')
+                            if (!ok) return
+                            removeEventEntry(showId, entry.id)
+                            setExpandedEntry(null)
+                          }}
+                        >
+                          Delete Entry
+                        </button>
                       </div>
                     </div>
                   )}
@@ -507,6 +581,25 @@ export default function Scrapbook() {
       {lightboxIndex !== null && mediaEntries[lightboxIndex] && (
         <div className={styles.lightboxOverlay} onClick={() => setLightboxIndex(null)}>
           <button className={styles.lightboxClose} onClick={() => setLightboxIndex(null)}>✕</button>
+          {isAdmin && mediaEntries[lightboxIndex].type === 'photo' && (
+            <button
+              className={styles.lightboxDelete}
+              onClick={async (e) => {
+                e.stopPropagation()
+                const entry = mediaEntries[lightboxIndex]
+                const ok = window.confirm('Delete this photo from the festival scrapbook?')
+                if (!ok) return
+                try {
+                  await removeScrapbookEntry(showId, entry.id)
+                  setLightboxIndex(null)
+                } catch (err) {
+                  window.alert(err?.message || 'Could not delete photo.')
+                }
+              }}
+            >
+              Delete Photo
+            </button>
+          )}
             <button
               className={`${styles.lightboxArrow} ${styles.lightboxArrowLeft}`}
               disabled={lightboxIndex === 0}
