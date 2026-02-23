@@ -14,6 +14,7 @@ export default function ProfileSwitcher({ open, onClose }) {
     kidProfiles,
     activeProfile,
     isKidMode,
+    isAdmin,
     switchToKidProfile,
     switchToAdultProfile,
   } = useApp()
@@ -126,7 +127,7 @@ export default function ProfileSwitcher({ open, onClose }) {
           </div>
         )}
 
-        {!isKidMode && (
+        {isAdmin && !isKidMode && (
           <button className={styles.settingsBtn} onClick={handleOpenSettings}>
             ⚙️ Settings
           </button>
@@ -146,7 +147,7 @@ export default function ProfileSwitcher({ open, onClose }) {
 export function ProfileChip({ onClick }) {
   const { userProfile, activeProfile, isKidMode, activeKidProfile } = useApp()
 
-  const name = isKidMode
+  const displayName = isKidMode
     ? (activeKidProfile?.display_name || 'Dancer')
     : (userProfile?.display_name || 'Parent')
   const emoji = isKidMode
@@ -156,20 +157,10 @@ export function ProfileChip({ onClick }) {
   return (
     <button className={styles.profileChip} onClick={onClick} title="Switch profile">
       <span className={styles.chipEmoji}>{emoji}</span>
-      {name}
+      <span className={styles.chipTextWrap}>
+        <span className={styles.chipName}>{displayName}</span>
+        {!isKidMode && <span className={styles.chipSubtext}>Parent / Guardian</span>}
+      </span>
     </button>
-  )
-}
-
-/**
- * Kid-mode banner shown at top of screen.
- */
-export function KidModeBanner({ onClick }) {
-  const { activeKidProfile } = useApp()
-
-  return (
-    <div className={styles.kidBanner} onClick={onClick} role="button" tabIndex={0}>
-      {activeKidProfile?.avatar_emoji || '💃'} {activeKidProfile?.display_name || 'Dancer'}'s View — Tap to switch
-    </div>
   )
 }

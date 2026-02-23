@@ -1876,6 +1876,7 @@ export default function Choreography() {
   const videoUploadButtonLabel = videoProcessing
     ? compressingLabel
     : (liveVideoUrl ? '🎥 Change video' : '📹 Upload practice video')
+  const canManageLiveControls = isAdmin && !isKidLiveView
 
   return (
     <div className={styles['choreo-page']}>
@@ -2250,33 +2251,37 @@ export default function Choreography() {
                 >
                   ✕ Exit
                 </button>
-                <button
-                  type="button"
-                  className={styles['live-upload-btn']}
-                  title={musicFileName || 'No song loaded'}
-                  onClick={() => openMediaPicker('audio')}
-                >
-                  <span className={styles['live-upload-text']}>🎵 Music</span>
-                  <span className={styles['live-upload-pencil']} aria-hidden="true">✏️</span>
-                </button>
-                <button
-                  type="button"
-                  className={styles['live-upload-btn']}
-                  title={videoProcessing ? compressingLabel : (videoFileName || 'No video loaded')}
-                  disabled={videoProcessing}
-                  onClick={() => openMediaPicker('video')}
-                >
-                  <span className={styles['live-upload-text']}>{videoProcessing ? `🎥 ${compressingLabel}` : '🎥 Video'}</span>
-                  {!videoProcessing && <span className={styles['live-upload-pencil']} aria-hidden="true">✏️</span>}
-                </button>
-                <button
-                  className={styles['live-sync-btn']}
-                  onClick={handleLiveResync}
-                  disabled={!audioUrl || !liveVideoUrl || syncing}
-                  title={!audioUrl || !liveVideoUrl ? 'Load both song and video first' : 'Click to re-sync and refresh offset/confidence'}
-                >
-                  {syncLabel}
-                </button>
+                {canManageLiveControls && (
+                  <>
+                    <button
+                      type="button"
+                      className={styles['live-upload-btn']}
+                      title={musicFileName || 'No song loaded'}
+                      onClick={() => openMediaPicker('audio')}
+                    >
+                      <span className={styles['live-upload-text']}>🎵 Music</span>
+                      <span className={styles['live-upload-pencil']} aria-hidden="true">✏️</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={styles['live-upload-btn']}
+                      title={videoProcessing ? compressingLabel : (videoFileName || 'No video loaded')}
+                      disabled={videoProcessing}
+                      onClick={() => openMediaPicker('video')}
+                    >
+                      <span className={styles['live-upload-text']}>{videoProcessing ? `🎥 ${compressingLabel}` : '🎥 Video'}</span>
+                      {!videoProcessing && <span className={styles['live-upload-pencil']} aria-hidden="true">✏️</span>}
+                    </button>
+                    <button
+                      className={styles['live-sync-btn']}
+                      onClick={handleLiveResync}
+                      disabled={!audioUrl || !liveVideoUrl || syncing}
+                      title={!audioUrl || !liveVideoUrl ? 'Load both song and video first' : 'Click to re-sync and refresh offset/confidence'}
+                    >
+                      {syncLabel}
+                    </button>
+                  </>
+                )}
                 <div className={styles['live-top-spacer']} />
                 <div className={styles['live-top-actions']}>
                   <button
@@ -2301,44 +2306,48 @@ export default function Choreography() {
                 </div>
               </div>
 
-              <input
-                ref={musicPickerInputRef}
-                type="file"
-                accept="audio/*"
-                onChange={handleMusicUpload}
-                style={{ display: 'none' }}
-              />
-              <input
-                ref={videoPickerInputRef}
-                type="file"
-                accept="video/*"
-                onChange={handleVideoUpload}
-                style={{ display: 'none' }}
-              />
+              {canManageLiveControls && (
+                <>
+                  <input
+                    ref={musicPickerInputRef}
+                    type="file"
+                    accept="audio/*"
+                    onChange={handleMusicUpload}
+                    style={{ display: 'none' }}
+                  />
+                  <input
+                    ref={videoPickerInputRef}
+                    type="file"
+                    accept="video/*"
+                    onChange={handleVideoUpload}
+                    style={{ display: 'none' }}
+                  />
 
-              <MediaPickerDialog
-                open={mediaPickerOpen}
-                title={mediaPickerType === 'video' ? '🎥 Change Video' : '🎵 Change Song'}
-                uploadLabel={mediaPickerType === 'video'
-                  ? (videoProcessing ? compressingLabel : '📁 Upload new video')
-                  : '📁 Upload new song'}
-                onClose={closeMediaPicker}
-                onUpload={handlePickerUploadClick}
-                uploadDisabled={videoProcessing && mediaPickerType === 'video'}
-                subtitle="Or pick existing media"
-                loading={mediaPickerLoading}
-                error={mediaPickerError}
-                emptyText={`No existing ${mediaPickerType === 'video' ? 'videos' : 'songs'} found.`}
-                items={mediaPickerItems}
-                selectingId={mediaPickerSelectingId}
-                onSelect={handlePickExistingMedia}
-                getItemId={(item) => item.id || item.key}
-                getPrimaryText={(item) => `${mediaPickerType === 'video' ? '🎥' : '🎵'} ${toDisplayFileName(item.fileName || item.id, 42)}`}
-                getMetaText={(item, isSelecting) => {
-                  const sizeLabel = formatFileSize(item.size)
-                  return isSelecting ? 'Loading…' : (sizeLabel || 'Existing file')
-                }}
-              />
+                  <MediaPickerDialog
+                    open={mediaPickerOpen}
+                    title={mediaPickerType === 'video' ? '🎥 Change Video' : '🎵 Change Song'}
+                    uploadLabel={mediaPickerType === 'video'
+                      ? (videoProcessing ? compressingLabel : '📁 Upload new video')
+                      : '📁 Upload new song'}
+                    onClose={closeMediaPicker}
+                    onUpload={handlePickerUploadClick}
+                    uploadDisabled={videoProcessing && mediaPickerType === 'video'}
+                    subtitle="Or pick existing media"
+                    loading={mediaPickerLoading}
+                    error={mediaPickerError}
+                    emptyText={`No existing ${mediaPickerType === 'video' ? 'videos' : 'songs'} found.`}
+                    items={mediaPickerItems}
+                    selectingId={mediaPickerSelectingId}
+                    onSelect={handlePickExistingMedia}
+                    getItemId={(item) => item.id || item.key}
+                    getPrimaryText={(item) => `${mediaPickerType === 'video' ? '🎥' : '🎵'} ${toDisplayFileName(item.fileName || item.id, 42)}`}
+                    getMetaText={(item, isSelecting) => {
+                      const sizeLabel = formatFileSize(item.size)
+                      return isSelecting ? 'Loading…' : (sizeLabel || 'Existing file')
+                    }}
+                  />
+                </>
+              )}
             </>
           )}
 
@@ -2449,7 +2458,7 @@ export default function Choreography() {
                   {formatTimestamp(seekPreviewTime)}
                 </div>
               )}
-              {!isKidLiveView && (
+              {canManageLiveControls && (
                 <>
                   {/* Song instruction dots on progress bar */}
                   {beatData?.beats && liveTotalDuration > 0 && choreographyTrackDuration > 0 && songInstructions.map((inst) => {
@@ -2539,13 +2548,15 @@ export default function Choreography() {
                   <span />
                 )}
                 <div className={styles['live-controls-secondary-right']}>
-                  <button
-                    className={`${styles['live-edit-toggle']} ${liveEditOpen ? styles.active : ''}`}
-                    onClick={() => setLiveEditOpen(!liveEditOpen)}
-                    title="Edit beat instructions"
-                  >
-                    ✏️ Choreography
-                  </button>
+                  {canManageLiveControls && (
+                    <button
+                      className={`${styles['live-edit-toggle']} ${liveEditOpen ? styles.active : ''}`}
+                      onClick={() => setLiveEditOpen(!liveEditOpen)}
+                      title="Edit beat instructions"
+                    >
+                      ✏️ Choreography
+                    </button>
+                  )}
                   {/* Version picker in live controls */}
                   {versions.length > 1 && (
                     <select

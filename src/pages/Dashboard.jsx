@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
-import { getCurrentStreak } from '../utils/milestones'
 import { getEventTypeIcon } from '../data/aedEvents'
 import styles from './Dashboard.module.css'
 
@@ -9,9 +8,9 @@ const AVATAR_EMOJIS = ['💃', '🩰', '👧', '👦', '🧒', '🌟', '✨', '�
 
 export default function Dashboard() {
   const {
-    disciplines, routines, sessions, events, stickers, practiceLog,
+    disciplines, routines, sessions, events, stickers,
     dancerProfile, dancerGoals, settings,
-    logPracticeDay, completeGoal,
+    completeGoal,
     isKidMode, activeKidProfile, userProfile, sharedDances,
     hasSupabaseAuth, kidProfiles, ownKidProfiles, addKidProfile, isAdmin, profilesLoaded,
     guardianFamilies,
@@ -22,9 +21,7 @@ export default function Dashboard() {
   const [setupKidEmoji, setSetupKidEmoji] = useState('💃')
   const [setupBusy, setSetupBusy] = useState(false)
   const [shareTagBusyId, setShareTagBusyId] = useState(null)
-  const streak = getCurrentStreak(practiceLog)
   const today = new Date().toISOString().split('T')[0]
-  const hasLoggedToday = practiceLog.includes(today)
 
   // Find current focus
   const currentFocus = dancerProfile?.currentFocus
@@ -53,10 +50,6 @@ export default function Dashboard() {
   // Active goals (not completed)
   const activeGoals = (dancerGoals || []).filter(g => !g.completedDate)
 
-  const handleLogPractice = () => {
-    logPracticeDay(today)
-  }
-
   const handleGoalToggle = (goalId) => {
     completeGoal(goalId)
   }
@@ -84,16 +77,6 @@ export default function Dashboard() {
         <h1>Hey {isKidMode ? (activeKidProfile?.display_name || 'Dancer') : (userProfile?.display_name || dancerProfile?.name || 'there')}! 👋</h1>
         <p className={styles.date}>{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
       </div>
-
-      {/* Practice button */}
-      <button
-        className={`${styles.practiceBtn} ${hasLoggedToday ? styles.practiceDone : ''}`}
-        onClick={handleLogPractice}
-        disabled={hasLoggedToday}
-      >
-        {hasLoggedToday ? '✅ Practised Today!' : '💪 I Practised Today!'}
-        {streak > 0 && <span className={styles.streakBadge}>🔥 {streak}</span>}
-      </button>
 
       {/* Kid setup prompt for new users */}
       {hasSupabaseAuth && profilesLoaded && !isKidMode && kidProfiles.length === 0 && isAdmin && (

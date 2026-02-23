@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { getCurrentStreak } from '../utils/milestones'
-import ProfileSwitcher, { ProfileChip, KidModeBanner } from './ProfileSwitcher'
+import ProfileSwitcher, { ProfileChip } from './ProfileSwitcher'
 import styles from './Layout.module.css'
 
 export default function Layout({ children }) {
@@ -15,16 +15,11 @@ export default function Layout({ children }) {
 
   // Dynamic header title: show the active person's name
   const headerTitle = showProfiles
-    ? (isKidMode ? `${activeProfileName} · My Dancing 💃` : `My Dancing 💃`)
+    ? `My Dancing 💃`
     : `${settings?.dancerName || 'My Dancing'} · My Dancing 💃`
 
   return (
     <div className={styles.layout}>
-      {/* Kid mode banner */}
-      {!isLiveView && isKidMode && showProfiles && (
-        <KidModeBanner onClick={() => setSwitcherOpen(true)} />
-      )}
-
       {/* Header */}
       {!isLiveView && (
         <header className={styles.header}>

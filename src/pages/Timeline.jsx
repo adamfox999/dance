@@ -147,6 +147,7 @@ export default function Timeline() {
     disciplines, routines, sessions, events,
     setSessionReflection, setElementStatus, scheduleRehearsal, addEventEntry, addShow,
     editRoutine,
+    isAdmin,
     hasSupabaseAuth,
     authUser,
     ownKidProfiles,
@@ -289,6 +290,7 @@ export default function Timeline() {
   }
 
   const openAddDialog = () => {
+    if (!isAdmin) return
     if (!isRoutine || !routine) return
     setAddType('practice')
     setAddDate(new Date(Date.now() + 86400000).toISOString().split('T')[0])
@@ -357,6 +359,7 @@ export default function Timeline() {
   }, [isSharedRecipientRoutine, acceptedIncomingShare?.owner_user_id, fetchPartnerKids])
 
   const toggleOwnKidOnRoutineTop = async (kidId) => {
+    if (!isAdmin) return
     if (!routine?.id) return
     const current = Array.isArray(routine.kidProfileIds) ? routine.kidProfileIds : []
     const updated = current.includes(kidId)
@@ -373,6 +376,7 @@ export default function Timeline() {
   }
 
   const toggleRecipientKidTagTop = async (kidId) => {
+    if (!isAdmin) return
     if (!acceptedIncomingShare?.id) return
     const updated = recipientTaggedKids.includes(kidId)
       ? recipientTaggedKids.filter((idValue) => idValue !== kidId)
@@ -445,6 +449,7 @@ export default function Timeline() {
   }
 
   const handleTogglePartnerKid = async (shareId, kidId) => {
+    if (!isAdmin) return
     const share = outgoingShares.find(s => s.id === shareId)
     if (!share) return
     const current = share.partner_kid_ids || []
@@ -530,7 +535,7 @@ export default function Timeline() {
             <p className={styles.subtitle}>{routine.formation} · {routine.type}</p>
           )}
         </div>
-        {isRoutine && routine && (
+        {isAdmin && isRoutine && routine && (
           <button
             className={styles.addBtn}
             onClick={openAddDialog}
@@ -542,7 +547,7 @@ export default function Timeline() {
         )}
       </div>
 
-      {isRoutine && routine && !isSharedRecipientRoutine && (ownKidProfiles || []).length > 0 && (
+      {isAdmin && isRoutine && routine && !isSharedRecipientRoutine && (ownKidProfiles || []).length > 0 && (
         <div style={{ marginTop: 4, marginBottom: 12 }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {ownAssignedKids.map((kid) => (
@@ -579,7 +584,7 @@ export default function Timeline() {
         </div>
       )}
 
-      {isRoutine && routine && isSharedRecipientRoutine && (ownKidProfiles || []).length > 0 && (
+      {isAdmin && isRoutine && routine && isSharedRecipientRoutine && (ownKidProfiles || []).length > 0 && (
         <div style={{ marginTop: 4, marginBottom: 12 }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {ownerRoutineTaggedKids.map((kid) => (
@@ -627,7 +632,7 @@ export default function Timeline() {
         </div>
       )}
 
-      {addDialogOpen && isRoutine && routine && (
+      {isAdmin && addDialogOpen && isRoutine && routine && (
         <div className={styles.addDialogBackdrop} onClick={() => setAddDialogOpen(false)}>
           <div
             className={styles.addDialog}

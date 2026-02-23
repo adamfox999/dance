@@ -84,6 +84,22 @@ import {
 
 const AppContext = createContext(null)
 const ADMIN_PIN = '6789'
+const ACTIVE_PROFILE_STORAGE_KEY = 'dance-tracker:active-profile'
+
+function readStoredActiveProfile() {
+  if (typeof window === 'undefined') return { type: 'adult' }
+  try {
+    const raw = window.localStorage.getItem(ACTIVE_PROFILE_STORAGE_KEY)
+    if (!raw) return { type: 'adult' }
+    const parsed = JSON.parse(raw)
+    if (parsed?.type === 'kid' && parsed?.kidId) {
+      return { type: 'kid', kidId: parsed.kidId }
+    }
+  } catch {
+    // Ignore invalid storage payloads
+  }
+  return { type: 'adult' }
+}
 
 // ============ PROVIDER ============
 export function AppProvider({ children }) {
@@ -95,7 +111,7 @@ export function AppProvider({ children }) {
   // Profile state
   const [userProfile, setUserProfile] = useState(null)
   const [kidProfiles, setKidProfiles] = useState([])
-  const [activeProfile, setActiveProfile] = useState({ type: 'adult' })
+  const [activeProfile, setActiveProfile] = useState(() => readStoredActiveProfile())
   const isKidMode = activeProfile.type === 'kid'
 
   // Share state
@@ -143,6 +159,40 @@ export function AppProvider({ children }) {
   })()
 
   const activeKidProfile = isKidMode ? allKidProfiles.find(k => k.id === activeProfile.kidId) : null
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, JSON.stringify({
+        ...activeProfile,
+        userId: authUser?.id || null,
+      }))
+    } catch {
+      // Ignore localStorage write failures
+    }
+  }, [activeProfile, authUser?.id])
+
+  useEffect(() => {
+    if (!authUser?.id || typeof window === 'undefined') return
+    try {
+      const raw = window.localStorage.getItem(ACTIVE_PROFILE_STORAGE_KEY)
+      if (!raw) return
+      const parsed = JSON.parse(raw)
+      if (parsed?.userId && parsed.userId !== authUser.id) {
+        setActiveProfile({ type: 'adult' })
+      }
+    } catch {
+      // Ignore invalid storage payloads
+    }
+  }, [authUser?.id])
+
+  useEffect(() => {
+    if (activeProfile.type !== 'kid') return
+    if (!profilesLoaded) return
+    if (allKidProfiles.some((kid) => kid.id === activeProfile.kidId)) return
+    setActiveProfile({ type: 'adult' })
+  }, [activeProfile, allKidProfiles, profilesLoaded])
+
   const isAdmin = Boolean(authUser) && !isKidMode
   const activeProfileName = isKidMode
     ? (activeKidProfile?.display_name || 'Dancer')
