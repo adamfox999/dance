@@ -7,7 +7,7 @@ import styles from './Scrapbook.module.css'
 
 export default function Scrapbook() {
   const { showId } = useParams()
-  const { events, routines, addScrapbookEntry, addScrapbookReaction, removeScrapbookEntry, addEventEntry, editEventEntry, removeEventEntry, isAdmin } = useApp()
+  const { events, routines, addScrapbookEntry, addScrapbookReaction, removeScrapbookEntry, addEventEntry, editEventEntry, removeEventEntry, isAdmin, isKidMode } = useApp()
   const navigate = useNavigate()
   const photoInputRef = useRef(null)
   const videoInputRef = useRef(null)
@@ -17,6 +17,17 @@ export default function Scrapbook() {
   const [expandedEntry, setExpandedEntry] = useState(null) // entry id for expanded result panel
   const [lightboxIndex, setLightboxIndex] = useState(null) // index into mediaEntries
   const [showAddEntry, setShowAddEntry] = useState(false)
+
+  if (isKidMode) {
+    return (
+      <div className={styles.scrapbook}>
+        <div className={styles.empty}>
+          <h2>Scrapbook is only available in parent view</h2>
+          <button onClick={() => navigate('/')}>← Back Home</button>
+        </div>
+      </div>
+    )
+  }
 
   const show = events.find(s => s.id === showId)
 

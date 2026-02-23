@@ -170,7 +170,7 @@ export default function Timeline() {
     disciplines, routines, sessions, events,
     setSessionReflection, setElementStatus, scheduleRehearsal, addEventEntry, editEventEntry, addShow,
     editRoutine,
-    isAdmin, isLoading,
+    isAdmin, isKidMode, isLoading,
     hasSupabaseAuth,
     authUser,
     ownKidProfiles,
@@ -1128,8 +1128,11 @@ export default function Timeline() {
                 {item.type === 'show' && (
                   <div
                     className={styles.cardBody}
-                    onClick={() => navigate(`/show/${item.data.id}`)}
-                    style={{ cursor: 'pointer' }}
+                    onClick={() => {
+                      if (isKidMode) return
+                      navigate(`/show/${item.data.id}`)
+                    }}
+                    style={{ cursor: isKidMode ? 'default' : 'pointer' }}
                   >
                     <span className={styles.cardIcon}>{getEventTypeIcon(item.data.eventType)}</span>
                     <div className={styles.cardInfo}>

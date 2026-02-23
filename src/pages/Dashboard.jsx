@@ -151,7 +151,14 @@ export default function Dashboard() {
 
       {/* Upcoming show */}
       {nextShow && (
-        <div className={styles.upcomingCard} onClick={() => navigate(`/show/${nextShow.id}`)}>
+        <div
+          className={styles.upcomingCard}
+          onClick={() => {
+            if (isKidMode) return
+            navigate(`/show/${nextShow.id}`)
+          }}
+          style={{ cursor: isKidMode ? 'default' : 'pointer' }}
+        >
           <div className={styles.upcomingIcon}>{getEventTypeIcon(nextShow.eventType)}</div>
           <div className={styles.upcomingInfo}>
             <div className={styles.upcomingName}>{nextShow.name}</div>

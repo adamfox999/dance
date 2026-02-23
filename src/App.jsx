@@ -11,7 +11,7 @@ import TrophyShelf from './pages/TrophyShelf'
 import Settings from './pages/Settings'
 
 export default function App() {
-  const { isLoading, authLoading, isAuthenticated, hasSupabaseAuth } = useApp()
+  const { isLoading, authLoading, isAuthenticated, hasSupabaseAuth, isKidMode } = useApp()
   const {
     needRefresh: [needRefresh],
     updateServiceWorker,
@@ -42,7 +42,7 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/timeline/:type/:id" element={<Timeline />} />
           <Route path="/choreography/:routineId" element={<Choreography />} />
-          <Route path="/show/:showId" element={<Scrapbook />} />
+          <Route path="/show/:showId" element={isKidMode ? <Navigate to="/" replace /> : <Scrapbook />} />
           <Route path="/trophies" element={<TrophyShelf />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
