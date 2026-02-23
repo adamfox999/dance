@@ -7,7 +7,7 @@ import styles from './Scrapbook.module.css'
 
 export default function Scrapbook() {
   const { showId } = useParams()
-  const { state, dispatch, isAdmin } = useApp()
+  const { events, routines, addScrapbookEntry, addScrapbookReaction, addEventEntry, editEventEntry, isAdmin } = useApp()
   const navigate = useNavigate()
   const photoInputRef = useRef(null)
   const videoInputRef = useRef(null)
@@ -18,7 +18,7 @@ export default function Scrapbook() {
   const [lightboxIndex, setLightboxIndex] = useState(null) // index into mediaEntries
   const [showAddEntry, setShowAddEntry] = useState(false)
 
-  const show = state.shows.find(s => s.id === showId)
+  const show = events.find(s => s.id === showId)
 
   if (!show) {
     return (
@@ -48,27 +48,17 @@ export default function Scrapbook() {
   const handleAddNote = () => {
     const note = prompt("What do you want to remember about this show?")
     if (!note) return
-    dispatch({
-      type: 'ADD_SCRAPBOOK_ENTRY',
-      payload: {
-        showId,
-        entry: {
-          id: `entry-${Date.now()}`,
-          type: 'note',
-          content: note,
-          author: 'dancer',
-          date: new Date().toISOString().split('T')[0],
-          emojiReactions: [],
-        },
-      },
+    addScrapbookEntry(showId, {
+      type: 'note',
+      content: note,
+      author: 'dancer',
+      date: new Date().toISOString().split('T')[0],
+      emojiReactions: [],
     })
   }
 
   const handleReaction = (entryId, emoji) => {
-    dispatch({
-      type: 'ADD_SCRAPBOOK_REACTION',
-      payload: { showId, entryId, emoji },
-    })
+    addScrapbookReaction(showId, entryId, emoji)
   }
 
   const reactionEmojis = ['🔥', '⭐', '💜', '👏', '🎉']
@@ -86,19 +76,12 @@ export default function Scrapbook() {
           reader.onload = (ev) => resolve(ev.target.result)
           reader.readAsDataURL(compressed)
         })
-        dispatch({
-          type: 'ADD_SCRAPBOOK_ENTRY',
-          payload: {
-            showId,
-            entry: {
-              id: `entry-${Date.now()}-${i}`,
-              type: 'photo',
-              content: dataUrl,
-              author: 'dancer',
-              date: new Date().toISOString().split('T')[0],
-              emojiReactions: [],
-            },
-          },
+        addScrapbookEntry(showId, {
+          type: 'photo',
+          content: dataUrl,
+          author: 'dancer',
+          date: new Date().toISOString().split('T')[0],
+          emojiReactions: [],
         })
       } catch (err) {
         console.error(`Photo ${i + 1} compression failed:`, err)
@@ -124,19 +107,12 @@ export default function Scrapbook() {
           reader.onload = (ev) => resolve(ev.target.result)
           reader.readAsDataURL(compressed)
         })
-        dispatch({
-          type: 'ADD_SCRAPBOOK_ENTRY',
-          payload: {
-            showId,
-            entry: {
-              id: `entry-${Date.now()}-${i}`,
-              type: 'video',
-              content: dataUrl,
-              author: 'dancer',
-              date: new Date().toISOString().split('T')[0],
-              emojiReactions: [],
-            },
-          },
+        addScrapbookEntry(showId, {
+          type: 'video',
+          content: dataUrl,
+          author: 'dancer',
+          date: new Date().toISOString().split('T')[0],
+          emojiReactions: [],
         })
       } catch (err) {
         console.error(`Video ${i + 1} compression failed:`, err)
@@ -151,7 +127,7 @@ export default function Scrapbook() {
   const mediaEntries = entries.filter((e) => e.type === 'photo' || e.type === 'video')
 
   // Available events user can select as "qualified through to"
-  const otherEvents = (state.shows || []).filter((s) => s.id !== showId)
+  const otherEvents = (events || []).filter((s) => s.id !== showId)
 
   return (
     <div className={styles.scrapbook}>
@@ -190,28 +166,21 @@ export default function Scrapbook() {
         {/* Add entry picker */}
         {showAddEntry && (
           <div className={styles.addEntryPicker}>
-            {state.routines
+            {routines
               .filter(r => !(show.entries || []).some(e => e.routineId === r.id))
               .map(r => (
                 <button
                   key={r.id}
                   className={styles.addEntryOption}
                   onClick={() => {
-                    dispatch({
-                      type: 'ADD_EVENT_ENTRY',
-                      payload: {
-                        showId,
-                        entry: {
-                          id: `entry-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                          routineId: r.id,
-                          scheduledDate: '',
-                          scheduledTime: '',
-                          place: null,
-                          qualified: false,
-                          qualifiedForEventId: '',
-                          notes: '',
-                        },
-                      },
+                    addEventEntry(showId, {
+                      routineId: r.id,
+                      scheduledDate: '',
+                      scheduledTime: '',
+                      place: null,
+                      qualified: false,
+                      qualifiedForEventId: '',
+                      notes: '',
                     })
                     setShowAddEntry(false)
                   }}
@@ -219,7 +188,7 @@ export default function Scrapbook() {
                   🎵 {r.name}
                 </button>
               ))}
-            {state.routines.filter(r => !(show.entries || []).some(e => e.routineId === r.id)).length === 0 && (
+            {routines.filter(r => !(show.entries || []).some(e => e.routineId === r.id)).length === 0 && (
               <p className={styles.addEntryEmpty}>All routines already added</p>
             )}
           </div>
@@ -229,14 +198,14 @@ export default function Scrapbook() {
         <>
           <div className={styles.eventEntriesList}>
             {(show.entries || []).map((entry) => {
-              const r = state.routines.find((rt) => rt.id === entry.routineId)
+              const r = routines.find((rt) => rt.id === entry.routineId)
               const hasDate = Boolean(entry.scheduledDate)
               const hasTime = Boolean(entry.scheduledTime)
               const dateLabel = hasDate
                 ? new Date(entry.scheduledDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
                 : ''
               const qualifiedEvent = entry.qualifiedForEventId
-                ? (state.shows || []).find((s) => s.id === entry.qualifiedForEventId)
+                ? (events || []).find((s) => s.id === entry.qualifiedForEventId)
                 : null
               const isExpanded = expandedEntry === entry.id
 
@@ -280,10 +249,7 @@ export default function Scrapbook() {
                         <div className={styles.placeButtons}>
                           <button
                             className={`${styles.placeBtn} ${entry.place === 0 ? styles.placeBtnActive : ''}`}
-                            onClick={() => dispatch({
-                              type: 'UPDATE_EVENT_ENTRY',
-                              payload: { showId, entryId: entry.id, updates: { place: entry.place === 0 ? null : 0 } },
-                            })}
+                            onClick={() => editEventEntry(showId, entry.id, { place: entry.place === 0 ? null : 0 })}
                           >
                             Not placed
                           </button>
@@ -291,10 +257,7 @@ export default function Scrapbook() {
                             <button
                               key={p}
                               className={`${styles.placeBtn} ${entry.place === p ? styles.placeBtnActive : ''}`}
-                              onClick={() => dispatch({
-                                type: 'UPDATE_EVENT_ENTRY',
-                                payload: { showId, entryId: entry.id, updates: { place: entry.place === p ? null : p } },
-                              })}
+                              onClick={() => editEventEntry(showId, entry.id, { place: entry.place === p ? null : p })}
                             >
                               {p === 1 ? '🥇 1st' : p === 2 ? '🥈 2nd' : '🥉 3rd'}
                             </button>
@@ -308,14 +271,7 @@ export default function Scrapbook() {
                             value={entry.place > 3 ? entry.place : ''}
                             onChange={(e) => {
                               const val = Number.parseInt(e.target.value, 10)
-                              dispatch({
-                                type: 'UPDATE_EVENT_ENTRY',
-                                payload: {
-                                  showId,
-                                  entryId: entry.id,
-                                  updates: { place: Number.isFinite(val) && val > 0 ? val : null },
-                                },
-                              })
+                              editEventEntry(showId, entry.id, { place: Number.isFinite(val) && val > 0 ? val : null })
                             }}
                           />
                         </div>
@@ -325,10 +281,7 @@ export default function Scrapbook() {
                         <label className={styles.resultLabel}>Qualified?</label>
                         <button
                           className={`${styles.qualifiedToggle} ${entry.qualified ? styles.qualifiedToggleActive : ''}`}
-                          onClick={() => dispatch({
-                            type: 'UPDATE_EVENT_ENTRY',
-                            payload: { showId, entryId: entry.id, updates: { qualified: !entry.qualified } },
-                          })}
+                          onClick={() => editEventEntry(showId, entry.id, { qualified: !entry.qualified })}
                         >
                           {entry.qualified ? '✓ Yes – AED Qualified' : '○ Not yet'}
                         </button>
@@ -340,10 +293,7 @@ export default function Scrapbook() {
                           <select
                             className={styles.qualifiedForSelect}
                             value={entry.qualifiedForEventId || ''}
-                            onChange={(e) => dispatch({
-                              type: 'UPDATE_EVENT_ENTRY',
-                              payload: { showId, entryId: entry.id, updates: { qualifiedForEventId: e.target.value } },
-                            })}
+                            onChange={(e) => editEventEntry(showId, entry.id, { qualifiedForEventId: e.target.value })}
                           >
                             <option value="">— Select event —</option>
                             {otherEvents.map((ev) => (
@@ -362,10 +312,7 @@ export default function Scrapbook() {
                           rows={2}
                           placeholder="Any notes about this entry…"
                           value={entry.notes || ''}
-                          onChange={(e) => dispatch({
-                            type: 'UPDATE_EVENT_ENTRY',
-                            payload: { showId, entryId: entry.id, updates: { notes: e.target.value } },
-                          })}
+                          onChange={(e) => editEventEntry(showId, entry.id, { notes: e.target.value })}
                         />
                       </div>
                     </div>
@@ -522,19 +469,12 @@ export default function Scrapbook() {
             <button onClick={() => {
               const feedback = prompt("Enter teacher/parent feedback:")
               if (!feedback) return
-              dispatch({
-                type: 'ADD_SCRAPBOOK_ENTRY',
-                payload: {
-                  showId,
-                  entry: {
-                    id: `entry-${Date.now()}`,
-                    type: 'feedback',
-                    content: feedback,
-                    author: 'teacher',
-                    date: new Date().toISOString().split('T')[0],
-                    emojiReactions: [],
-                  },
-                },
+              addScrapbookEntry(showId, {
+                type: 'feedback',
+                content: feedback,
+                author: 'teacher',
+                date: new Date().toISOString().split('T')[0],
+                emojiReactions: [],
               })
             }}>
               👩‍🏫 Add Feedback
@@ -542,19 +482,12 @@ export default function Scrapbook() {
             <button onClick={() => {
               const result = prompt("Enter exam result (e.g. 'Merit - 85%'):")
               if (!result) return
-              dispatch({
-                type: 'ADD_SCRAPBOOK_ENTRY',
-                payload: {
-                  showId,
-                  entry: {
-                    id: `entry-${Date.now()}`,
-                    type: 'examResult',
-                    content: result,
-                    author: 'parent',
-                    date: new Date().toISOString().split('T')[0],
-                    emojiReactions: [],
-                  },
-                },
+              addScrapbookEntry(showId, {
+                type: 'examResult',
+                content: result,
+                author: 'parent',
+                date: new Date().toISOString().split('T')[0],
+                emojiReactions: [],
               })
             }}>
               🎓 Add Exam Result

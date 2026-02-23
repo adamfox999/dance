@@ -318,14 +318,22 @@ export async function updateSharePartnerKids(shareId, partnerKidIds) {
   await requireUser()
 
   const { data, error } = await client
+    .rpc('set_share_partner_kids', {
+      p_share_id: shareId,
+      p_partner_kid_ids: partnerKidIds || [],
+    })
+
+  if (!error) return data
+
+  const fallback = await client
     .from('dance_share')
     .update({ partner_kid_ids: partnerKidIds || [] })
     .eq('id', shareId)
     .select()
     .single()
 
-  if (error) throw new Error(error.message)
-  return data
+  if (fallback.error) throw new Error(fallback.error.message || error.message)
+  return fallback.data
 }
 
 // ============ FAMILY UNITS ============

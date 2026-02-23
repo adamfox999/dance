@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { getCurrentStreak } from '../utils/milestones'
-import { getDaysInMonth, getFirstDayOfMonth, formatDate, daysUntil, isFuture, getSessionIcon, generateId } from '../utils/helpers'
+import { getDaysInMonth, getFirstDayOfMonth, formatDate, daysUntil, isFuture, getSessionIcon } from '../utils/helpers'
 import { AED_TEMPLATES, EVENT_TYPES, getEventTypeIcon } from '../data/aedEvents'
 import styles from './Calendar.module.css'
 
@@ -13,13 +13,13 @@ const MONTH_NAMES = [
 ]
 
 export default function Calendar() {
-  const { state, dispatch } = useApp()
+  const { routines, sessions, events, practiceLog, scheduleRehearsal, addShow, logPracticeDay } = useApp()
   const navigate = useNavigate()
   const today = new Date()
   const [viewYear, setViewYear] = useState(today.getFullYear())
   const [viewMonth, setViewMonth] = useState(today.getMonth())
   const [scheduleDate, setScheduleDate] = useState(() => new Date(Date.now() + 86400000).toISOString().split('T')[0])
-  const [scheduleRoutineId, setScheduleRoutineId] = useState(() => state.routines?.[0]?.id || '')
+  const [scheduleRoutineId, setScheduleRoutineId] = useState(() => routines?.[0]?.id || '')
   const [scheduleVersionId, setScheduleVersionId] = useState('')
   const [addMode, setAddMode] = useState('practice') // 'practice' | 'event'
   const [eventName, setEventName] = useState('')
@@ -31,8 +31,8 @@ export default function Calendar() {
   const [eventRegion, setEventRegion] = useState('')
 
   const selectedRoutine = useMemo(
-    () => state.routines.find((routine) => routine.id === scheduleRoutineId) || null,
-    [state.routines, scheduleRoutineId]
+    () => routines.find((routine) => routine.id === scheduleRoutineId) || null,
+    [routines, scheduleRoutineId]
   )
   const selectedRoutineVersions = useMemo(
     () => selectedRoutine?.choreographyVersions || [],
@@ -46,24 +46,24 @@ export default function Calendar() {
     }
   }, [selectedRoutineVersions, scheduleVersionId])
 
-  const streak = getCurrentStreak(state.practiceLog)
+  const streak = getCurrentStreak(practiceLog)
   const todayStr = today.toISOString().split('T')[0]
-  const loggedToday = state.practiceLog.includes(todayStr)
+  const loggedToday = practiceLog.includes(todayStr)
 
   const daysInMonth = getDaysInMonth(viewYear, viewMonth)
   const firstDay = getFirstDayOfMonth(viewYear, viewMonth)
 
   // Sessions in this month
   const monthSessions = useMemo(() => {
-    return state.sessions.filter((s) => {
+    return sessions.filter((s) => {
       const d = new Date(s.date)
       return d.getFullYear() === viewYear && d.getMonth() === viewMonth
     })
-  }, [state.sessions, viewYear, viewMonth])
+  }, [sessions, viewYear, viewMonth])
 
   // Shows/events in this month (dot display)
   const monthShows = useMemo(() => {
-    return (state.shows || []).filter((s) => {
+    return (events || []).filter((s) => {
       const start = s.startDate || s.date
       const end = s.endDate || start
       if (!start) return false
@@ -72,24 +72,24 @@ export default function Calendar() {
       const monthEnd = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(daysCount).padStart(2, '0')}`
       return start <= monthEnd && end >= monthStart
     })
-  }, [state.shows, viewYear, viewMonth])
+  }, [events, viewYear, viewMonth])
 
   // Upcoming sessions
   const upcoming = useMemo(() => {
-    return state.sessions
+    return sessions
       .filter((s) => isFuture(s.date))
       .sort((a, b) => new Date(a.date) - new Date(b.date))
       .slice(0, 5)
-  }, [state.sessions])
+  }, [sessions])
 
   // Upcoming shows/events
   const upcomingShows = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0]
-    return (state.shows || [])
+    return (events || [])
       .filter((s) => (s.startDate || s.date) >= todayStr)
       .sort((a, b) => new Date(a.startDate || a.date) - new Date(b.startDate || b.date))
       .slice(0, 3)
-  }, [state.shows])
+  }, [events])
 
   const getSessionsForDay = (day) => {
     const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
@@ -106,7 +106,7 @@ export default function Calendar() {
   }
 
   const getRoutineVersion = (session) => {
-    const routine = state.routines.find((routineItem) => routineItem.id === session.routineId)
+    const routine = routines.find((routineItem) => routineItem.id === session.routineId)
     if (!routine) return null
     const versions = routine.choreographyVersions || []
     const version = versions.find((versionItem) => versionItem.id === session.choreographyVersionId)
@@ -117,47 +117,39 @@ export default function Calendar() {
 
   const handleSchedulePractice = () => {
     if (!scheduleRoutineId || !scheduleDate) return
-    const routine = state.routines.find((routineItem) => routineItem.id === scheduleRoutineId)
+    const routine = routines.find((routineItem) => routineItem.id === scheduleRoutineId)
     if (!routine) return
     const versions = routine.choreographyVersions || []
     const selectedVersion = versions.find((version) => version.id === scheduleVersionId)
       || versions[versions.length - 1]
       || null
 
-    dispatch({
-      type: 'SCHEDULE_REHEARSAL',
-      payload: {
-        id: generateId('session'),
-        date: scheduleDate,
-        scheduledAt: scheduleDate,
-        title: `${routine.name} rehearsal`,
-        routineId: routine.id,
-        disciplineId: routine.disciplineId || null,
-        choreographyVersionId: selectedVersion?.id || null,
-        status: 'scheduled',
-      },
+    scheduleRehearsal({
+      date: scheduleDate,
+      scheduledAt: scheduleDate,
+      title: `${routine.name} rehearsal`,
+      routineId: routine.id,
+      disciplineId: routine.disciplineId || null,
+      choreographyVersionId: selectedVersion?.id || null,
+      status: 'scheduled',
     })
   }
 
   const handleCreateEvent = () => {
     if (!eventName.trim()) return
     const startDate = eventStartDate || new Date(Date.now() + 86400000).toISOString().split('T')[0]
-    dispatch({
-      type: 'ADD_SHOW',
-      payload: {
-        id: generateId('show'),
-        name: eventName.trim(),
-        date: startDate,
-        startDate,
-        endDate: eventEndDate || startDate,
-        venue: eventVenue.trim(),
-        eventType,
-        competitionOrg: eventCompOrg,
-        region: eventRegion,
-        routineIds: [],
-        entries: [],
-        scrapbookEntries: [],
-      },
+    addShow({
+      name: eventName.trim(),
+      date: startDate,
+      startDate,
+      endDate: eventEndDate || startDate,
+      venue: eventVenue.trim(),
+      eventType,
+      competitionOrg: eventCompOrg,
+      region: eventRegion,
+      routineIds: [],
+      entries: [],
+      scrapbookEntries: [],
     })
     // Reset
     setEventName('')
@@ -181,7 +173,7 @@ export default function Calendar() {
 
   const isPracticeLogged = (day) => {
     const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-    return state.practiceLog.includes(dateStr)
+    return practiceLog.includes(dateStr)
   }
 
   const isTodayCell = (day) => {
@@ -211,7 +203,7 @@ export default function Calendar() {
   }
 
   const handleLogToday = () => {
-    dispatch({ type: 'LOG_PRACTICE', payload: todayStr })
+    logPracticeDay(todayStr)
   }
 
   return (
@@ -253,7 +245,7 @@ export default function Calendar() {
 
         {addMode === 'practice' && (
           <>
-            {state.routines.length === 0 ? (
+            {routines.length === 0 ? (
               <p className={styles['schedule-empty']}>Add a routine in Settings first.</p>
             ) : (
               <div className={styles['schedule-controls']}>
@@ -266,12 +258,12 @@ export default function Calendar() {
                   value={scheduleRoutineId}
                   onChange={(e) => {
                     setScheduleRoutineId(e.target.value)
-                    const nextRoutine = state.routines.find((routine) => routine.id === e.target.value)
+                    const nextRoutine = routines.find((routine) => routine.id === e.target.value)
                     const nextVersions = nextRoutine?.choreographyVersions || []
                     setScheduleVersionId(nextVersions[nextVersions.length - 1]?.id || '')
                   }}
                 >
-                  {state.routines.map((routine) => (
+                  {routines.map((routine) => (
                     <option key={routine.id} value={routine.id}>{routine.name}</option>
                   ))}
                 </select>

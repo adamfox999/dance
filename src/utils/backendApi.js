@@ -174,13 +174,30 @@ export async function getFileFromBackend(key) {
 
   if (metaError) throw new Error(metaError.message)
 
-  const storagePath = metaRow?.meta_data?.storagePath || getStoragePath(ownerId, normalizedKey)
+  const meta = metaRow?.meta_data || {}
+  let storagePath = meta.storagePath || ''
+  if (!storagePath) {
+    storagePath = getStoragePath(ownerId, normalizedKey, meta.fileName)
+  }
+
   const { data, error } = await client.storage
     .from(STORAGE_BUCKET)
     .download(storagePath)
 
   if (error) return null
   if (!data) return null
+
+  if (storagePath && meta.storagePath !== storagePath) {
+    const mergedMeta = {
+      ...meta,
+      storagePath,
+      contentType: meta.contentType || data.type || '',
+      updatedAt: Date.now(),
+    }
+    await client
+      .from('file_metadata')
+      .upsert({ owner_id: ownerId, id: normalizedKey, meta_data: mergedMeta }, { onConflict: 'owner_id,id' })
+  }
 
   return {
     blob: data,

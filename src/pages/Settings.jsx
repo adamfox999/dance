@@ -1,8 +1,9 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
-import { generateId } from '../utils/helpers'
-import { fetchStateFromBackend } from '../utils/backendApi'
+import { fetchStateFromBackend, listMediaFromBackend, getFileFromBackend } from '../utils/backendApi'
+import { saveFile } from '../utils/fileStorage'
+import MediaPickerDialog from '../components/MediaPickerDialog'
 import { GRADE_LEVELS } from '../data/defaultState'
 import { EVENT_TYPES } from '../data/aedEvents'
 import styles from './Settings.module.css'
@@ -12,7 +13,12 @@ const AVATAR_EMOJIS = ['👤', '💃', '🩰', '👧', '👦', '🧒', '🌟', '
 
 export default function Settings() {
   const {
-    state, dispatch, isAdmin, hasSupabaseAuth, authUser, signOut,
+    disciplines, routines, events, settings,
+    addDiscipline, editDiscipline, removeDiscipline,
+    addRoutine, editRoutine, removeRoutine,
+    addShow, editShow, removeShow,
+    resetState,
+    isAdmin, hasSupabaseAuth, authUser, signOut,
     // Profiles
     userProfile, kidProfiles, ownKidProfiles, familyUnits,
     saveUserProfile, addKidProfile, editKidProfile, removeKidProfile,
@@ -61,6 +67,80 @@ export default function Settings() {
   const [editingKidId, setEditingKidId] = useState(null)
   const [editKidName, setEditKidName] = useState('')
   const [editKidEmoji, setEditKidEmoji] = useState('💃')
+  const coverUploadInputRef = useRef(null)
+  const [coverPickerRoutineId, setCoverPickerRoutineId] = useState(null)
+  const [coverMediaItems, setCoverMediaItems] = useState([])
+  const [coverPickerLoading, setCoverPickerLoading] = useState(false)
+  const [coverPickerError, setCoverPickerError] = useState('')
+  const [coverPickerApplyingKey, setCoverPickerApplyingKey] = useState(null)
+  const [coverUploadBusy, setCoverUploadBusy] = useState(false)
+  const [coverUploadStatus, setCoverUploadStatus] = useState('')
+  const [coverUploadProgress, setCoverUploadProgress] = useState(null)
+  const [coverPreviewUrls, setCoverPreviewUrls] = useState({})
+  const coverPreviewUrlsRef = useRef({})
+  const coverAutoCloseTimerRef = useRef(null)
+
+  const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
+
+  const updateCoverPreviewUrls = (nextMap) => {
+    Object.values(coverPreviewUrlsRef.current).forEach((url) => {
+      try { URL.revokeObjectURL(url) } catch {}
+    })
+    coverPreviewUrlsRef.current = nextMap
+    setCoverPreviewUrls(nextMap)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (coverAutoCloseTimerRef.current) {
+        clearTimeout(coverAutoCloseTimerRef.current)
+        coverAutoCloseTimerRef.current = null
+      }
+      Object.values(coverPreviewUrlsRef.current).forEach((url) => {
+        try { URL.revokeObjectURL(url) } catch {}
+      })
+      coverPreviewUrlsRef.current = {}
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!coverPickerRoutineId || coverMediaItems.length === 0) {
+      updateCoverPreviewUrls({})
+      return
+    }
+
+    let cancelled = false
+    const loadPreviews = async () => {
+      const entries = await Promise.all(coverMediaItems.map(async (item) => {
+        const itemKey = item.key || item.id
+        if (!itemKey) return null
+        try {
+          const file = await getFileFromBackend(itemKey)
+          if (!file?.blob) return null
+          return [itemKey, URL.createObjectURL(file.blob)]
+        } catch {
+          return null
+        }
+      }))
+
+      const nextMap = Object.fromEntries(entries.filter(Boolean))
+      if (cancelled) {
+        Object.values(nextMap).forEach((url) => {
+          try { URL.revokeObjectURL(url) } catch {}
+        })
+        return
+      }
+      updateCoverPreviewUrls(nextMap)
+    }
+
+    loadPreviews()
+    return () => { cancelled = true }
+  }, [coverPickerRoutineId, coverMediaItems])
 
   const handleSignOut = async () => {
     setAuthBusy(true)
@@ -123,13 +203,13 @@ export default function Settings() {
   }
 
   const handleToggleKidOnRoutine = (routineId, kidId) => {
-    const routine = state.routines.find(r => r.id === routineId)
+    const routine = routines.find(r => r.id === routineId)
     if (!routine) return
     const current = routine.kidProfileIds || []
     const updated = current.includes(kidId)
       ? current.filter(id => id !== kidId)
       : [...current, kidId]
-    dispatch({ type: 'UPDATE_ROUTINE', payload: { id: routineId, kidProfileIds: updated } })
+    editRoutine(routineId, { kidProfileIds: updated })
   }
 
   // ---- Share handlers ----
@@ -284,103 +364,197 @@ export default function Settings() {
 
   // ---- Disciplines ----
   const handleAddDiscipline = () => {
-    dispatch({
-      type: 'ADD_DISCIPLINE',
-      payload: {
-        id: generateId('disc'),
-        name: 'New Discipline',
-        icon: DISCIPLINE_ICONS[state.disciplines.length % DISCIPLINE_ICONS.length],
-        currentGrade: GRADE_LEVELS[0],
-        gradeHistory: [],
-        elements: [],
-      },
+    addDiscipline({
+      name: 'New Discipline',
+      icon: DISCIPLINE_ICONS[disciplines.length % DISCIPLINE_ICONS.length],
+      currentGrade: GRADE_LEVELS[0],
     })
   }
 
   const handleDeleteDiscipline = (id) => {
     if (!window.confirm('Delete this discipline and all its data?')) return
-    dispatch({ type: 'DELETE_DISCIPLINE', payload: id })
+    removeDiscipline(id)
   }
 
   // ---- Routines ----
   const handleAddRoutine = () => {
-    const versionId = generateId('ver')
-    dispatch({
-      type: 'ADD_ROUTINE',
-      payload: {
-        id: generateId('rtn'),
-        name: 'New Routine',
-        disciplineId: state.disciplines[0]?.id || '',
-        type: 'exam',
-        formation: 'solo',
-        coverPhoto: '',
-        showId: null,
-        choreographyVersions: [{ id: versionId, label: 'v1', createdAt: new Date().toISOString(), songInstructions: [], cues: [], musicUrl: '', musicFileName: '', duration: 0, videoSyncOffset: 0 }],
-        practiceVideos: [],
-      },
+    addRoutine({
+      name: 'New Routine',
+      disciplineId: disciplines[0]?.id || '',
+      type: 'exam',
+      formation: 'solo',
+      coverPhoto: '',
     })
   }
 
   const handleDeleteRoutine = (id) => {
     if (!window.confirm('Delete this routine?')) return
-    dispatch({ type: 'DELETE_ROUTINE', payload: id })
+    removeRoutine(id)
   }
 
-  const handleRoutineCoverUpload = (routineId, event) => {
+  const handleRoutineCoverUpload = async (routineId, event) => {
     const file = event.target.files?.[0]
     if (!file) return
 
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      const img = new Image()
-      img.onload = () => {
-        const MAX_WIDTH = 900
-        let width = img.width
-        let height = img.height
+    setCoverPickerError('')
+    setCoverUploadBusy(true)
+    setCoverUploadProgress(0)
+    setCoverUploadStatus('Reading image…')
 
-        if (width > MAX_WIDTH) {
-          height = Math.round((height * MAX_WIDTH) / width)
-          width = MAX_WIDTH
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onprogress = (ev) => {
+          if (ev.lengthComputable) {
+            const pct = Math.round((ev.loaded / ev.total) * 30)
+            setCoverUploadProgress(Math.max(5, Math.min(30, pct)))
+          }
         }
+        reader.onload = () => resolve(reader.result)
+        reader.onerror = () => reject(reader.error || new Error('Could not read image file'))
+        reader.readAsDataURL(file)
+      })
 
-        const canvas = document.createElement('canvas')
-        canvas.width = width
-        canvas.height = height
-        const ctx = canvas.getContext('2d')
-        ctx.drawImage(img, 0, 0, width, height)
+      setCoverUploadStatus('Compressing image…')
+      setCoverUploadProgress(45)
 
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
-        dispatch({
-          type: 'UPDATE_ROUTINE',
-          payload: { id: routineId, coverPhoto: dataUrl },
-        })
+      const img = await new Promise((resolve, reject) => {
+        const image = new Image()
+        image.onload = () => resolve(image)
+        image.onerror = () => reject(new Error('Could not decode image'))
+        image.src = dataUrl
+      })
+
+      const MAX_LONG_SIDE = 1920
+      let width = img.width
+      let height = img.height
+      const longSide = Math.max(width, height)
+      if (longSide > MAX_LONG_SIDE) {
+        const scale = MAX_LONG_SIDE / longSide
+        width = Math.max(1, Math.round(width * scale))
+        height = Math.max(1, Math.round(height * scale))
       }
 
-      img.src = ev.target.result
-    }
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('Could not initialize image compressor')
+      ctx.drawImage(img, 0, 0, width, height)
 
-    reader.readAsDataURL(file)
-    event.target.value = ''
+      setCoverUploadProgress(70)
+      const blob = await new Promise((resolve, reject) => {
+        canvas.toBlob((b) => {
+          if (b) resolve(b)
+          else reject(new Error('Could not create image blob'))
+        }, 'image/jpeg', 0.85)
+      })
+
+      setCoverUploadStatus('Applying cover…')
+      setCoverUploadProgress(82)
+      const compressedDataUrl = await blobToDataUrl(blob)
+      await editRoutine(routineId, { coverPhoto: compressedDataUrl })
+
+      setCoverUploadStatus('Uploading to library…')
+      setCoverUploadProgress(90)
+      const ts = Date.now()
+      const mediaKey = `routine-covers/${routineId}/${ts}.jpg`
+      await saveFile(mediaKey, blob, {
+        fileName: `${routineId}-${ts}.jpg`,
+        type: 'image/jpeg',
+        size: blob.size,
+      })
+
+      setCoverUploadStatus('Done')
+      setCoverUploadProgress(100)
+      if (coverAutoCloseTimerRef.current) {
+        clearTimeout(coverAutoCloseTimerRef.current)
+      }
+      coverAutoCloseTimerRef.current = setTimeout(() => {
+        handleCloseCoverPicker()
+      }, 700)
+    } catch (err) {
+      setCoverPickerError(err?.message || 'Could not upload cover image')
+      setCoverUploadStatus('')
+      setCoverUploadProgress(null)
+    } finally {
+      setCoverUploadBusy(false)
+      event.target.value = ''
+    }
+  }
+
+  const handleOpenCoverPicker = async (routineId) => {
+    setCoverPickerRoutineId(routineId)
+    setCoverPickerLoading(true)
+    setCoverPickerError('')
+    try {
+      const media = await listMediaFromBackend()
+      const images = media.filter((m) => String(m.type || '').startsWith('image/'))
+      setCoverMediaItems(images)
+    } catch (err) {
+      setCoverPickerError(err?.message || 'Could not load image library')
+      setCoverMediaItems([])
+    } finally {
+      setCoverPickerLoading(false)
+    }
+  }
+
+  const handleCloseCoverPicker = () => {
+    if (coverAutoCloseTimerRef.current) {
+      clearTimeout(coverAutoCloseTimerRef.current)
+      coverAutoCloseTimerRef.current = null
+    }
+    setCoverPickerRoutineId(null)
+    setCoverPickerApplyingKey(null)
+    setCoverPickerError('')
+    setCoverUploadBusy(false)
+    setCoverUploadStatus('')
+    setCoverUploadProgress(null)
+    updateCoverPreviewUrls({})
+  }
+
+  const handleCoverDialogUploadClick = () => {
+    coverUploadInputRef.current?.click()
+  }
+
+  const handleCoverPickerFileInput = (event) => {
+    if (!coverPickerRoutineId) {
+      event.target.value = ''
+      return
+    }
+    handleRoutineCoverUpload(coverPickerRoutineId, event)
+  }
+
+  const handleSelectCoverFromMedia = async (routineId, mediaKey) => {
+    if (!routineId || !mediaKey) return
+    setCoverPickerError('')
+    setCoverPickerApplyingKey(mediaKey)
+    try {
+      const file = await getFileFromBackend(mediaKey)
+      if (!file?.blob) throw new Error('File not found')
+      const dataUrl = await blobToDataUrl(file.blob)
+      await editRoutine(routineId, { coverPhoto: dataUrl })
+      handleCloseCoverPicker()
+    } catch (err) {
+      setCoverPickerError(err?.message || 'Could not apply selected image')
+    } finally {
+      setCoverPickerApplyingKey(null)
+    }
   }
 
   // ---- Competitions / Events ----
   const handleAddShow = () => {
-    dispatch({
-      type: 'ADD_SHOW',
-      payload: {
-        id: generateId('show'),
-        name: 'New Competition',
-        date: new Date().toISOString().split('T')[0],
-        eventType: 'qualifier',
-        venue: '',
-        scrapbook: [],
-      },
+    addShow({
+      name: 'New Competition',
+      date: new Date().toISOString().split('T')[0],
+      eventType: 'qualifier',
+      venue: '',
     })
   }
 
   const handleDeleteShow = (id) => {
     if (!window.confirm('Delete this show and its scrapbook?')) return
-    dispatch({ type: 'DELETE_SHOW', payload: id })
+    removeShow(id)
   }
 
   // ---- Data ----
@@ -401,9 +575,8 @@ export default function Settings() {
     const reader = new FileReader()
     reader.onload = (event) => {
       try {
-        const data = JSON.parse(event.target.result)
-        dispatch({ type: 'IMPORT_STATE', payload: data })
-        alert('Data imported successfully! ✨')
+        JSON.parse(event.target.result) // validate JSON
+        alert('Import is not supported in normalized mode. Use Supabase directly.')
       } catch {
         alert('Failed to import — invalid file format')
       }
@@ -413,7 +586,7 @@ export default function Settings() {
 
   const handleReset = () => {
     if (window.confirm('Are you sure? This will delete all your data!')) {
-      dispatch({ type: 'RESET_STATE' })
+      resetState()
     }
   }
 
@@ -825,7 +998,7 @@ export default function Settings() {
                   style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e5e5', fontSize: '0.85rem' }}
                 >
                   <option value="">Select a dance…</option>
-                  {state.routines.map(r => (
+                  {routines.map(r => (
                     <option key={r.id} value={r.id}>{r.name}</option>
                   ))}
                 </select>
@@ -872,7 +1045,7 @@ export default function Settings() {
               <div style={{ marginBottom: 14 }}>
                 <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#6b7280', marginBottom: 6 }}>Sent Invites</div>
                 {outgoingShares.map(share => {
-                  const routine = share.routine_id ? state.routines.find(r => r.id === share.routine_id) : null
+                  const routine = share.routine_id ? routines.find(r => r.id === share.routine_id) : null
                   return (
                     <div key={share.id} className={styles['item-row']} style={{ marginBottom: 4, alignItems: 'center' }}>
                       <span style={{ fontSize: '0.88rem', flex: 1 }}>
@@ -944,11 +1117,11 @@ export default function Settings() {
         <div className={styles['settings-section']}>
           <h3>Disciplines</h3>
           <div className={styles['setting-card']}>
-            {state.disciplines.map((disc) => (
+            {disciplines.map((disc) => (
               <div key={disc.id} className={styles['item-row']}>
                 <select
                   value={disc.icon}
-                  onChange={(e) => dispatch({ type: 'UPDATE_DISCIPLINE', payload: { id: disc.id, icon: e.target.value } })}
+                  onChange={(e) => editDiscipline(disc.id, { icon: e.target.value })}
                   style={{ width: 50, fontSize: '1.2rem', textAlign: 'center', border: 'none', background: 'transparent' }}
                 >
                   {DISCIPLINE_ICONS.map((ic) => <option key={ic} value={ic}>{ic}</option>)}
@@ -956,12 +1129,12 @@ export default function Settings() {
                 <input
                   type="text"
                   value={disc.name}
-                  onChange={(e) => dispatch({ type: 'UPDATE_DISCIPLINE', payload: { id: disc.id, name: e.target.value } })}
+                  onChange={(e) => editDiscipline(disc.id, { name: e.target.value })}
                   style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.9rem' }}
                 />
                 <select
                   value={disc.currentGrade}
-                  onChange={(e) => dispatch({ type: 'UPDATE_DISCIPLINE', payload: { id: disc.id, currentGrade: e.target.value } })}
+                  onChange={(e) => editDiscipline(disc.id, { currentGrade: e.target.value })}
                   style={{ fontSize: '0.82rem', padding: '6px 8px', borderRadius: 6, border: '1px solid #e5e5e5' }}
                 >
                   {GRADE_LEVELS.map((g) => <option key={g} value={g}>{g}</option>)}
@@ -979,7 +1152,7 @@ export default function Settings() {
         <div className={styles['settings-section']}>
           <h3>Routines</h3>
           <div className={styles['setting-card']}>
-            {state.routines.map((rtn) => (
+            {routines.map((rtn) => (
               <div key={rtn.id} className={styles['item-row']} style={{ flexWrap: 'wrap' }}>
                 {rtn.coverPhoto && (
                   <img
@@ -991,20 +1164,20 @@ export default function Settings() {
                 <input
                   type="text"
                   value={rtn.name}
-                  onChange={(e) => dispatch({ type: 'UPDATE_ROUTINE', payload: { id: rtn.id, name: e.target.value } })}
+                  onChange={(e) => editRoutine(rtn.id, { name: e.target.value })}
                   style={{ flex: 1, minWidth: 120, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.9rem' }}
                 />
                 <select
                   value={rtn.disciplineId || ''}
-                  onChange={(e) => dispatch({ type: 'UPDATE_ROUTINE', payload: { id: rtn.id, disciplineId: e.target.value } })}
+                  onChange={(e) => editRoutine(rtn.id, { disciplineId: e.target.value })}
                   style={{ fontSize: '0.82rem', padding: '6px 8px', borderRadius: 6, border: '1px solid #e5e5e5' }}
                 >
                   <option value="">No discipline</option>
-                  {state.disciplines.map((d) => <option key={d.id} value={d.id}>{d.icon} {d.name}</option>)}
+                  {disciplines.map((d) => <option key={d.id} value={d.id}>{d.icon} {d.name}</option>)}
                 </select>
                 <select
                   value={rtn.formation || 'solo'}
-                  onChange={(e) => dispatch({ type: 'UPDATE_ROUTINE', payload: { id: rtn.id, formation: e.target.value } })}
+                  onChange={(e) => editRoutine(rtn.id, { formation: e.target.value })}
                   style={{ fontSize: '0.82rem', padding: '6px 8px', borderRadius: 6, border: '1px solid #e5e5e5' }}
                 >
                   <option value="solo">Solo</option>
@@ -1014,22 +1187,20 @@ export default function Settings() {
                 </select>
                 <select
                   value={rtn.type || 'exam'}
-                  onChange={(e) => dispatch({ type: 'UPDATE_ROUTINE', payload: { id: rtn.id, type: e.target.value } })}
+                  onChange={(e) => editRoutine(rtn.id, { type: e.target.value })}
                   style={{ fontSize: '0.82rem', padding: '6px 8px', borderRadius: 6, border: '1px solid #e5e5e5' }}
                 >
                   <option value="exam">Exam</option>
                   <option value="show">Show</option>
                   <option value="freestyle">Freestyle</option>
                 </select>
-                <label style={{ fontSize: '0.8rem', padding: '6px 8px', borderRadius: 6, border: '1px solid #e5e5e5', background: '#fff', cursor: 'pointer' }}>
+                <button
+                  type="button"
+                  onClick={() => handleOpenCoverPicker(rtn.id)}
+                  style={{ fontSize: '0.8rem', padding: '6px 8px', borderRadius: 6, border: '1px solid #e5e5e5', background: '#fff', cursor: 'pointer' }}
+                >
                   📸 Cover
-                  <input
-                    type="file"
-                    accept="image/*"
-                    style={{ display: 'none' }}
-                    onChange={(e) => handleRoutineCoverUpload(rtn.id, e)}
-                  />
-                </label>
+                </button>
                 <button onClick={() => handleDeleteRoutine(rtn.id)} title="Delete" style={{ background: '#fee2e2', color: '#dc2626', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem' }}>✕</button>
                 {/* Kid assignment chips */}
                 {kidProfiles.length > 0 && (
@@ -1062,18 +1233,73 @@ export default function Settings() {
         </div>
       )}
 
+      <input
+        ref={coverUploadInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleCoverPickerFileInput}
+        style={{ display: 'none' }}
+      />
+
+      <MediaPickerDialog
+        open={Boolean(coverPickerRoutineId)}
+        title="📸 Routine Cover"
+        uploadLabel={coverUploadBusy
+          ? `⏳ Processing${Number.isFinite(coverUploadProgress) ? ` (${coverUploadProgress}%)` : ''}`
+          : '📁 Upload new cover'}
+        onClose={handleCloseCoverPicker}
+        onUpload={handleCoverDialogUploadClick}
+        uploadDisabled={coverUploadBusy}
+        uploadStatus={coverUploadStatus}
+        uploadProgress={coverUploadProgress}
+        subtitle="Or pick existing images"
+        loading={coverPickerLoading}
+        error={coverPickerError}
+        emptyText="No images found in your media folder."
+        items={coverMediaItems}
+        selectingId={coverPickerApplyingKey}
+        onSelect={(item) => handleSelectCoverFromMedia(coverPickerRoutineId, item.key || item.id)}
+        getItemId={(item) => item.key || item.id}
+        listClassName={styles['cover-media-grid']}
+        renderItem={({ item, itemId, isSelecting, onSelect }) => (
+          <button
+            key={itemId}
+            type="button"
+            className={styles['cover-media-card']}
+            onClick={onSelect}
+            disabled={isSelecting}
+            title={item.fileName || item.key || item.id}
+          >
+            {coverPreviewUrls[itemId] ? (
+              <img
+                src={coverPreviewUrls[itemId]}
+                alt={item.fileName || 'Cover image'}
+                className={styles['cover-media-thumb']}
+              />
+            ) : (
+              <div className={styles['cover-media-thumb']} />
+            )}
+            <div className={styles['cover-media-name']}>
+              {isSelecting ? 'Applying…' : (item.fileName || item.key || item.id)}
+            </div>
+          </button>
+        )}
+        getMetaText={null}
+        getPrimaryText={null}
+      />
+
       {/* Competitions (admin only) */}
       {isAdmin && (
         <div className={styles['settings-section']}>
           <h3>Competitions</h3>
           <div className={styles['setting-card']}>
-            {state.shows
+            {events
               .filter((show) => (show.eventType || 'show') !== 'show')
               .map((show) => (
               <div key={show.id} className={styles['item-row']} style={{ flexWrap: 'wrap', rowGap: 8 }}>
                 <select
                   value={show.eventType || 'qualifier'}
-                  onChange={(e) => dispatch({ type: 'UPDATE_SHOW', payload: { id: show.id, eventType: e.target.value } })}
+                  onChange={(e) => editShow(show.id, { eventType: e.target.value })}
                   style={{ flex: '1 1 200px', minWidth: 180, fontSize: '0.82rem', padding: '6px 8px', borderRadius: 6, border: '1px solid #e5e5e5' }}
                 >
                   {EVENT_TYPES.filter((opt) => opt.value !== 'show').map((opt) => (
@@ -1083,20 +1309,20 @@ export default function Settings() {
                 <input
                   type="text"
                   value={show.name}
-                  onChange={(e) => dispatch({ type: 'UPDATE_SHOW', payload: { id: show.id, name: e.target.value } })}
+                  onChange={(e) => editShow(show.id, { name: e.target.value })}
                   style={{ flex: '2 1 260px', minWidth: 180, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.9rem' }}
                 />
                 <div style={{ display: 'flex', gap: 8, flex: '1 1 280px', minWidth: 220 }}>
                   <input
                     type="date"
                     value={show.startDate || show.date || ''}
-                    onChange={(e) => dispatch({ type: 'UPDATE_SHOW', payload: { id: show.id, startDate: e.target.value, date: e.target.value } })}
+                    onChange={(e) => editShow(show.id, { startDate: e.target.value, date: e.target.value })}
                     style={{ flex: 1, minWidth: 120, padding: '6px 8px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.82rem' }}
                   />
                   <input
                     type="date"
                     value={show.endDate || ''}
-                    onChange={(e) => dispatch({ type: 'UPDATE_SHOW', payload: { id: show.id, endDate: e.target.value } })}
+                    onChange={(e) => editShow(show.id, { endDate: e.target.value })}
                     style={{ flex: 1, minWidth: 120, padding: '6px 8px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.82rem' }}
                   />
                 </div>
@@ -1104,13 +1330,13 @@ export default function Settings() {
                   type="text"
                   value={show.venue || ''}
                   placeholder="Venue"
-                  onChange={(e) => dispatch({ type: 'UPDATE_SHOW', payload: { id: show.id, venue: e.target.value } })}
+                  onChange={(e) => editShow(show.id, { venue: e.target.value })}
                   style={{ flex: '2 1 320px', minWidth: 200, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.82rem' }}
                 />
                 <button onClick={() => handleDeleteShow(show.id)} title="Delete" style={{ marginLeft: 'auto', background: '#fee2e2', color: '#dc2626', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem' }}>✕</button>
               </div>
             ))}
-            {state.shows.filter((show) => (show.eventType || 'show') !== 'show').length === 0 && (
+            {events.filter((show) => (show.eventType || 'show') !== 'show').length === 0 && (
               <div style={{ fontSize: '0.82rem', color: '#6b7280' }}>
                 No competitions yet.
               </div>

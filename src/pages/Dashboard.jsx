@@ -9,28 +9,33 @@ const AVATAR_EMOJIS = ['💃', '🩰', '👧', '👦', '🧒', '🌟', '✨', '�
 
 export default function Dashboard() {
   const {
-    state, dispatch, isKidMode, activeKidProfile, userProfile, sharedDances,
-    hasSupabaseAuth, kidProfiles, addKidProfile, isAdmin, profilesLoaded,
+    disciplines, routines, sessions, events, stickers, practiceLog,
+    dancerProfile, dancerGoals, settings,
+    logPracticeDay, completeGoal,
+    isKidMode, activeKidProfile, userProfile, sharedDances,
+    hasSupabaseAuth, kidProfiles, ownKidProfiles, addKidProfile, isAdmin, profilesLoaded,
     guardianFamilies,
+    updateSharePartnerKids,
   } = useApp()
   const navigate = useNavigate()
   const [setupKidName, setSetupKidName] = useState('')
   const [setupKidEmoji, setSetupKidEmoji] = useState('💃')
   const [setupBusy, setSetupBusy] = useState(false)
-  const streak = getCurrentStreak(state.practiceLog)
+  const [shareTagBusyId, setShareTagBusyId] = useState(null)
+  const streak = getCurrentStreak(practiceLog)
   const today = new Date().toISOString().split('T')[0]
-  const hasLoggedToday = state.practiceLog.includes(today)
+  const hasLoggedToday = practiceLog.includes(today)
 
   // Find current focus
-  const currentFocus = state.dancerProfile?.currentFocus
+  const currentFocus = dancerProfile?.currentFocus
   const focusItem = currentFocus?.type === 'routine'
-    ? state.routines.find(r => r.id === currentFocus.id)
+    ? routines.find(r => r.id === currentFocus.id)
     : currentFocus?.type === 'discipline'
-      ? state.disciplines.find(d => d.id === currentFocus.id)
+      ? disciplines.find(d => d.id === currentFocus.id)
       : null
 
   // Find next upcoming show
-  const upcomingShows = (state.shows || [])
+  const upcomingShows = (events || [])
     .filter(s => (s.startDate || s.date) >= today)
     .sort((a, b) => (a.startDate || a.date).localeCompare(b.startDate || b.date))
   const nextShow = upcomingShows[0]
@@ -41,26 +46,42 @@ export default function Dashboard() {
     : null
 
   // Latest sticker
-  const latestSticker = [...(state.stickers || [])]
+  const latestSticker = [...(stickers || [])]
     .sort((a, b) => (b.earnedDate || '').localeCompare(a.earnedDate || ''))
     .at(0)
 
   // Active goals (not completed)
-  const activeGoals = (state.dancerProfile?.goals || []).filter(g => !g.completedDate)
+  const activeGoals = (dancerGoals || []).filter(g => !g.completedDate)
 
   const handleLogPractice = () => {
-    dispatch({ type: 'LOG_PRACTICE', payload: today })
+    logPracticeDay(today)
   }
 
   const handleGoalToggle = (goalId) => {
-    dispatch({ type: 'COMPLETE_GOAL', payload: goalId })
+    completeGoal(goalId)
+  }
+
+  const handleToggleSharedKidTag = async (share, kidId) => {
+    if (!share?.id) return
+    const current = Array.isArray(share.partner_kid_ids) ? share.partner_kid_ids : []
+    const updated = current.includes(kidId)
+      ? current.filter(id => id !== kidId)
+      : [...current, kidId]
+    setShareTagBusyId(share.id)
+    try {
+      await updateSharePartnerKids(share.id, updated)
+    } catch (err) {
+      alert(err?.message || 'Could not update dancer tags for this shared dance.')
+    } finally {
+      setShareTagBusyId(null)
+    }
   }
 
   return (
     <div className={styles.dashboard}>
       {/* Greeting */}
       <div className={styles.greeting}>
-        <h1>Hey {isKidMode ? (activeKidProfile?.display_name || 'Dancer') : (userProfile?.display_name || state.dancerProfile?.name || 'there')}! 👋</h1>
+        <h1>Hey {isKidMode ? (activeKidProfile?.display_name || 'Dancer') : (userProfile?.display_name || dancerProfile?.name || 'there')}! 👋</h1>
         <p className={styles.date}>{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
       </div>
 
@@ -157,7 +178,7 @@ export default function Dashboard() {
             {(nextShow.entries || []).length > 0 && (
               <div className={styles.upcomingEntries}>
                 {nextShow.entries.map((entry) => {
-                  const r = state.routines.find((rt) => rt.id === entry.routineId)
+                  const r = routines.find((rt) => rt.id === entry.routineId)
                   return r ? (
                     <span key={entry.id} className={styles.upcomingEntryChip}>
                       🎵 {r.name}
@@ -173,11 +194,11 @@ export default function Dashboard() {
       {/* My Dances (Routines) */}
       {(() => {
         const visibleRoutines = isKidMode && activeKidProfile
-          ? state.routines.filter(r => {
+          ? routines.filter(r => {
               const kids = r.kidProfileIds || []
               return kids.length === 0 || kids.includes(activeKidProfile.id)
             })
-          : state.routines
+          : routines
         return visibleRoutines.length > 0 && (
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>My Dances</h2>
@@ -226,7 +247,7 @@ export default function Dashboard() {
       <section className={styles.section}>
         <h2 className={styles.sectionTitle}>My Disciplines</h2>
         <div className={styles.cardGrid}>
-          {state.disciplines.map(disc => {
+          {disciplines.map(disc => {
             const totalElements = (disc.elements || []).length
             const masteredElements = (disc.elements || []).filter(e => e.status === 'mastered').length
             return (
@@ -297,6 +318,11 @@ export default function Dashboard() {
               const sharedRoutines = share.routine_id
                 ? routines.filter(r => r.id === share.routine_id)
                 : routines
+              const ownKidIdSet = new Set((ownKidProfiles || []).map(k => k.id))
+              const selectedPartnerKidIds = Array.isArray(share.partner_kid_ids) ? share.partner_kid_ids : []
+              const taggedOwnKidIds = selectedPartnerKidIds.filter(kidId => ownKidIdSet.has(kidId))
+              const taggedOwnKids = (ownKidProfiles || []).filter((kid) => taggedOwnKidIds.includes(kid.id))
+              const untaggedOwnKids = (ownKidProfiles || []).filter((kid) => !selectedPartnerKidIds.includes(kid.id))
 
               return sharedRoutines.map(routine => (
                 <div
@@ -311,6 +337,42 @@ export default function Dashboard() {
                       From {ownerProfile?.display_name || dance.name || 'a dancer'}
                     </span>
                   </div>
+                  {(ownKidProfiles || []).length > 0 && (
+                    <div style={{ marginTop: 8, width: '100%' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {taggedOwnKids.map((kid) => (
+                          <button
+                            key={kid.id}
+                            type="button"
+                            disabled={shareTagBusyId === share.id}
+                            onClick={() => handleToggleSharedKidTag(share, kid.id)}
+                            style={{
+                              padding: '2px 8px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700,
+                              border: '1px solid #60a5fa', background: '#dbeafe', color: '#1e40af',
+                              cursor: shareTagBusyId === share.id ? 'wait' : 'pointer',
+                            }}
+                          >
+                            {kid.avatar_emoji} {kid.display_name}
+                          </button>
+                        ))}
+                        {untaggedOwnKids.map((kid) => (
+                          <button
+                            key={`add-kid-${share.id}-${kid.id}`}
+                            type="button"
+                            disabled={shareTagBusyId === share.id}
+                            onClick={() => handleToggleSharedKidTag(share, kid.id)}
+                            style={{
+                              padding: '2px 8px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700,
+                              border: '1px dashed #60a5fa', background: '#eff6ff', color: '#1d4ed8',
+                              cursor: shareTagBusyId === share.id ? 'wait' : 'pointer',
+                            }}
+                          >
+                            + Add {kid.display_name} to this dance
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))
             })}
@@ -361,7 +423,7 @@ export default function Dashboard() {
       )}
 
       {/* Empty state */}
-      {state.routines.length === 0 && state.sessions.length === 0 && (
+      {routines.length === 0 && sessions.length === 0 && (
         <div className={styles.emptyState}>
           <div className={styles.emptyEmoji}>💃</div>
           <h3>Welcome to My Dancing!</h3>

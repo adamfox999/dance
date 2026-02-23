@@ -1,0 +1,163 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1200;
+}
+
+.dialog {
+  width: min(560px, 100%);
+  max-height: min(78vh, 680px);
+  background: white;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.header h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--gray-800);
+}
+
+.close {
+  border: none;
+  background: transparent;
+  color: var(--gray-500);
+  font-size: 1.05rem;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.close:hover {
+  background: var(--gray-100);
+  color: var(--gray-700);
+}
+
+.body {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
+}
+
+.upload {
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--purple-100);
+  color: var(--purple-700);
+  font-weight: 700;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.upload:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.uploadStatusWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.uploadStatusText {
+  font-size: 0.82rem;
+  color: var(--gray-600);
+}
+
+.uploadProgressTrack {
+  width: 100%;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--gray-200);
+  overflow: hidden;
+}
+
+.uploadProgressBar {
+  height: 100%;
+  background: var(--purple-400);
+  transition: width 0.2s ease;
+}
+
+.subtitle {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: var(--gray-500);
+  text-transform: uppercase;
+}
+
+.loading,
+.empty,
+.error {
+  font-size: 0.88rem;
+}
+
+.loading,
+.empty {
+  color: var(--gray-500);
+}
+
+.error {
+  color: var(--red-500);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.item {
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  background: white;
+  text-align: left;
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.item:hover {
+  border-color: var(--purple-300);
+  background: var(--purple-50);
+}
+
+.item:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.itemPrimary {
+  font-size: 0.88rem;
+  color: var(--gray-800);
+}
+
+.itemMeta {
+  font-size: 0.78rem;
+  color: var(--gray-500);
+  white-space: nowrap;
+}

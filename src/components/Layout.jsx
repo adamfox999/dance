@@ -6,9 +6,9 @@ import ProfileSwitcher, { ProfileChip, KidModeBanner } from './ProfileSwitcher'
 import styles from './Layout.module.css'
 
 export default function Layout({ children }) {
-  const { state, isKidMode, hasSupabaseAuth, isAuthenticated, activeProfileName } = useApp()
+  const { practiceLog, settings, isKidMode, hasSupabaseAuth, isAuthenticated, activeProfileName } = useApp()
   const location = useLocation()
-  const streak = getCurrentStreak(state.practiceLog)
+  const streak = getCurrentStreak(practiceLog)
   const isLiveView = location.pathname.startsWith('/choreography/') && new URLSearchParams(location.search).get('live') === 'true'
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const showProfiles = hasSupabaseAuth && isAuthenticated
@@ -16,7 +16,7 @@ export default function Layout({ children }) {
   // Dynamic header title: show the active person's name
   const headerTitle = showProfiles
     ? (isKidMode ? `${activeProfileName} · My Dancing 💃` : `My Dancing 💃`)
-    : `${state.settings?.dancerName || 'My Dancing'} · My Dancing 💃`
+    : `${settings?.dancerName || 'My Dancing'} · My Dancing 💃`
 
   return (
     <div className={styles.layout}>

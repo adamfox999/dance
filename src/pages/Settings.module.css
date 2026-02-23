@@ -260,6 +260,50 @@
   background: var(--blue-500);
 }
 
+.cover-media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.cover-media-card {
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  background: white;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.cover-media-card:hover {
+  border-color: var(--purple-300);
+  background: var(--purple-50);
+}
+
+.cover-media-card:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.cover-media-thumb {
+  width: 100%;
+  height: 84px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--gray-100);
+}
+
+.cover-media-name {
+  font-size: 0.72rem;
+  color: var(--gray-700);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .reset-btn {
   background: var(--red-400);
   color: white;

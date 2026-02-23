@@ -69,7 +69,7 @@ export function crossCorrelateSync(musicBuffer, videoBuffer, maxOffsetSec = 10) 
 
   const effectiveMaxOffsetSec = Math.max(1, Math.min(10, maxOffsetSec))
   const maxOffset = Math.floor(effectiveMaxOffsetSec * targetRate)
-  const windowLen = Math.min(musicData.length, videoData.length, targetRate * 30)
+  const windowLen = Math.min(musicData.length, videoData.length)
 
   let bestCorr = -Infinity
   let bestOffset = 0

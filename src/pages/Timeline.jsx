@@ -1,14 +1,28 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
-import { generateId } from '../utils/helpers'
 import { loadFile } from '../utils/fileStorage'
 import { getEventTypeIcon, getEventTypeLabel } from '../data/aedEvents'
 import { fetchStateFromBackend } from '../utils/backendApi'
 import styles from './Timeline.module.css'
 
 function formatDate(dateStr) {
-  return new Date(dateStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  const date = new Date(dateStr)
+  if (Number.isNaN(date.getTime())) return '—'
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+function dateValueToMs(value) {
+  const time = new Date(value).getTime()
+  return Number.isFinite(time) ? time : 0
+}
+
+function getSessionDate(session = {}) {
+  return session.scheduledAt || session.completedAt || session.date || ''
+}
+
+function getPracticeVideoDate(video = {}) {
+  return video.recordedAt || video.date || ''
 }
 
 function formatRehearsalTitle(dateStr) {
@@ -44,7 +58,9 @@ function formatOrdinalPlace(value) {
 }
 
 function isPast(dateStr) {
-  return new Date(dateStr) < new Date(new Date().toISOString().split('T')[0])
+  const time = new Date(dateStr).getTime()
+  if (!Number.isFinite(time)) return false
+  return time < new Date(new Date().toISOString().split('T')[0]).getTime()
 }
 
 const SESSION_ICONS = {
@@ -128,8 +144,14 @@ function getVideoPreviewSource(video = {}) {
 export default function Timeline() {
   const { type, id } = useParams()
   const {
-    state, dispatch, hasSupabaseAuth,
+    disciplines, routines, sessions, events,
+    setSessionReflection, setElementStatus, scheduleRehearsal, addEventEntry, addShow,
+    editRoutine,
+    hasSupabaseAuth,
+    authUser,
+    ownKidProfiles,
     outgoingShares, createShareInvite, loadShares,
+    incomingShares,
     fetchPartnerKids, updateSharePartnerKids,
   } = useApp()
   const navigate = useNavigate()
@@ -154,13 +176,15 @@ export default function Timeline() {
   const [shareMsg, setShareMsg] = useState(null)
   const [shareLink, setShareLink] = useState(null)
   const [partnerKidsMap, setPartnerKidsMap] = useState({}) // { shareId: [kid, ...] }
+  const [tagBusy, setTagBusy] = useState(false)
+  const [sharedOwnerKids, setSharedOwnerKids] = useState([])
 
   // Determine what we're showing a timeline for
   const isDiscipline = type === 'discipline'
   const isRoutine = type === 'routine'
 
-  const discipline = isDiscipline ? state.disciplines.find(d => d.id === id) : null
-  const routine = isRoutine ? state.routines.find(r => r.id === id) : null
+  const discipline = isDiscipline ? disciplines.find(d => d.id === id) : null
+  const routine = isRoutine ? routines.find(r => r.id === id) : null
   const routineVersions = useMemo(
     () => routine?.choreographyVersions || [],
     [routine]
@@ -172,45 +196,45 @@ export default function Timeline() {
 
   // Filter sessions for this context
   const filteredSessions = useMemo(() => {
-    return [...(state.sessions || [])]
+    return [...(sessions || [])]
       .filter(s => {
         if (isDiscipline) return s.disciplineId === id
         if (isRoutine) return s.routineId === id
         return false
       })
-      .sort((a, b) => new Date(b.date) - new Date(a.date)) // newest first
-  }, [state.sessions, id, isDiscipline, isRoutine])
+      .sort((a, b) => dateValueToMs(getSessionDate(b)) - dateValueToMs(getSessionDate(a))) // newest first
+  }, [sessions, id, isDiscipline, isRoutine])
 
   // For routines, also get practice videos
   const practiceVideos = !isRoutine || !routine
     ? []
     : [...(routine.practiceVideos || [])]
-        .sort((a, b) => new Date(b.date) - new Date(a.date))
+        .sort((a, b) => dateValueToMs(getPracticeVideoDate(b)) - dateValueToMs(getPracticeVideoDate(a)))
 
   // Related shows (for routines)
   const relatedShows = useMemo(() => {
     if (!isRoutine) return []
-    return (state.shows || [])
+    return (events || [])
       .filter(s => (s.entries || []).some(e => e.routineId === id))
-      .sort((a, b) => new Date(b.startDate || b.date) - new Date(a.startDate || a.date))
-  }, [state.shows, id, isRoutine])
+      .sort((a, b) => dateValueToMs(b.startDate || b.date) - dateValueToMs(a.startDate || a.date))
+  }, [events, id, isRoutine])
 
   // All events available to link an entry to (for the add dialog)
   const availableEvents = useMemo(() => {
-    return (state.shows || [])
-      .sort((a, b) => new Date(a.startDate || a.date) - new Date(b.startDate || b.date))
-  }, [state.shows])
+    return (events || [])
+      .sort((a, b) => dateValueToMs(a.startDate || a.date) - dateValueToMs(b.startDate || b.date))
+  }, [events])
 
   // Merge all events into a single timeline
   const timelineItems = (() => {
     const items = []
 
     filteredSessions.forEach(s => {
-      items.push({ type: 'session', date: s.date, data: s })
+      items.push({ type: 'session', date: getSessionDate(s), data: s })
     })
 
     practiceVideos.forEach(v => {
-      items.push({ type: 'video', date: v.date, data: v })
+      items.push({ type: 'video', date: getPracticeVideoDate(v), data: v })
     })
 
     relatedShows.forEach(s => {
@@ -220,7 +244,7 @@ export default function Timeline() {
     })
 
     // Sort newest first
-    items.sort((a, b) => new Date(b.date) - new Date(a.date))
+    items.sort((a, b) => dateValueToMs(b.date) - dateValueToMs(a.date))
     return items
   })()
 
@@ -254,23 +278,14 @@ export default function Timeline() {
 
   const handleSubmitReflection = (sessionId) => {
     if (!feeling && !note) return
-    dispatch({
-      type: 'SET_SESSION_REFLECTION',
-      payload: {
-        sessionId,
-        reflection: { feeling, note },
-      },
-    })
+    setSessionReflection(sessionId, { feeling, note })
     setReflectingSession(null)
     setFeeling('')
     setNote('')
   }
 
   const handleElementStatus = (elementId, status) => {
-    dispatch({
-      type: 'SET_ELEMENT_STATUS',
-      payload: { disciplineId: id, elementId, status },
-    })
+    setElementStatus(id, elementId, status)
   }
 
   const openAddDialog = () => {
@@ -297,6 +312,80 @@ export default function Timeline() {
       s => s.routine_id === id || (!s.routine_id && s.status === 'accepted')
     )
   }, [outgoingShares, id])
+
+  const acceptedIncomingShare = useMemo(() => {
+    const accepted = (incomingShares || []).filter((share) => {
+      if (share.status !== 'accepted') return false
+      if (share.routine_id) return share.routine_id === id
+      return true
+    })
+    return accepted.find((share) => share.routine_id === id) || accepted[0] || null
+  }, [incomingShares, id])
+
+  const isSharedRecipientRoutine = Boolean(
+    isRoutine
+      && acceptedIncomingShare
+      && authUser?.id
+      && acceptedIncomingShare.owner_user_id !== authUser.id
+  )
+
+  const recipientTaggedKids = Array.isArray(acceptedIncomingShare?.partner_kid_ids)
+    ? acceptedIncomingShare.partner_kid_ids
+    : []
+  const ownAssignedKidIds = Array.isArray(routine?.kidProfileIds) ? routine.kidProfileIds : []
+  const ownAssignedKids = (ownKidProfiles || []).filter((kid) => ownAssignedKidIds.includes(kid.id))
+  const ownUnassignedKids = (ownKidProfiles || []).filter((kid) => !ownAssignedKidIds.includes(kid.id))
+  const recipientTaggedProfiles = (ownKidProfiles || []).filter((kid) => recipientTaggedKids.includes(kid.id))
+  const recipientUntaggedKids = (ownKidProfiles || []).filter((kid) => !recipientTaggedKids.includes(kid.id))
+  const ownerRoutineTaggedKids = (sharedOwnerKids || []).filter((kid) => ownAssignedKidIds.includes(kid.id))
+
+  useEffect(() => {
+    if (!isSharedRecipientRoutine || !acceptedIncomingShare?.owner_user_id) {
+      setSharedOwnerKids([])
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const kids = await fetchPartnerKids(acceptedIncomingShare.owner_user_id)
+        if (!cancelled) setSharedOwnerKids(kids || [])
+      } catch {
+        if (!cancelled) setSharedOwnerKids([])
+      }
+    })()
+    return () => { cancelled = true }
+  }, [isSharedRecipientRoutine, acceptedIncomingShare?.owner_user_id, fetchPartnerKids])
+
+  const toggleOwnKidOnRoutineTop = async (kidId) => {
+    if (!routine?.id) return
+    const current = Array.isArray(routine.kidProfileIds) ? routine.kidProfileIds : []
+    const updated = current.includes(kidId)
+      ? current.filter((idValue) => idValue !== kidId)
+      : [...current, kidId]
+    setTagBusy(true)
+    try {
+      await editRoutine(routine.id, { kidProfileIds: updated })
+    } catch (err) {
+      alert(err?.message || 'Could not update dancers for this routine.')
+    } finally {
+      setTagBusy(false)
+    }
+  }
+
+  const toggleRecipientKidTagTop = async (kidId) => {
+    if (!acceptedIncomingShare?.id) return
+    const updated = recipientTaggedKids.includes(kidId)
+      ? recipientTaggedKids.filter((idValue) => idValue !== kidId)
+      : [...recipientTaggedKids, kidId]
+    setTagBusy(true)
+    try {
+      await updateSharePartnerKids(acceptedIncomingShare.id, updated)
+    } catch (err) {
+      alert(err?.message || 'Could not tag your child on this shared dance.')
+    } finally {
+      setTagBusy(false)
+    }
+  }
 
   const loadPartnerKidsForRoutine = async () => {
     const accepted = outgoingShares.filter(
@@ -374,52 +463,37 @@ export default function Timeline() {
 
     if (addType === 'practice') {
       const versionId = addVersionId || routineVersions[routineVersions.length - 1]?.id || null
-      dispatch({
-        type: 'SCHEDULE_REHEARSAL',
-        payload: {
-          id: generateId('session'),
-          date: addDate,
-          scheduledAt: addDate,
-          title: `${routine.name} rehearsal`,
-          routineId: routine.id,
-          disciplineId: routine.disciplineId || null,
-          choreographyVersionId: versionId,
-          status: 'scheduled',
-        },
+      scheduleRehearsal({
+        date: addDate,
+        scheduledAt: addDate,
+        title: `${routine.name} rehearsal`,
+        routineId: routine.id,
+        disciplineId: routine.disciplineId || null,
+        choreographyVersionId: versionId,
+        status: 'scheduled',
       })
     } else if (addType === 'event-entry' && addEventId) {
       // Add an entry (this routine) to an existing event
-      dispatch({
-        type: 'ADD_EVENT_ENTRY',
-        payload: {
-          showId: addEventId,
-          entry: {
-            id: generateId('entry'),
-            routineId: routine.id,
-            scheduledDate: addEntryDate || '',
-            scheduledTime: addEntryTime || '',
-            place: null,
-            qualified: false,
-            qualifiedForEventId: '',
-            notes: '',
-          },
-        },
+      addEventEntry(addEventId, {
+        routineId: routine.id,
+        scheduledDate: addEntryDate || '',
+        scheduledTime: addEntryTime || '',
+        place: null,
+        qualified: false,
+        qualifiedForEventId: '',
+        notes: '',
       })
     } else {
       // Legacy: create a new quick show directly
       const parsedPlace = Number.parseInt(addShowPlace, 10)
       const place = Number.isFinite(parsedPlace) && parsedPlace > 0 ? parsedPlace : null
-      dispatch({
-        type: 'ADD_SHOW',
-        payload: {
-          id: generateId('show'),
-          name: addShowName.trim() || `${routine.name} show`,
-          date: addDate,
-          venue: addShowVenue.trim(),
-          place,
-          routineIds: [routine.id],
-          scrapbookEntries: [],
-        },
+      addShow({
+        name: addShowName.trim() || `${routine.name} show`,
+        date: addDate,
+        venue: addShowVenue.trim(),
+        place,
+        routineIds: [routine.id],
+        scrapbookEntries: [],
       })
     }
 
@@ -467,6 +541,91 @@ export default function Timeline() {
           </button>
         )}
       </div>
+
+      {isRoutine && routine && !isSharedRecipientRoutine && (ownKidProfiles || []).length > 0 && (
+        <div style={{ marginTop: 4, marginBottom: 12 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {ownAssignedKids.map((kid) => (
+              <button
+                key={kid.id}
+                type="button"
+                disabled={tagBusy}
+                onClick={() => toggleOwnKidOnRoutineTop(kid.id)}
+                style={{
+                  padding: '2px 8px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700,
+                  border: '1px solid #a78bfa', background: '#ede9fe', color: '#6d28d9',
+                  cursor: tagBusy ? 'wait' : 'pointer',
+                }}
+              >
+                {kid.avatar_emoji} {kid.display_name}
+              </button>
+            ))}
+            {ownUnassignedKids.map((kid) => (
+              <button
+                key={`add-own-kid-${kid.id}`}
+                type="button"
+                disabled={tagBusy}
+                onClick={() => toggleOwnKidOnRoutineTop(kid.id)}
+                style={{
+                  padding: '2px 8px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700,
+                  border: '1px dashed #9ca3af', background: '#fff', color: '#374151',
+                  cursor: tagBusy ? 'wait' : 'pointer',
+                }}
+              >
+                + Add {kid.display_name} to this dance
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {isRoutine && routine && isSharedRecipientRoutine && (ownKidProfiles || []).length > 0 && (
+        <div style={{ marginTop: 4, marginBottom: 12 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {ownerRoutineTaggedKids.map((kid) => (
+              <span
+                key={`owner-tagged-${kid.id}`}
+                style={{
+                  padding: '2px 8px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700,
+                  border: '1px solid #a78bfa', background: '#ede9fe', color: '#6d28d9',
+                }}
+              >
+                {kid.avatar_emoji} {kid.display_name}
+              </span>
+            ))}
+            {recipientTaggedProfiles.map((kid) => (
+              <button
+                key={kid.id}
+                type="button"
+                disabled={tagBusy}
+                onClick={() => toggleRecipientKidTagTop(kid.id)}
+                style={{
+                  padding: '2px 8px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700,
+                  border: '1px solid #60a5fa', background: '#dbeafe', color: '#1e40af',
+                  cursor: tagBusy ? 'wait' : 'pointer',
+                }}
+              >
+                {kid.avatar_emoji} {kid.display_name}
+              </button>
+            ))}
+            {recipientUntaggedKids.map((kid) => (
+              <button
+                key={`add-recipient-kid-${kid.id}`}
+                type="button"
+                disabled={tagBusy}
+                onClick={() => toggleRecipientKidTagTop(kid.id)}
+                style={{
+                  padding: '2px 8px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700,
+                  border: '1px dashed #60a5fa', background: '#eff6ff', color: '#1d4ed8',
+                  cursor: tagBusy ? 'wait' : 'pointer',
+                }}
+              >
+                + Add {kid.display_name} to this dance
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {addDialogOpen && isRoutine && routine && (
         <div className={styles.addDialogBackdrop} onClick={() => setAddDialogOpen(false)}>

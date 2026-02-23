@@ -1,0 +1,2 @@
+ALTER TABLE public.routine
+ADD COLUMN IF NOT EXISTS cover_photo TEXT NOT NULL DEFAULT '';

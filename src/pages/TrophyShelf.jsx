@@ -1,30 +1,26 @@
 import { useState } from 'react'
 import { useApp } from '../context/AppContext'
 import { milestones } from '../utils/milestones'
-import { formatDate, generateId } from '../utils/helpers'
+import { formatDate } from '../utils/helpers'
 import styles from './TrophyShelf.module.css'
 
 const CUSTOM_EMOJIS = ['🌟', '💎', '🦄', '🌈', '🎀', '👑', '💜', '🎊', '🦋', '🌸', '✨', '🍀']
 
 export default function TrophyShelf() {
-  const { state, dispatch } = useApp()
+  const { stickers, addCustomSticker } = useApp()
   const [customLabel, setCustomLabel] = useState('')
   const [customEmoji, setCustomEmoji] = useState('🌟')
 
-  const earnedTypes = state.stickers.map((s) => s.type)
+  const earnedTypes = stickers.map((s) => s.type)
   const lockedMilestones = milestones.filter((m) => !earnedTypes.includes(m.type))
 
   const handleAwardCustom = () => {
     if (!customLabel.trim()) return
-    dispatch({
-      type: 'ADD_CUSTOM_STICKER',
-      payload: {
-        id: generateId('sticker'),
-        type: `custom-${Date.now()}`,
-        label: customLabel.trim(),
-        icon: customEmoji,
-        earnedDate: new Date().toISOString().split('T')[0],
-      },
+    addCustomSticker({
+      type: `custom-${Date.now()}`,
+      label: customLabel.trim(),
+      icon: customEmoji,
+      earnedDate: new Date().toISOString().split('T')[0],
     })
     setCustomLabel('')
   }
@@ -35,12 +31,12 @@ export default function TrophyShelf() {
       <p className={styles.subtitle}>All of your hard-earned stickers and badges!</p>
 
       <div className={styles['trophy-count']}>
-        {state.stickers.length} sticker{state.stickers.length !== 1 ? 's' : ''} earned!
+        {stickers.length} sticker{stickers.length !== 1 ? 's' : ''} earned!
       </div>
 
       {/* Earned trophies */}
       <div className={styles['trophy-grid']}>
-        {state.stickers.map((sticker) => (
+        {stickers.map((sticker) => (
           <div key={sticker.id} className={styles['trophy-card']}>
             <span className={styles['trophy-icon']}>{sticker.icon}</span>
             <span className={styles['trophy-label']}>{sticker.label}</span>

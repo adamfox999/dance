@@ -1,9 +1,52 @@
-import { createContext, useContext, useReducer, useEffect, useState, useCallback } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { defaultState } from '../data/defaultState'
 import { checkForNewStickers } from '../utils/milestones'
-import { fetchStateFromBackend, saveStateToBackend, setDanceOwnerId } from '../utils/backendApi'
 import { setFileStorageUserScope } from '../utils/fileStorage'
 import { hasSupabaseConfig, supabase } from '../utils/supabaseClient'
+import { setDanceOwnerId as setBackendDanceOwnerId } from '../utils/backendApi'
+import {
+  initializeDanceData,
+  setDanceOwnerId as setDanceDataOwnerId,
+  fetchDisciplinesWithChildren,
+  fetchRoutinesWithChildren,
+  fetchSessions          as apiFetchSessions,
+  fetchEventsWithChildren,
+  fetchStickers          as apiFetchStickers,
+  fetchPracticeLog       as apiFetchPracticeLog,
+  fetchDancerProfile     as apiFetchDancerProfile,
+  fetchDancerGoals       as apiFetchDancerGoals,
+  fetchSettings          as apiFetchSettings,
+  createDiscipline       as apiCreateDiscipline,
+  updateDiscipline       as apiUpdateDiscipline,
+  deleteDiscipline       as apiDeleteDiscipline,
+  createDisciplineElement as apiCreateDisciplineElement,
+  updateDisciplineElement as apiUpdateDisciplineElement,
+  deleteDisciplineElement as apiDeleteDisciplineElement,
+  createRoutine          as apiCreateRoutine,
+  updateRoutine          as apiUpdateRoutine,
+  deleteRoutine          as apiDeleteRoutine,
+  createChoreographyVersion as apiCreateChoreographyVersion,
+  updateChoreographyVersion as apiUpdateChoreographyVersion,
+  createPracticeVideo    as apiCreatePracticeVideo,
+  createSession          as apiCreateSession,
+  updateSession          as apiUpdateSession,
+  deleteSession          as apiDeleteSession,
+  createEvent            as apiCreateEvent,
+  updateEvent            as apiUpdateEvent,
+  deleteEvent            as apiDeleteEvent,
+  createEventEntry       as apiCreateEventEntry,
+  updateEventEntry       as apiUpdateEventEntry,
+  deleteEventEntry       as apiDeleteEventEntry,
+  createScrapbookEntry   as apiCreateScrapbookEntry,
+  updateScrapbookEntry   as apiUpdateScrapbookEntry,
+  createSticker          as apiCreateSticker,
+  createStickers         as apiCreateStickers,
+  logPractice            as apiLogPractice,
+  upsertDancerProfile    as apiUpsertDancerProfile,
+  createDancerGoal       as apiCreateDancerGoal,
+  updateDancerGoal       as apiUpdateDancerGoal,
+  updateSettings         as apiUpdateSettings,
+} from '../utils/danceApi'
 import {
   fetchUserProfile,
   upsertUserProfile,
@@ -41,607 +84,6 @@ import {
 
 const AppContext = createContext(null)
 const ADMIN_PIN = '6789'
-const ADMIN_TIMEOUT_MS = 10 * 60 * 1000 // 10 minutes
-
-function normalizeVersion(version = {}, index = 0) {
-  return {
-    id: version.id || `cv-${Date.now()}-${index}`,
-    label: version.label || version.versionName || `v${index + 1}`,
-    createdAt: version.createdAt || version.date || new Date().toISOString(),
-    musicUrl: version.musicUrl || '',
-    musicFileName: version.musicFileName || '',
-    duration: version.duration || 0,
-    songInstructions: Array.isArray(version.songInstructions) ? version.songInstructions : [],
-    cues: Array.isArray(version.cues) ? version.cues : [],
-    videoSyncOffset: version.videoSyncOffset || 0,
-    videoSyncConfidence: Number.isFinite(version.videoSyncConfidence) ? version.videoSyncConfidence : null,
-    videoFileName: version.videoFileName || '',
-    videoAnnotations: Array.isArray(version.videoAnnotations) ? version.videoAnnotations : [],
-  }
-}
-
-function normalizeRoutine(routine = {}, index = 0) {
-  const versions = Array.isArray(routine.choreographyVersions) && routine.choreographyVersions.length
-    ? routine.choreographyVersions.map((version, versionIndex) => normalizeVersion(version, versionIndex))
-    : [normalizeVersion({}, 0)]
-
-  return {
-    ...routine,
-    id: routine.id || `routine-${Date.now()}-${index}`,
-    kidProfileIds: Array.isArray(routine.kidProfileIds) ? routine.kidProfileIds : [],
-    choreographyVersions: versions,
-  }
-}
-
-function normalizeShow(show = {}) {
-  const normalizedEntries = Array.isArray(show.entries)
-    ? show.entries.map((entry = {}, index) => ({
-        ...entry,
-        id: entry.id || `entry-${Date.now()}-${index}`,
-        routineId: entry.routineId || '',
-        scheduledDate: entry.scheduledDate || show.startDate || show.date || '',
-        scheduledTime: entry.scheduledTime || '',
-        place: entry.place ?? null,
-        qualified: Boolean(entry.qualified),
-        qualifiedForEventId: entry.qualifiedForEventId || '',
-        notes: entry.notes || '',
-      }))
-    : []
-
-  return {
-    ...show,
-    id: show.id || `show-${Date.now()}`,
-    name: show.name || 'Untitled Event',
-    date: show.date || show.startDate || new Date().toISOString().split('T')[0],
-    startDate: show.startDate || show.date || new Date().toISOString().split('T')[0],
-    endDate: show.endDate || show.startDate || show.date || '',
-    venue: show.venue || '',
-    eventType: show.eventType || 'show',
-    competitionOrg: show.competitionOrg || '',
-    region: show.region || '',
-    entries: normalizedEntries,
-    routineIds: Array.isArray(show.routineIds) ? show.routineIds : [],
-    scrapbookEntries: Array.isArray(show.scrapbookEntries) ? show.scrapbookEntries : [],
-    place: show.place ?? null,
-  }
-}
-
-function normalizeSession(session = {}) {
-  return {
-    ...session,
-    type: session.type || 'practice',
-    status: session.status || (session.completedAt ? 'completed' : 'scheduled'),
-    routineId: session.routineId || null,
-    disciplineId: session.disciplineId || null,
-    choreographyVersionId: session.choreographyVersionId || null,
-    rehearsalVideoKey: session.rehearsalVideoKey || '',
-    rehearsalVideoName: session.rehearsalVideoName || '',
-    scheduledAt: session.scheduledAt || session.date || new Date().toISOString().split('T')[0],
-    completedAt: session.completedAt || null,
-    dancerReflection: session.dancerReflection || { feeling: '', note: '', goals: [] },
-    videoAnnotations: Array.isArray(session.videoAnnotations) ? session.videoAnnotations : [],
-  }
-}
-
-function mergeStateWithDefaults(inputState) {
-  const base = { ...defaultState, ...(inputState || {}) }
-  return {
-    ...base,
-    settings: { ...defaultState.settings, ...(base.settings || {}) },
-    dancerProfile: { ...defaultState.dancerProfile, ...(base.dancerProfile || {}) },
-    disciplines: base.disciplines?.length ? base.disciplines : defaultState.disciplines,
-    routines: (base.routines || []).map((routine, index) => normalizeRoutine(routine, index)),
-    shows: (base.shows || []).map((show) => normalizeShow(show)),
-    sessions: (base.sessions || []).map(normalizeSession),
-    stickers: base.stickers || [],
-    practiceLog: base.practiceLog || [],
-  }
-}
-
-// Migrate old state shape to new model
-function migrateOldState(inputState) {
-  if (!inputState) return inputState
-  const migrated = { ...inputState }
-
-  // One-time key migration: legacy isla* -> dancer*
-  if (!migrated.dancerProfile && migrated.islaProfile) {
-    migrated.dancerProfile = { ...migrated.islaProfile }
-  }
-  delete migrated.islaProfile
-
-  if (Array.isArray(migrated.sessions)) {
-    migrated.sessions = migrated.sessions.map((session) => {
-      const nextSession = { ...session }
-      if (!nextSession.dancerReflection && nextSession.islaReflection) {
-        nextSession.dancerReflection = { ...nextSession.islaReflection }
-      }
-      delete nextSession.islaReflection
-
-      if (!nextSession.dancerNote && nextSession.islaNote) nextSession.dancerNote = nextSession.islaNote
-      if (!nextSession.dancerFeeling && nextSession.islaFeeling) nextSession.dancerFeeling = nextSession.islaFeeling
-      delete nextSession.islaNote
-      delete nextSession.islaFeeling
-      return nextSession
-    })
-  }
-
-  if (Array.isArray(migrated.routines)) {
-    migrated.routines = migrated.routines.map((routine) => {
-      if (!Array.isArray(routine.practiceVideos)) return routine
-      return {
-        ...routine,
-        practiceVideos: routine.practiceVideos.map((video) => {
-          const nextVideo = { ...video }
-          if (!nextVideo.dancerNote && nextVideo.islaNote) nextVideo.dancerNote = nextVideo.islaNote
-          if (!nextVideo.dancerFeeling && nextVideo.islaFeeling) nextVideo.dancerFeeling = nextVideo.islaFeeling
-          delete nextVideo.islaNote
-          delete nextVideo.islaFeeling
-          return nextVideo
-        }),
-      }
-    })
-  }
-
-  if (Array.isArray(migrated.shows)) {
-    migrated.shows = migrated.shows.map((show) => {
-      if (!Array.isArray(show.scrapbookEntries)) return show
-      return {
-        ...show,
-        scrapbookEntries: show.scrapbookEntries.map((entry) => {
-          if (entry?.author !== 'isla') return entry
-          return { ...entry, author: 'dancer' }
-        }),
-      }
-    })
-  }
-
-  // Detect old shape: has 'chunks', 'choreography', or 'rhythmScores'
-  const hasOldShape = inputState.chunks || inputState.choreography || inputState.rhythmScores != null
-  if (!hasOldShape) return migrated
-
-  // Convert old choreography + chunks into a routine
-  if (inputState.choreography && inputState.choreography.musicUrl) {
-    const oldChoreo = inputState.choreography
-    const routine = {
-      id: `routine-migrated-${Date.now()}`,
-      name: inputState.settings?.danceName || 'Migrated Routine',
-      type: 'practice',
-      formation: 'solo',
-      dancers: [inputState.settings?.dancers?.[0] || 'My Dancing'],
-      disciplineId: null,
-      choreographyVersions: [{
-        id: `cv-migrated-${Date.now()}`,
-        label: 'Original',
-        createdAt: new Date().toISOString(),
-        musicUrl: oldChoreo.musicUrl || '',
-        musicFileName: oldChoreo.musicFileName || '',
-        duration: oldChoreo.duration || 0,
-        songInstructions: oldChoreo.songInstructions || [],
-        cues: oldChoreo.cues || [],
-        videoSyncOffset: oldChoreo.videoSyncOffset || 0,
-      }],
-      practiceVideos: [],
-    }
-    migrated.routines = [routine, ...(migrated.routines || [])]
-  }
-
-  // Convert old sessions — add routineId/disciplineId fields
-  if (inputState.sessions) {
-    migrated.sessions = inputState.sessions.map(s => normalizeSession({
-      ...s,
-      routineId: s.routineId || null,
-      disciplineId: s.disciplineId || null,
-      notes: s.praise ? [...(s.praise || []), ...(s.workOn || [])] : (s.notes || []),
-      dancerReflection: s.dancerReflection || { feeling: '', note: '', goals: [] },
-    }))
-  }
-
-  // Map old settings
-  if (inputState.settings) {
-    migrated.settings = {
-      dancerName: inputState.settings.dancers?.[0] || inputState.settings.dancerName || 'My Dancing',
-      themeColor: inputState.settings.themeColor || '#a855f7',
-      promptLeadMs: inputState.settings.promptLeadMs || 200,
-    }
-  }
-
-  // Ensure disciplines exist
-  if (!migrated.disciplines || migrated.disciplines.length === 0) {
-    migrated.disciplines = defaultState.disciplines
-  }
-
-  // Ensure dancerProfile exists
-  if (!migrated.dancerProfile) {
-    migrated.dancerProfile = defaultState.dancerProfile
-  }
-
-  // Remove old keys
-  delete migrated.chunks
-  delete migrated.choreography
-  delete migrated.rhythmScores
-
-  return migrated
-}
-
-function stateFromDanceRow(row) {
-  const source = row?.state_data || {}
-  const migrated = migrateOldState(source)
-  return mergeStateWithDefaults({
-    ...migrated,
-    settings: {
-      ...(migrated.settings || {}),
-      dancerName: row?.dancers?.[0] ?? migrated?.settings?.dancerName ?? 'My Dancing',
-      themeColor: row?.theme_color ?? migrated?.settings?.themeColor,
-      promptLeadMs: row?.prompt_lead_ms ?? migrated?.settings?.promptLeadMs,
-    },
-  })
-}
-
-function getLocalStateKey(userId) {
-  return `dance-tracker-state:${userId}`
-}
-
-// ============ REDUCER ============
-function appReducer(state, action) {
-  switch (action.type) {
-    // ---- Sessions ----
-    case "ADD_SESSION":
-      return { ...state, sessions: [...state.sessions, normalizeSession(action.payload)] }
-
-    case "SCHEDULE_REHEARSAL":
-      return {
-        ...state,
-        sessions: [...state.sessions, normalizeSession({
-          ...action.payload,
-          type: 'practice',
-          status: 'scheduled',
-        })],
-      }
-
-    case "UPDATE_SESSION":
-      return {
-        ...state,
-        sessions: state.sessions.map((s) =>
-          s.id === action.payload.id ? { ...s, ...action.payload } : s
-        ),
-      }
-
-    case "DELETE_SESSION":
-      return {
-        ...state,
-        sessions: state.sessions.filter((s) => s.id !== action.payload),
-      }
-
-    case "SET_REHEARSAL_VERSION":
-      return {
-        ...state,
-        sessions: state.sessions.map((session) =>
-          session.id === action.payload.sessionId
-            ? { ...session, choreographyVersionId: action.payload.choreographyVersionId || null }
-            : session
-        ),
-      }
-
-    case "COMPLETE_REHEARSAL":
-      return {
-        ...state,
-        sessions: state.sessions.map((session) =>
-          session.id === action.payload.sessionId
-            ? {
-                ...session,
-                status: 'completed',
-                completedAt: action.payload.completedAt || new Date().toISOString(),
-              }
-            : session
-        ),
-      }
-
-    case "ATTACH_REHEARSAL_VIDEO":
-      return {
-        ...state,
-        sessions: state.sessions.map((session) =>
-          session.id === action.payload.sessionId
-            ? {
-                ...session,
-                rehearsalVideoKey: action.payload.rehearsalVideoKey || session.rehearsalVideoKey || '',
-                rehearsalVideoName: action.payload.rehearsalVideoName || session.rehearsalVideoName || '',
-                status: 'completed',
-                completedAt: session.completedAt || new Date().toISOString(),
-              }
-            : session
-        ),
-      }
-
-    // ---- Dancer self-reflection on a session ----
-    case "SET_SESSION_REFLECTION":
-      return {
-        ...state,
-        sessions: state.sessions.map((s) =>
-          s.id === action.payload.sessionId
-            ? { ...s, dancerReflection: { ...s.dancerReflection, ...action.payload.reflection } }
-            : s
-        ),
-      }
-
-    // ---- Emoji reactions ----
-    case "ADD_EMOJI_REACTION":
-      return {
-        ...state,
-        sessions: state.sessions.map((s) =>
-          s.id === action.payload.sessionId
-            ? { ...s, emojiReactions: [...(s.emojiReactions || []), action.payload.emoji] }
-            : s
-        ),
-      }
-
-    // ---- Disciplines ----
-    case "SET_DISCIPLINES":
-      return { ...state, disciplines: action.payload }
-
-    case "UPDATE_DISCIPLINE":
-      return {
-        ...state,
-        disciplines: state.disciplines.map((d) =>
-          d.id === action.payload.id ? { ...d, ...action.payload } : d
-        ),
-      }
-
-    case "ADD_DISCIPLINE":
-      return { ...state, disciplines: [...state.disciplines, action.payload] }
-
-    case "DELETE_DISCIPLINE":
-      return { ...state, disciplines: state.disciplines.filter((d) => d.id !== action.payload) }
-
-    // ---- Discipline elements ----
-    case "SET_ELEMENT_STATUS":
-      return {
-        ...state,
-        disciplines: state.disciplines.map((d) =>
-          d.id === action.payload.disciplineId
-            ? {
-                ...d,
-                elements: d.elements.map((e) =>
-                  e.id === action.payload.elementId
-                    ? { ...e, status: action.payload.status }
-                    : e
-                ),
-              }
-            : d
-        ),
-      }
-
-    case "ADD_ELEMENT":
-      return {
-        ...state,
-        disciplines: state.disciplines.map((d) =>
-          d.id === action.payload.disciplineId
-            ? { ...d, elements: [...d.elements, action.payload.element] }
-            : d
-        ),
-      }
-
-    case "DELETE_ELEMENT":
-      return {
-        ...state,
-        disciplines: state.disciplines.map((d) =>
-          d.id === action.payload.disciplineId
-            ? { ...d, elements: d.elements.filter((e) => e.id !== action.payload.elementId) }
-            : d
-        ),
-      }
-
-    // ---- Routines ----
-    case "ADD_ROUTINE":
-      return { ...state, routines: [...state.routines, action.payload] }
-
-    case "UPDATE_ROUTINE":
-      return {
-        ...state,
-        routines: state.routines.map((r) =>
-          r.id === action.payload.id ? { ...r, ...action.payload } : r
-        ),
-      }
-
-    case "DELETE_ROUTINE":
-      return { ...state, routines: state.routines.filter((r) => r.id !== action.payload) }
-
-    // ---- Choreography versions within a routine ----
-    case "ADD_CHOREOGRAPHY_VERSION": {
-      const { routineId, version } = action.payload
-      return {
-        ...state,
-        routines: state.routines.map((r) =>
-          r.id === routineId
-            ? { ...r, choreographyVersions: [...(r.choreographyVersions || []), version] }
-            : r
-        ),
-      }
-    }
-
-    case "UPDATE_CHOREOGRAPHY_VERSION": {
-      const { routineId, versionId, updates } = action.payload
-      return {
-        ...state,
-        routines: state.routines.map((r) =>
-          r.id === routineId
-            ? {
-                ...r,
-                choreographyVersions: (r.choreographyVersions || []).map((v) =>
-                  v.id === versionId ? { ...v, ...updates } : v
-                ),
-              }
-            : r
-        ),
-      }
-    }
-
-    // ---- Practice videos within a routine ----
-    case "ADD_PRACTICE_VIDEO": {
-      const { routineId, video } = action.payload
-      return {
-        ...state,
-        routines: state.routines.map((r) =>
-          r.id === routineId
-            ? { ...r, practiceVideos: [...(r.practiceVideos || []), video] }
-            : r
-        ),
-      }
-    }
-
-    // ---- Shows / Events ----
-    case "ADD_SHOW":
-      return { ...state, shows: [...state.shows, normalizeShow(action.payload)] }
-
-    case "UPDATE_SHOW":
-      return {
-        ...state,
-        shows: state.shows.map((s) =>
-          s.id === action.payload.id ? { ...s, ...action.payload } : s
-        ),
-      }
-
-    case "DELETE_SHOW":
-      return { ...state, shows: state.shows.filter((s) => s.id !== action.payload) }
-
-    // ---- Event entries (routine performances within a show/event) ----
-    case "ADD_EVENT_ENTRY": {
-      const { showId, entry } = action.payload
-      return {
-        ...state,
-        shows: state.shows.map((s) =>
-          s.id === showId
-            ? {
-                ...s,
-                entries: [...(s.entries || []), entry],
-                routineIds: (s.routineIds || []).includes(entry.routineId)
-                  ? s.routineIds
-                  : [...(s.routineIds || []), entry.routineId],
-              }
-            : s
-        ),
-      }
-    }
-
-    case "UPDATE_EVENT_ENTRY": {
-      const { showId, entryId, updates } = action.payload
-      return {
-        ...state,
-        shows: state.shows.map((s) =>
-          s.id === showId
-            ? {
-                ...s,
-                entries: (s.entries || []).map((e) =>
-                  e.id === entryId ? { ...e, ...updates } : e
-                ),
-              }
-            : s
-        ),
-      }
-    }
-
-    case "DELETE_EVENT_ENTRY": {
-      const { showId: delShowId, entryId: delEntryId } = action.payload
-      return {
-        ...state,
-        shows: state.shows.map((s) =>
-          s.id === delShowId
-            ? { ...s, entries: (s.entries || []).filter((e) => e.id !== delEntryId) }
-            : s
-        ),
-      }
-    }
-
-    // ---- Scrapbook entries within a show ----
-    case "ADD_SCRAPBOOK_ENTRY": {
-      const { showId, entry } = action.payload
-      return {
-        ...state,
-        shows: state.shows.map((s) =>
-          s.id === showId
-            ? { ...s, scrapbookEntries: [...(s.scrapbookEntries || []), entry] }
-            : s
-        ),
-      }
-    }
-
-    case "ADD_SCRAPBOOK_REACTION": {
-      const { showId, entryId, emoji } = action.payload
-      return {
-        ...state,
-        shows: state.shows.map((s) =>
-          s.id === showId
-            ? {
-                ...s,
-                scrapbookEntries: (s.scrapbookEntries || []).map((e) =>
-                  e.id === entryId
-                    ? { ...e, emojiReactions: [...(e.emojiReactions || []), emoji] }
-                    : e
-                ),
-              }
-            : s
-        ),
-      }
-    }
-
-    // ---- Stickers ----
-    case "ADD_STICKERS":
-      return { ...state, stickers: [...state.stickers, ...action.payload] }
-
-    case "ADD_CUSTOM_STICKER":
-      return { ...state, stickers: [...state.stickers, action.payload] }
-
-    // ---- Practice log ----
-    case "LOG_PRACTICE":
-      if (state.practiceLog.includes(action.payload)) return state
-      return { ...state, practiceLog: [...state.practiceLog, action.payload] }
-
-    // ---- Dancer profile ----
-    case "UPDATE_DANCER_PROFILE":
-      return { ...state, dancerProfile: { ...state.dancerProfile, ...action.payload } }
-
-    case "ADD_GOAL":
-      return {
-        ...state,
-        dancerProfile: {
-          ...state.dancerProfile,
-          goals: [...state.dancerProfile.goals, action.payload],
-        },
-      }
-
-    case "COMPLETE_GOAL":
-      return {
-        ...state,
-        dancerProfile: {
-          ...state.dancerProfile,
-          goals: state.dancerProfile.goals.map((g) =>
-            g.id === action.payload
-              ? { ...g, completedDate: new Date().toISOString().split('T')[0] }
-              : g
-          ),
-        },
-      }
-
-    case "SET_CURRENT_FOCUS":
-      return {
-        ...state,
-        dancerProfile: { ...state.dancerProfile, currentFocus: action.payload },
-      }
-
-    // ---- Settings ----
-    case "UPDATE_SETTINGS":
-      return { ...state, settings: { ...state.settings, ...action.payload } }
-
-    // ---- Full state ----
-    case "IMPORT_STATE":
-      return mergeStateWithDefaults(migrateOldState(action.payload))
-
-    case "RESET_STATE":
-      return { ...defaultState }
-
-    default:
-      return state
-  }
-}
 
 // ============ PROVIDER ============
 export function AppProvider({ children }) {
@@ -651,46 +93,57 @@ export function AppProvider({ children }) {
   const [authUser, setAuthUser] = useState(null)
 
   // Profile state
-  const [userProfile, setUserProfile] = useState(null)       // { id, display_name, avatar_emoji, ... }
-  const [kidProfiles, setKidProfiles] = useState([])          // own kids only (for CRUD)
-  // activeProfile: { type: 'adult' } | { type: 'kid', kidId: '...' }
+  const [userProfile, setUserProfile] = useState(null)
+  const [kidProfiles, setKidProfiles] = useState([])
   const [activeProfile, setActiveProfile] = useState({ type: 'adult' })
   const isKidMode = activeProfile.type === 'kid'
 
   // Share state
   const [outgoingShares, setOutgoingShares] = useState([])
   const [incomingShares, setIncomingShares] = useState([])
-  const [sharedDances, setSharedDances] = useState([])       // [{ share, dance, ownerProfile }]
+  const [sharedDances, setSharedDances] = useState([])
 
   // Guardian state
-  const [outgoingGuardians, setOutgoingGuardians] = useState([])   // invites I sent
-  const [incomingGuardians, setIncomingGuardians] = useState([])   // invites I received
-  const [guardianFamilies, setGuardianFamilies] = useState([])     // [{ guardian, ownerProfile, kids }]
-  const [myFamilyUnitsDB, setMyFamilyUnitsDB] = useState([])       // family_unit rows I own
-  const [guardianFamilyUnitsDB, setGuardianFamilyUnitsDB] = useState([]) // family_unit rows I'm guardian of
-  const [profilesLoaded, setProfilesLoaded] = useState(false)             // true once loadProfiles + loadGuardians finish
+  const [outgoingGuardians, setOutgoingGuardians] = useState([])
+  const [incomingGuardians, setIncomingGuardians] = useState([])
+  const [guardianFamilies, setGuardianFamilies] = useState([])
+  const [myFamilyUnitsDB, setMyFamilyUnitsDB] = useState([])
+  const [guardianFamilyUnitsDB, setGuardianFamilyUnitsDB] = useState([])
+  const [profilesLoaded, setProfilesLoaded] = useState(false)
 
-  // Merge own kids + guardian family kids (deduped) so guardians see children everywhere
+  // ===== NORMALIZED DANCE DATA =====
+  const [disciplines, setDisciplines] = useState(defaultState.disciplines)
+  const [routines, setRoutines] = useState([])
+  const [sessions, setSessions] = useState([])
+  const [events, setEvents] = useState([])
+  const [stickers, setStickers] = useState([])
+  const [practiceLog, setPracticeLog] = useState([])
+  const [dancerProfile, setDancerProfile] = useState({ name: 'My Dancing', currentFocus: null })
+  const [dancerGoals, setDancerGoals] = useState([])
+  const [settings, setSettingsState] = useState({ dancerName: 'My Dancing', themeColor: '#a855f7', promptLeadMs: 200 })
+
+  // Refs for read-then-write patterns (stable callbacks that need current data)
+  const sessionsRef = useRef(sessions)
+  sessionsRef.current = sessions
+  const eventsRef = useRef(events)
+  eventsRef.current = events
+  const stickersRef = useRef(stickers)
+  stickersRef.current = stickers
+
+  // Merged kid profiles (own + guardian families)
   const allKidProfiles = (() => {
     const merged = [...kidProfiles]
     const seenIds = new Set(kidProfiles.map(k => k.id))
     for (const fam of guardianFamilies) {
       for (const kid of (fam.kids || [])) {
-        if (!seenIds.has(kid.id)) {
-          seenIds.add(kid.id)
-          merged.push(kid)
-        }
+        if (!seenIds.has(kid.id)) { seenIds.add(kid.id); merged.push(kid) }
       }
     }
     return merged
   })()
 
   const activeKidProfile = isKidMode ? allKidProfiles.find(k => k.id === activeProfile.kidId) : null
-
-  // Admin = logged-in parent in adult mode (no separate PIN/timeout needed)
   const isAdmin = Boolean(authUser) && !isKidMode
-
-  // The display name for whoever is currently active
   const activeProfileName = isKidMode
     ? (activeKidProfile?.display_name || 'Dancer')
     : (userProfile?.display_name || 'Parent')
@@ -698,21 +151,15 @@ export function AppProvider({ children }) {
     ? (activeKidProfile?.avatar_emoji || '💃')
     : (userProfile?.avatar_emoji || '👤')
 
-  // Build grouped family-unit list for the Family Unit view.
-  // Each unit is a self-contained card: my own family + any families I joined as guardian.
+  // Family units
   const familyUnits = (() => {
     const units = []
-
-    // --- DB-backed family units I own (editable) ---
     for (const dbUnit of myFamilyUnitsDB) {
       const members = []
-      if (userProfile) {
-        members.push({ type: 'adult', profile: userProfile, relationship: 'You', isSelf: true })
-      }
+      if (userProfile) members.push({ type: 'adult', profile: userProfile, relationship: 'You', isSelf: true })
       for (const kid of kidProfiles.filter(k => (dbUnit.kid_profile_ids || []).includes(k.id))) {
         members.push({ type: 'child', profile: kid, relationship: 'Your child', isOwn: true })
       }
-      // Include accepted guardians linked to this unit
       for (const g of outgoingGuardians.filter(g => g.status === 'accepted' && g.family_unit_id === dbUnit.id)) {
         members.push({
           type: 'adult',
@@ -721,59 +168,29 @@ export function AppProvider({ children }) {
           guardianId: g.id,
         })
       }
-      units.push({
-        id: dbUnit.id,
-        name: dbUnit.name,
-        isOwner: true,
-        kidProfileIds: dbUnit.kid_profile_ids || [],
-        members,
-      })
+      units.push({ id: dbUnit.id, name: dbUnit.name, isOwner: true, kidProfileIds: dbUnit.kid_profile_ids || [], members })
     }
-
-    // --- Families I joined as guardian ---
     for (const fam of guardianFamilies) {
       const members = []
-      if (fam.ownerProfile) {
-        members.push({
-          type: 'adult',
-          profile: fam.ownerProfile,
-          relationship: 'Owner',
-          guardianId: fam.guardian?.id,
-        })
-      }
-      if (userProfile) {
-        members.push({ type: 'adult', profile: userProfile, relationship: 'You (guardian)', isSelf: true })
-      }
-      for (const kid of (fam.kids || [])) {
-        members.push({ type: 'child', profile: kid, relationship: 'Child', isOwn: false })
-      }
+      if (fam.ownerProfile) members.push({ type: 'adult', profile: fam.ownerProfile, relationship: 'Owner', guardianId: fam.guardian?.id })
+      if (userProfile) members.push({ type: 'adult', profile: userProfile, relationship: 'You (guardian)', isSelf: true })
+      for (const kid of (fam.kids || [])) members.push({ type: 'child', profile: kid, relationship: 'Child', isOwn: false })
       units.push({
         id: fam.familyUnit?.id || fam.guardian?.id || `fam-${fam.ownerProfile?.id}`,
-        name: fam.familyUnit?.name || (fam.ownerProfile?.display_name
-          ? `${fam.ownerProfile.display_name}'s Family`
-          : 'Family'),
+        name: fam.familyUnit?.name || (fam.ownerProfile?.display_name ? `${fam.ownerProfile.display_name}'s Family` : 'Family'),
         isOwner: false,
         members,
       })
     }
-
     return units
   })()
 
-  // Legacy admin helpers — kept for compatibility but simplified
   const unlockAdmin = () => true
   const lockAdmin = () => {}
   const resetAdminTimer = () => {}
 
-  const [state, dispatch] = useReducer(appReducer, defaultState)
-
   // ============ PROFILE SWITCHING ============
-  // Switch to a kid profile — no auth required
-  const switchToKidProfile = useCallback((kidId) => {
-    setActiveProfile({ type: 'kid', kidId })
-  }, [])
-
-  // Switch back to adult — requires PIN re-auth (prevents kids from accessing parent view)
+  const switchToKidProfile = useCallback((kidId) => { setActiveProfile({ type: 'kid', kidId }) }, [])
   const switchToAdultProfile = useCallback((pin) => {
     if (pin !== ADMIN_PIN) return false
     setActiveProfile({ type: 'adult' })
@@ -784,29 +201,16 @@ export function AppProvider({ children }) {
   const loadProfiles = useCallback(async () => {
     if (!hasSupabaseConfig || !authUser?.id) return
     try {
-      const [profile, kids] = await Promise.all([
-        fetchUserProfile(),
-        fetchKidProfiles(),
-      ])
-      // Auto-create user_profile if it doesn't exist yet
+      const [profile, kids] = await Promise.all([fetchUserProfile(), fetchKidProfiles()])
       if (!profile) {
-        const metaName = authUser.user_metadata?.displayName
-          || authUser.user_metadata?.display_name
-          || authUser.email?.split('@')[0]
-          || ''
-        const newProfile = await upsertUserProfile({
-          displayName: metaName,
-          avatarEmoji: '👤',
-        })
+        const metaName = authUser.user_metadata?.displayName || authUser.user_metadata?.display_name || authUser.email?.split('@')[0] || ''
+        const newProfile = await upsertUserProfile({ displayName: metaName, avatarEmoji: '👤' })
         setUserProfile(newProfile)
       } else {
         setUserProfile(profile)
       }
       setKidProfiles(kids || [])
-      console.log('[loadProfiles] loaded', { profile, kidsCount: (kids || []).length })
-    } catch (err) {
-      console.error('Failed to load profiles:', err)
-    }
+    } catch (err) { console.error('Failed to load profiles:', err) }
   }, [authUser])
 
   const saveUserProfile = useCallback(async ({ displayName, avatarEmoji }) => {
@@ -830,42 +234,25 @@ export function AppProvider({ children }) {
   const removeKidProfile = useCallback(async (kidId) => {
     await apiDeleteKidProfile(kidId)
     setKidProfiles(prev => prev.filter(k => k.id !== kidId))
-    // If currently viewing this kid, switch back to adult
-    if (activeProfile.type === 'kid' && activeProfile.kidId === kidId) {
-      setActiveProfile({ type: 'adult' })
-    }
+    if (activeProfile.type === 'kid' && activeProfile.kidId === kidId) setActiveProfile({ type: 'adult' })
   }, [activeProfile])
 
   // ============ SHARING MANAGEMENT ============
   const loadShares = useCallback(async () => {
     if (!hasSupabaseConfig || !authUser?.id) return
     try {
-      const [outgoing, incoming] = await Promise.all([
-        fetchMyShares(),
-        fetchIncomingShares(),
-      ])
+      const [outgoing, incoming] = await Promise.all([fetchMyShares(), fetchIncomingShares()])
       setOutgoingShares(outgoing || [])
       setIncomingShares(incoming || [])
-
-      // For accepted incoming shares, load the dance data + owner profile
       const accepted = (incoming || []).filter(s => s.status === 'accepted')
-      const dances = await Promise.all(
-        accepted.map(async (share) => {
-          try {
-            const [dance, ownerProfile] = await Promise.all([
-              fetchSharedDance(share.dance_id),
-              fetchSharedOwnerProfile(share.owner_user_id),
-            ])
-            return { share, dance, ownerProfile }
-          } catch {
-            return null
-          }
-        })
-      )
+      const dances = await Promise.all(accepted.map(async (share) => {
+        try {
+          const [dance, ownerProfile] = await Promise.all([fetchSharedDance(share.dance_id), fetchSharedOwnerProfile(share.owner_user_id)])
+          return { share, dance, ownerProfile }
+        } catch { return null }
+      }))
       setSharedDances(dances.filter(Boolean))
-    } catch (err) {
-      console.warn('Failed to load shares:', err)
-    }
+    } catch (err) { console.warn('Failed to load shares:', err) }
   }, [authUser?.id])
 
   const createShareInvite = useCallback(async ({ danceId, routineId }) => {
@@ -877,7 +264,6 @@ export function AppProvider({ children }) {
   const acceptShareInvite = useCallback(async (shareId) => {
     const share = await apiAcceptShare(shareId)
     setIncomingShares(prev => prev.map(s => s.id === shareId ? { ...s, ...share } : s))
-    // Reload to get dance data
     await loadShares()
     return share
   }, [loadShares])
@@ -899,13 +285,16 @@ export function AppProvider({ children }) {
     return share
   }, [loadShares])
 
-  const fetchPartnerKids = useCallback(async (partnerUserId) => {
-    return apiFetchPartnerKids(partnerUserId)
-  }, [])
+  const fetchPartnerKids = useCallback(async (partnerUserId) => apiFetchPartnerKids(partnerUserId), [])
 
   const updateSharePartnerKids = useCallback(async (shareId, kidIds) => {
     const updated = await apiUpdateSharePartnerKids(shareId, kidIds)
     setOutgoingShares(prev => prev.map(s => s.id === shareId ? { ...s, ...updated } : s))
+    setIncomingShares(prev => prev.map(s => s.id === shareId ? { ...s, ...updated } : s))
+    setSharedDances(prev => prev.map(item => {
+      if (!item?.share || item.share.id !== shareId) return item
+      return { ...item, share: { ...item.share, ...updated } }
+    }))
     return updated
   }, [])
 
@@ -914,44 +303,29 @@ export function AppProvider({ children }) {
     if (!hasSupabaseConfig || !authUser?.id) return
     try {
       const [outgoing, incoming, myUnits, guardianUnits] = await Promise.all([
-        fetchMyGuardians(),
-        fetchIncomingGuardianInvites(),
-        fetchMyFamilyUnits(),
-        fetchGuardianFamilyUnits(),
+        fetchMyGuardians(), fetchIncomingGuardianInvites(), fetchMyFamilyUnits(), fetchGuardianFamilyUnits(),
       ])
       setOutgoingGuardians(outgoing || [])
       setIncomingGuardians(incoming || [])
       setMyFamilyUnitsDB(myUnits || [])
       setGuardianFamilyUnitsDB(guardianUnits || [])
 
-      // For accepted incoming guardian invites, load the owner profile + assigned kids
       const accepted = (incoming || []).filter(g => g.status === 'accepted')
-      const families = await Promise.all(
-        accepted.map(async (guardian) => {
-          try {
-            const unitRow = guardian.family_unit_id
-              ? (guardianUnits || []).find(u => u.id === guardian.family_unit_id)
-              : null
-            // If the invite is linked to a family_unit, use unit's kid_profile_ids
-            const unitKidIds = guardian.family_unit_id
-              ? unitRow?.kid_profile_ids
-              : guardian.kid_profile_ids
-            const [ownerProfile, kids] = await Promise.all([
-              fetchGuardianOwnerProfile(guardian.owner_user_id),
-              unitKidIds?.length
-                ? fetchGuardianKidProfiles(guardian.owner_user_id, unitKidIds)
-                : Promise.resolve([]),
-            ])
-            return { guardian, ownerProfile, kids, familyUnit: unitRow }
-          } catch {
-            return null
-          }
-        })
-      )
+      const families = await Promise.all(accepted.map(async (guardian) => {
+        try {
+          const unitRow = guardian.family_unit_id
+            ? (guardianUnits || []).find(u => u.id === guardian.family_unit_id)
+            : null
+          const unitKidIds = guardian.family_unit_id ? unitRow?.kid_profile_ids : guardian.kid_profile_ids
+          const [ownerProfile, kids] = await Promise.all([
+            fetchGuardianOwnerProfile(guardian.owner_user_id),
+            unitKidIds?.length ? fetchGuardianKidProfiles(guardian.owner_user_id, unitKidIds) : Promise.resolve([]),
+          ])
+          return { guardian, ownerProfile, kids, familyUnit: unitRow }
+        } catch { return null }
+      }))
       setGuardianFamilies(families.filter(Boolean))
-    } catch (err) {
-      console.warn('Failed to load guardians:', err)
-    }
+    } catch (err) { console.warn('Failed to load guardians:', err) }
   }, [authUser?.id])
 
   const createGuardianInvite = useCallback(async ({ familyUnitId, kidProfileIds, role }) => {
@@ -994,228 +368,473 @@ export function AppProvider({ children }) {
   useEffect(() => {
     if (authLoading || !authUser?.id) return
     setProfilesLoaded(false)
-    Promise.all([loadProfiles(), loadGuardians()])
-      .finally(() => setProfilesLoaded(true))
+    Promise.all([loadProfiles(), loadGuardians()]).finally(() => setProfilesLoaded(true))
     loadShares()
   }, [authLoading, authUser?.id, loadProfiles, loadShares, loadGuardians])
 
   // ============ INVITE TOKEN HANDLING ============
-  // Check for ?invite=TOKEN in URL and auto-accept guardian invite after login
   useEffect(() => {
     if (authLoading || !authUser?.id) return
     const params = new URLSearchParams(window.location.search)
     const token = params.get('invite')
     if (!token) return
-
-    // Strip the token from the URL so it doesn't get reused
     const url = new URL(window.location)
     url.searchParams.delete('invite')
     window.history.replaceState({}, '', url.pathname + url.search + url.hash)
-
-    // Accept the invite
     ;(async () => {
-      try {
-        await acceptGuardianByToken(token)
-        alert('Guardian invite accepted!')
-      } catch (err) {
-        console.warn('Failed to accept guardian invite:', err)
-        alert(err?.message || 'Could not accept invite. It may have expired or already been used.')
-      }
+      try { await acceptGuardianByToken(token); alert('Guardian invite accepted!') }
+      catch (err) { console.warn('Failed to accept guardian invite:', err); alert(err?.message || 'Could not accept invite.') }
     })()
   }, [authLoading, authUser?.id, acceptGuardianByToken])
 
-  // Check for ?share=TOKEN in URL and auto-accept share invite after login
   useEffect(() => {
     if (authLoading || !authUser?.id) return
     const params = new URLSearchParams(window.location.search)
     const token = params.get('share')
     if (!token) return
-
     const url = new URL(window.location)
     url.searchParams.delete('share')
     window.history.replaceState({}, '', url.pathname + url.search + url.hash)
-
     ;(async () => {
-      try {
-        await acceptShareByToken(token)
-        alert('Share invite accepted! You now have access to the shared dance.')
-        // Redirect to dashboard where shared dances are visible
-        window.location.replace('/')
-      } catch (err) {
-        console.warn('Failed to accept share invite:', err)
-        alert(err?.message || 'Could not accept share invite. It may have expired or already been used.')
-      }
+      try { await acceptShareByToken(token); alert('Share invite accepted!'); window.location.replace('/') }
+      catch (err) { console.warn('Failed to accept share invite:', err); alert(err?.message || 'Could not accept share invite.') }
     })()
   }, [authLoading, authUser?.id, acceptShareByToken])
 
+  // ============ AUTH SETUP ============
   useEffect(() => {
     let mounted = true
-
     if (!hasSupabaseConfig || !supabase) {
-      setFileStorageUserScope(null)
-      setAuthSession(null)
-      setAuthUser(null)
-      setAuthLoading(false)
-      return () => {
-        mounted = false
-      }
+      setFileStorageUserScope(null); setDanceDataOwnerId(null); setBackendDanceOwnerId(null); setAuthSession(null); setAuthUser(null); setAuthLoading(false)
+      return () => { mounted = false }
     }
-
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return
       const session = data?.session || null
-      setAuthSession(session)
-      setAuthUser(session?.user || null)
-      setFileStorageUserScope(session?.user?.id || null)
-      setAuthLoading(false)
+      setAuthSession(session); setAuthUser(session?.user || null); setFileStorageUserScope(session?.user?.id || null); setDanceDataOwnerId(session?.user?.id || null); setBackendDanceOwnerId(session?.user?.id || null); setAuthLoading(false)
     }).catch(() => {
       if (!mounted) return
-      setFileStorageUserScope(null)
-      setAuthSession(null)
-      setAuthUser(null)
-      setAuthLoading(false)
+      setFileStorageUserScope(null); setDanceDataOwnerId(null); setBackendDanceOwnerId(null); setAuthSession(null); setAuthUser(null); setAuthLoading(false)
     })
-
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAuthSession(session || null)
-      setAuthUser(session?.user || null)
-      setFileStorageUserScope(session?.user?.id || null)
+      setAuthSession(session || null); setAuthUser(session?.user || null); setFileStorageUserScope(session?.user?.id || null); setDanceDataOwnerId(session?.user?.id || null); setBackendDanceOwnerId(session?.user?.id || null)
     })
-
-    return () => {
-      mounted = false
-      sub?.subscription?.unsubscribe()
-    }
+    return () => { mounted = false; sub?.subscription?.unsubscribe() }
   }, [])
 
+  // ================================================================
+  // DANCE DATA — MUTATION FUNCTIONS
+  // ================================================================
+
+  // ---- Sessions ----
+  const addSession = useCallback(async (payload) => {
+    const created = await apiCreateSession(payload)
+    setSessions(prev => [...prev, created])
+    return created
+  }, [])
+
+  const scheduleRehearsal = useCallback(async (payload) => {
+    const created = await apiCreateSession({ ...payload, type: 'practice', status: 'scheduled' })
+    setSessions(prev => [...prev, created])
+    return created
+  }, [])
+
+  const editSession = useCallback(async (id, updates) => {
+    const updated = await apiUpdateSession(id, updates)
+    setSessions(prev => prev.map(s => s.id === id ? updated : s))
+    return updated
+  }, [])
+
+  const removeSession = useCallback(async (id) => {
+    setSessions(prev => prev.filter(s => s.id !== id))
+    await apiDeleteSession(id)
+  }, [])
+
+  const setRehearsalVersion = useCallback(async (sessionId, choreographyVersionId) => {
+    const updated = await apiUpdateSession(sessionId, { choreographyVersionId: choreographyVersionId || null })
+    setSessions(prev => prev.map(s => s.id === sessionId ? updated : s))
+  }, [])
+
+  const completeRehearsal = useCallback(async (sessionId, completedAt) => {
+    const updated = await apiUpdateSession(sessionId, { status: 'completed', completedAt: completedAt || new Date().toISOString() })
+    setSessions(prev => prev.map(s => s.id === sessionId ? updated : s))
+  }, [])
+
+  const attachRehearsalVideo = useCallback(async (sessionId, videoKey, videoName) => {
+    const updated = await apiUpdateSession(sessionId, {
+      rehearsalVideoKey: videoKey || '', rehearsalVideoName: videoName || '',
+      status: 'completed', completedAt: new Date().toISOString(),
+    })
+    setSessions(prev => prev.map(s => s.id === sessionId ? updated : s))
+  }, [])
+
+  const setSessionReflection = useCallback(async (sessionId, reflection) => {
+    const session = sessionsRef.current.find(s => s.id === sessionId)
+    if (!session) return
+    const merged = { ...session.dancerReflection, ...reflection }
+    setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, dancerReflection: merged } : s))
+    apiUpdateSession(sessionId, { dancerReflection: merged }).catch(e => console.warn('Save reflection:', e))
+  }, [])
+
+  const addEmojiReaction = useCallback(async (sessionId, emoji) => {
+    const session = sessionsRef.current.find(s => s.id === sessionId)
+    if (!session) return
+    const updated = [...(session.emojiReactions || []), emoji]
+    setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, emojiReactions: updated } : s))
+    apiUpdateSession(sessionId, { emojiReactions: updated }).catch(e => console.warn('Save reaction:', e))
+  }, [])
+
+  // ---- Disciplines ----
+  const addDiscipline = useCallback(async (payload) => {
+    const created = await apiCreateDiscipline(payload)
+    created.elements = []
+    created.gradeHistory = []
+    setDisciplines(prev => [...prev, created])
+    return created
+  }, [])
+
+  const editDiscipline = useCallback(async (id, updates) => {
+    const updated = await apiUpdateDiscipline(id, updates)
+    setDisciplines(prev => prev.map(d => d.id === id ? { ...d, ...updated } : d))
+    return updated
+  }, [])
+
+  const removeDiscipline = useCallback(async (id) => {
+    setDisciplines(prev => prev.filter(d => d.id !== id))
+    await apiDeleteDiscipline(id)
+  }, [])
+
+  // ---- Discipline elements ----
+  const addElement = useCallback(async (disciplineId, element) => {
+    const created = await apiCreateDisciplineElement(disciplineId, element)
+    setDisciplines(prev => prev.map(d =>
+      d.id === disciplineId ? { ...d, elements: [...d.elements, created] } : d
+    ))
+    return created
+  }, [])
+
+  const setElementStatus = useCallback(async (disciplineId, elementId, newStatus) => {
+    const updated = await apiUpdateDisciplineElement(elementId, { status: newStatus })
+    setDisciplines(prev => prev.map(d =>
+      d.id === disciplineId ? { ...d, elements: d.elements.map(e => e.id === elementId ? updated : e) } : d
+    ))
+  }, [])
+
+  const removeElement = useCallback(async (disciplineId, elementId) => {
+    setDisciplines(prev => prev.map(d =>
+      d.id === disciplineId ? { ...d, elements: d.elements.filter(e => e.id !== elementId) } : d
+    ))
+    await apiDeleteDisciplineElement(elementId)
+  }, [])
+
+  // ---- Routines ----
+  const addRoutine = useCallback(async (payload) => {
+    const created = await apiCreateRoutine(payload)
+    const firstVersion = await apiCreateChoreographyVersion(created.id, { label: 'v1' })
+    created.choreographyVersions = [firstVersion]
+    created.practiceVideos = []
+    setRoutines(prev => [...prev, created])
+    return created
+  }, [])
+
+  const editRoutine = useCallback(async (id, updates) => {
+    const updated = await apiUpdateRoutine(id, updates)
+    setRoutines(prev => prev.map(r => r.id === id ? { ...r, ...updated } : r))
+    return updated
+  }, [])
+
+  const removeRoutine = useCallback(async (id) => {
+    setRoutines(prev => prev.filter(r => r.id !== id))
+    await apiDeleteRoutine(id)
+  }, [])
+
+  // ---- Choreography versions ----
+  const addChoreographyVersion = useCallback(async (routineId, versionData) => {
+    const created = await apiCreateChoreographyVersion(routineId, versionData)
+    setRoutines(prev => prev.map(r =>
+      r.id === routineId ? { ...r, choreographyVersions: [...(r.choreographyVersions || []), created] } : r
+    ))
+    return created
+  }, [])
+
+  const editChoreographyVersion = useCallback(async (routineId, versionId, updates) => {
+    setRoutines(prev => prev.map(r =>
+      r.id === routineId
+        ? { ...r, choreographyVersions: (r.choreographyVersions || []).map(v => v.id === versionId ? { ...v, ...updates } : v) }
+        : r
+    ))
+    apiUpdateChoreographyVersion(versionId, updates).catch(e => console.warn('Save version:', e))
+  }, [])
+
+  // ---- Practice videos ----
+  const addPracticeVideo = useCallback(async (routineId, videoData) => {
+    const created = await apiCreatePracticeVideo(routineId, videoData)
+    setRoutines(prev => prev.map(r =>
+      r.id === routineId ? { ...r, practiceVideos: [...(r.practiceVideos || []), created] } : r
+    ))
+    return created
+  }, [])
+
+  // ---- Events (shows) ----
+  const addShow = useCallback(async (payload) => {
+    const created = await apiCreateEvent(payload)
+    setEvents(prev => [...prev, created])
+    return created
+  }, [])
+
+  const editShow = useCallback(async (id, updates) => {
+    const updated = await apiUpdateEvent(id, updates)
+    setEvents(prev => prev.map(ev => ev.id === id ? { ...ev, ...updated } : ev))
+    return updated
+  }, [])
+
+  const removeShow = useCallback(async (id) => {
+    setEvents(prev => prev.filter(ev => ev.id !== id))
+    await apiDeleteEvent(id)
+  }, [])
+
+  // ---- Event entries ----
+  const addEventEntry = useCallback(async (showId, entry) => {
+    const created = await apiCreateEventEntry(showId, entry)
+    setEvents(prev => prev.map(ev =>
+      ev.id === showId
+        ? {
+            ...ev,
+            entries: [...(ev.entries || []), created],
+            routineIds: (ev.routineIds || []).includes(created.routineId)
+              ? ev.routineIds
+              : [...(ev.routineIds || []), created.routineId].filter(Boolean),
+          }
+        : ev
+    ))
+    return created
+  }, [])
+
+  const editEventEntry = useCallback(async (showId, entryId, updates) => {
+    const updated = await apiUpdateEventEntry(entryId, updates)
+    setEvents(prev => prev.map(ev =>
+      ev.id === showId ? { ...ev, entries: (ev.entries || []).map(e => e.id === entryId ? updated : e) } : ev
+    ))
+    return updated
+  }, [])
+
+  const removeEventEntry = useCallback(async (showId, entryId) => {
+    setEvents(prev => prev.map(ev =>
+      ev.id === showId ? { ...ev, entries: (ev.entries || []).filter(e => e.id !== entryId) } : ev
+    ))
+    await apiDeleteEventEntry(entryId)
+  }, [])
+
+  // ---- Scrapbook entries ----
+  const addScrapbookEntry = useCallback(async (showId, entry) => {
+    const created = await apiCreateScrapbookEntry(showId, entry)
+    setEvents(prev => prev.map(ev =>
+      ev.id === showId ? { ...ev, scrapbookEntries: [...(ev.scrapbookEntries || []), created] } : ev
+    ))
+    return created
+  }, [])
+
+  const addScrapbookReaction = useCallback(async (showId, entryId, emoji) => {
+    const ev = eventsRef.current.find(e => e.id === showId)
+    const entry = ev?.scrapbookEntries?.find(e => e.id === entryId)
+    if (!entry) return
+    const updated = [...(entry.emojiReactions || []), emoji]
+    setEvents(prev => prev.map(e =>
+      e.id === showId
+        ? { ...e, scrapbookEntries: (e.scrapbookEntries || []).map(s => s.id === entryId ? { ...s, emojiReactions: updated } : s) }
+        : e
+    ))
+    apiUpdateScrapbookEntry(entryId, { emojiReactions: updated }).catch(e => console.warn('Save scrapbook reaction:', e))
+  }, [])
+
+  // ---- Stickers ----
+  const addStickers = useCallback(async (stickerArray) => {
+    if (!stickerArray?.length) return
+    const created = await apiCreateStickers(stickerArray)
+    setStickers(prev => [...prev, ...created])
+    return created
+  }, [])
+
+  const addCustomSticker = useCallback(async (payload) => {
+    const created = await apiCreateSticker({ ...payload, type: 'custom' })
+    setStickers(prev => [...prev, created])
+    return created
+  }, [])
+
+  // ---- Practice log ----
+  const logPracticeDay = useCallback(async (dateStr) => {
+    setPracticeLog(prev => prev.includes(dateStr) ? prev : [...prev, dateStr])
+    apiLogPractice(dateStr).catch(e => console.warn('Save practice log:', e))
+  }, [])
+
+  // ---- Dancer profile ----
+  const updateDancerProfileFn = useCallback(async (updates) => {
+    setDancerProfile(prev => ({ ...prev, ...updates }))
+    apiUpsertDancerProfile(updates).catch(e => console.warn('Save dancer profile:', e))
+  }, [])
+
+  const addGoal = useCallback(async (payload) => {
+    const created = await apiCreateDancerGoal({ text: payload.text || '' })
+    setDancerGoals(prev => [...prev, created])
+    return created
+  }, [])
+
+  const completeGoal = useCallback(async (goalId) => {
+    const completedDate = new Date().toISOString().split('T')[0]
+    setDancerGoals(prev => prev.map(g => g.id === goalId ? { ...g, completedDate } : g))
+    apiUpdateDancerGoal(goalId, { completedDate }).catch(e => console.warn('Save goal:', e))
+  }, [])
+
+  const setCurrentFocus = useCallback(async (focus) => {
+    setDancerProfile(prev => ({ ...prev, currentFocus: focus }))
+    apiUpsertDancerProfile({ currentFocus: focus }).catch(e => console.warn('Save focus:', e))
+  }, [])
+
+  // ---- Settings ----
+  const updateSettingsFn = useCallback(async (updates) => {
+    setSettingsState(prev => ({ ...prev, ...updates }))
+    apiUpdateSettings(updates).catch(e => console.warn('Save settings:', e))
+  }, [])
+
+  // ---- Reset (wipe local state) ----
+  const resetState = useCallback(() => {
+    setDisciplines(defaultState.disciplines); setRoutines([]); setSessions([]); setEvents([])
+    setStickers([]); setPracticeLog([]); setDancerProfile({ name: 'My Dancing', currentFocus: null })
+    setDancerGoals([]); setSettingsState({ dancerName: 'My Dancing', themeColor: '#a855f7', promptLeadMs: 200 })
+  }, [])
+
+  // ================================================================
+  // HYDRATION — load from normalized tables
+  // ================================================================
   useEffect(() => {
     if (authLoading) return
-
     let cancelled = false
 
     async function hydrateState() {
-      if (hasSupabaseConfig && !authUser?.id) {
-        dispatch({ type: 'RESET_STATE' })
-        setIsLoading(false)
-        return
-      }
+      if (hasSupabaseConfig && !authUser?.id) { setIsLoading(false); return }
+      if (!authUser?.id) { setIsLoading(false); return }
 
       setIsLoading(true)
+      try {
+        const init = await initializeDanceData()
+        if (cancelled) return
+        setFileStorageUserScope(init.ownerId)
+        setDanceDataOwnerId(init.ownerId)
+        setBackendDanceOwnerId(init.ownerId)
 
-      if (authUser?.id) {
-        let hasLocalData = false
-        try {
-          const saved = localStorage.getItem(getLocalStateKey(authUser.id))
-          if (saved) {
-            const parsed = JSON.parse(saved)
-            if (!cancelled) {
-              dispatch({ type: 'IMPORT_STATE', payload: mergeStateWithDefaults(migrateOldState(parsed)) })
-              hasLocalData = true
-            }
-          }
-        } catch (e) {
-          console.warn('Failed to load state from localStorage:', e)
+        const [disc, rout, sess, evts, stick, log, prof, goals, sett, incoming] = await Promise.all([
+          fetchDisciplinesWithChildren(),
+          fetchRoutinesWithChildren(),
+          apiFetchSessions(),
+          fetchEventsWithChildren(),
+          apiFetchStickers(),
+          apiFetchPracticeLog(),
+          apiFetchDancerProfile(),
+          apiFetchDancerGoals(),
+          apiFetchSettings(),
+          fetchIncomingShares(),
+        ])
+        if (cancelled) return
+
+        let nextDisc = disc
+        let nextRout = rout
+        let nextSess = sess
+        let nextEvts = evts
+
+        const acceptedForOwner = (incoming || []).filter(
+          (share) => share.status === 'accepted' && share.owner_user_id === init.ownerId
+        )
+        const shareAllForOwner = acceptedForOwner.some((share) => !share.routine_id)
+        const sharedRoutineIds = new Set(
+          acceptedForOwner.map((share) => share.routine_id).filter(Boolean)
+        )
+
+        const shouldScopeToSharedRoutines = authUser?.id !== init.ownerId
+          && acceptedForOwner.length > 0
+          && !shareAllForOwner
+          && sharedRoutineIds.size > 0
+
+        if (shouldScopeToSharedRoutines) {
+          nextRout = rout.filter((routine) => sharedRoutineIds.has(routine.id))
+          nextSess = sess.filter((session) => session.routineId && sharedRoutineIds.has(session.routineId))
+          nextEvts = (evts || [])
+            .map((event) => {
+              const filteredEntries = (event.entries || []).filter(
+                (entry) => entry.routineId && sharedRoutineIds.has(entry.routineId)
+              )
+              if (!filteredEntries.length) return null
+              return {
+                ...event,
+                entries: filteredEntries,
+                routineIds: [...new Set(filteredEntries.map((entry) => entry.routineId).filter(Boolean))],
+              }
+            })
+            .filter(Boolean)
+
+          const visibleDisciplineIds = new Set(nextRout.map((routine) => routine.disciplineId).filter(Boolean))
+          nextDisc = disc.filter((discipline) => visibleDisciplineIds.has(discipline.id))
         }
 
-        // Only show the cached UI immediately when localStorage had data.
-        // Otherwise keep isLoading=true until the backend fetch finishes
-        // so we don't flash default dancers before real data arrives.
-        if (hasLocalData && !cancelled) setIsLoading(false)
-
-        // Fetch canonical backend state in the background so first paint is fast.
-        try {
-          const payload = await fetchStateFromBackend()
-          if (cancelled) return
-
-          if (payload?.source === 'dance' && payload?.danceData?.state_data) {
-            dispatch({ type: 'IMPORT_STATE', payload: stateFromDanceRow(payload.danceData) })
-
-            // Point file storage at the dance owner (may be a different user for guardians)
-            const effectiveOwner = payload.danceData.owner_id || authUser.id
-            setDanceOwnerId(effectiveOwner)
-            setFileStorageUserScope(effectiveOwner)
-          }
-        } catch (err) {
-          console.warn('Backend state fetch unavailable; using local state only:', err)
-        }
-
-        // If we didn't have local data, now we can stop loading
-        if (!hasLocalData && !cancelled) setIsLoading(false)
-
-        return
+        setDisciplines(nextDisc.length ? nextDisc : defaultState.disciplines)
+        setRoutines(nextRout)
+        setSessions(nextSess)
+        setEvents(nextEvts)
+        setStickers(stick)
+        setPracticeLog(log)
+        setDancerProfile(prof || { name: 'My Dancing', currentFocus: null })
+        setDancerGoals(goals)
+        setSettingsState(sett)
+      } catch (err) {
+        console.warn('Hydration failed:', err)
       }
-
-      if (!cancelled) {
-        setIsLoading(false)
-      }
+      if (!cancelled) setIsLoading(false)
     }
 
     hydrateState()
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [authLoading, authUser?.id])
 
-  // Persist to localStorage and backend on every state change
+  // ================================================================
+  // MILESTONE STICKER CHECK
+  // ================================================================
+  const milestoneCheckedRef = useRef(new Set())
   useEffect(() => {
-    if (isLoading) return // Don't save while initially loading
-    if (hasSupabaseConfig && !authUser?.id) return
-
-    try {
-      if (authUser?.id) {
-        localStorage.setItem(getLocalStateKey(authUser.id), JSON.stringify(state))
-      }
-    } catch (e) {
-      console.warn("Failed to save state to localStorage:", e)
+    if (isLoading) return
+    const stateForCheck = {
+      practiceLog, routines, sessions,
+      shows: events,
+      dancerProfile: { ...dancerProfile, goals: dancerGoals },
+      disciplines,
+      stickers: stickersRef.current,
     }
-
-    // Debounce backend saves to avoid too many requests
-    const saveToBackend = async () => {
-      if (!authUser?.id) return
-      try {
-        await saveStateToBackend(state)
-      } catch (err) {
-        console.warn('Backend state save failed; local save still kept:', err)
-      }
+    const newOnes = checkForNewStickers(stateForCheck)
+    const truly = newOnes.filter(s => !milestoneCheckedRef.current.has(s.type))
+    if (truly.length > 0) {
+      truly.forEach(s => milestoneCheckedRef.current.add(s.type))
+      addStickers(truly).catch(e => console.warn('Milestone save:', e))
     }
+  }, [practiceLog, routines, sessions, events, dancerProfile, dancerGoals, disciplines, isLoading, addStickers])
 
-    const timeoutId = setTimeout(saveToBackend, 1000) // 1 second debounce
-    return () => clearTimeout(timeoutId)
-  }, [state, isLoading, authUser?.id])
-
+  // ============ AUTH HELPERS ============
   const getMagicLinkRedirectUrl = () => {
     const explicitRedirect = import.meta.env.VITE_AUTH_REDIRECT_URL
     if (explicitRedirect) return explicitRedirect
     if (typeof window === 'undefined') return undefined
-
     const basePath = import.meta.env.BASE_URL || '/'
     return new URL(basePath, window.location.origin).toString()
   }
 
-  // Check whether a user with this email already exists.
-  // Uses signInWithOtp with shouldCreateUser:false — if it succeeds the user
-  // is known; if it errors out the email is new.
   const checkUserExists = async (email) => {
     if (!supabase) throw new Error('Supabase auth is not configured.')
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false, emailRedirectTo: getMagicLinkRedirectUrl() },
-    })
-    // Supabase returns an error when the user doesn't exist and shouldCreateUser is false
-    if (error) return false
-    return true
+    const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: getMagicLinkRedirectUrl() } })
+    return !error
   }
 
-  // Login — existing user, just send magic link
   const signInWithMagicLink = async (email) => {
     if (!supabase) throw new Error('Supabase auth is not configured.')
     const trimmedEmail = String(email || '').trim()
     if (!trimmedEmail) throw new Error('Email is required.')
-
-    const { error } = await supabase.auth.signInWithOtp({
-      email: trimmedEmail,
-      options: { shouldCreateUser: false, emailRedirectTo: getMagicLinkRedirectUrl() },
-    })
+    const { error } = await supabase.auth.signInWithOtp({ email: trimmedEmail, options: { shouldCreateUser: false, emailRedirectTo: getMagicLinkRedirectUrl() } })
     if (error) throw error
     return true
   }
@@ -1226,62 +845,45 @@ export function AppProvider({ children }) {
     const trimmedToken = String(token || '').trim()
     if (!trimmedEmail) throw new Error('Email is required.')
     if (!trimmedToken) throw new Error('Code is required.')
-
-    // Try the requested type first, fall back to the other if it fails
-    const { error } = await supabase.auth.verifyOtp({
-      email: trimmedEmail,
-      token: trimmedToken,
-      type: otpType,
-    })
+    const { error } = await supabase.auth.verifyOtp({ email: trimmedEmail, token: trimmedToken, type: otpType })
     if (error) {
-      // Supabase uses different OTP types for login vs signup —
-      // if one fails, try the other before giving up
       const fallbackType = otpType === 'email' ? 'signup' : 'email'
-      const { error: fallbackError } = await supabase.auth.verifyOtp({
-        email: trimmedEmail,
-        token: trimmedToken,
-        type: fallbackType,
-      })
-      if (fallbackError) throw error // throw original error
+      const { error: fallbackError } = await supabase.auth.verifyOtp({ email: trimmedEmail, token: trimmedToken, type: fallbackType })
+      if (fallbackError) throw error
     }
     return true
   }
 
-  // Sign-up — create user with metadata then send magic link
   const signUpWithMagicLink = async (email, metadata) => {
     if (!supabase) throw new Error('Supabase auth is not configured.')
     const trimmedEmail = String(email || '').trim()
     if (!trimmedEmail) throw new Error('Email is required.')
-
     const opts = { emailRedirectTo: getMagicLinkRedirectUrl() }
     if (metadata) opts.data = metadata
-
-    const { error } = await supabase.auth.signInWithOtp({
-      email: trimmedEmail,
-      options: { ...opts, shouldCreateUser: true },
-    })
+    const { error } = await supabase.auth.signInWithOtp({ email: trimmedEmail, options: { ...opts, shouldCreateUser: true } })
     if (error) throw error
     return true
   }
 
   const signOut = async () => {
     if (!supabase) return
-    setDanceOwnerId(null)
+    setDanceDataOwnerId(null)
+    setBackendDanceOwnerId(null)
     await supabase.auth.signOut()
   }
 
-  // Check for new sticker unlocks on state changes
-  useEffect(() => {
-    const newStickers = checkForNewStickers(state)
-    if (newStickers.length > 0) {
-      dispatch({ type: "ADD_STICKERS", payload: newStickers })
-    }
-  }, [state])
-
   return (
     <AppContext.Provider value={{
-      state,
-      dispatch,
+      // Dance data (individual state)
+      disciplines,
+      routines,
+      sessions,
+      events,
+      stickers,
+      practiceLog,
+      dancerProfile,
+      dancerGoals,
+      settings,
       isLoading,
       isAdmin,
       unlockAdmin,
@@ -1357,6 +959,46 @@ export function AppProvider({ children }) {
       revokeGuardianInvite,
       removeGuardian,
       loadGuardians,
+
+      // Direct mutation functions
+      addSession,
+      scheduleRehearsal,
+      editSession,
+      removeSession,
+      setRehearsalVersion,
+      completeRehearsal,
+      attachRehearsalVideo,
+      setSessionReflection,
+      addEmojiReaction,
+      addDiscipline,
+      editDiscipline,
+      removeDiscipline,
+      addElement,
+      setElementStatus,
+      removeElement,
+      addRoutine,
+      editRoutine,
+      removeRoutine,
+      addChoreographyVersion,
+      editChoreographyVersion,
+      addPracticeVideo,
+      addShow,
+      editShow,
+      removeShow,
+      addEventEntry,
+      editEventEntry,
+      removeEventEntry,
+      addScrapbookEntry,
+      addScrapbookReaction,
+      addStickers,
+      addCustomSticker,
+      logPracticeDay,
+      updateDancerProfile: updateDancerProfileFn,
+      addGoal,
+      completeGoal,
+      setCurrentFocus,
+      updateSettings: updateSettingsFn,
+      resetState,
     }}>
       {children}
     </AppContext.Provider>
