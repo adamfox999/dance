@@ -799,10 +799,15 @@ export function AppProvider({ children }) {
           acceptedForOwner.map((share) => share.routine_id).filter(Boolean)
         )
 
+        const hasAcceptedGuardianAccessForOwner = (incomingGuardians || []).some(
+          (guardian) => guardian.status === 'accepted' && guardian.owner_user_id === init.ownerId
+        )
+
         const shouldScopeToSharedRoutines = authUser?.id !== init.ownerId
           && acceptedForOwner.length > 0
           && !shareAllForOwner
           && sharedRoutineIds.size > 0
+          && !hasAcceptedGuardianAccessForOwner
 
         if (shouldScopeToSharedRoutines) {
           nextRout = rout.filter((routine) => sharedRoutineIds.has(routine.id))
@@ -842,7 +847,7 @@ export function AppProvider({ children }) {
 
     hydrateState()
     return () => { cancelled = true }
-  }, [authLoading, authUser?.id])
+  }, [authLoading, authUser?.id, incomingGuardians])
 
   // ================================================================
   // MILESTONE STICKER CHECK
