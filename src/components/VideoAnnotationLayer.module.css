@@ -3,7 +3,7 @@
 /* Tap overlay — covers the rendered video area */
 .annotation-overlay {
   position: absolute;
-  z-index: 4;
+  z-index: 20;
   cursor: pointer;
   touch-action: none;
 }
@@ -15,7 +15,7 @@
 /* ===== EMOJI REACTIONS — float up like Twitch ===== */
 .reaction {
   position: absolute;
-  z-index: 5;
+  z-index: 21;
   pointer-events: none;
   transform: translate(-50%, -50%);
 }
@@ -81,7 +81,7 @@
 /* ===== TEXT COMMENTS — coloured pills at angles ===== */
 .comment-bubble {
   position: absolute;
-  z-index: 5;
+  z-index: 21;
   pointer-events: none;
   transform: translate(-50%, -50%);
   max-width: clamp(160px, 56vw, 280px);
@@ -115,7 +115,7 @@
 /* ===== TEXT COMMENTS — coloured pills at angles ===== */
 .combo {
   position: absolute;
-  z-index: 5;
+  z-index: 21;
   pointer-events: none;
   transform: translate(-50%, -50%);
   display: flex;
@@ -156,7 +156,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  z-index: 6;
+  z-index: 22;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
   transition: transform 0.12s;
 }
@@ -177,19 +177,19 @@
 
 .annotation-dragging {
   cursor: grabbing;
-  z-index: 7;
+  z-index: 23;
 }
 
 /* ===== Input Popover ===== */
 .popover-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 14;
+  z-index: 24;
 }
 
 .popover {
   position: fixed;
-  z-index: 15;
+  z-index: 25;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);

@@ -156,23 +156,31 @@ export default function VideoAnnotationLayer({
 
   useEffect(() => { updateRect() }, [updateRect])
 
-  // Attach native touch listeners with { passive: false } to call preventDefault().
-  // This prevents the browser from hijacking the second tap of a double-tap for
-  // zoom/gesture recognition, which would fire pointercancel instead of pointerup
-  // and break double-tap feedback on mobile.
+  // Attach native touch listeners with { passive: false } to call preventDefault()
+  // AND stopPropagation().  Two purposes:
+  //  1. preventDefault  — stops the browser from hijacking the second tap for
+  //     zoom/gesture recognition (which fires pointercancel instead of pointerup).
+  //  2. stopPropagation — stops the parent live-screen's onTouchStart from
+  //     firing revealLiveUi(), which would show the top/bottom bars (z-index 6)
+  //     and intercept subsequent taps in those areas.
+  //
+  // Dependency on `!!videoRect` ensures the effect re-runs once the overlay
+  // element is actually in the DOM (the component returns null when videoRect
+  // is not yet available).
+  const hasVideoRect = !!videoRect
   useEffect(() => {
     const el = overlayRef.current
     if (!el) return
-    const prevent = (e) => { e.preventDefault() }
-    el.addEventListener('touchstart', prevent, { passive: false })
-    el.addEventListener('touchend', prevent, { passive: false })
-    el.addEventListener('touchmove', prevent, { passive: false })
+    const handler = (e) => { e.preventDefault(); e.stopPropagation() }
+    el.addEventListener('touchstart', handler, { passive: false })
+    el.addEventListener('touchend', handler, { passive: false })
+    el.addEventListener('touchmove', handler, { passive: false })
     return () => {
-      el.removeEventListener('touchstart', prevent)
-      el.removeEventListener('touchend', prevent)
-      el.removeEventListener('touchmove', prevent)
+      el.removeEventListener('touchstart', handler)
+      el.removeEventListener('touchend', handler)
+      el.removeEventListener('touchmove', handler)
     }
-  }, [])
+  }, [hasVideoRect])
 
   const openPopoverAt = useCallback((clientX, clientY, timestamp) => {
     if (!videoRect) return
@@ -243,6 +251,10 @@ export default function VideoAnnotationLayer({
     const state = pressStateRef.current
     if (!state.isPressing) return
     if (state.pointerId !== null && e.pointerId !== state.pointerId) return
+
+    // Stop propagation while pressing so the parent's onPointerMove
+    // doesn't trigger revealLiveUi mid-tap.
+    e.stopPropagation()
 
     const dx = e.clientX - state.startX
     const dy = e.clientY - state.startY
