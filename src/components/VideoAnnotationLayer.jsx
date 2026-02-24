@@ -94,6 +94,9 @@ export default function VideoAnnotationLayer({
   onAddAnnotation,
   onDeleteAnnotation,
   onUpdateAnnotation,
+  currentVideoFeedbackKey = null,
+  hideInlineEmojiForCurrentVideo = false,
+  allowEditOnCurrentVideoOnly = false,
 }) {
   const [popover, setPopover] = useState(null)
   const [, setSelectedEmoji] = useState('')
@@ -386,6 +389,15 @@ export default function VideoAnnotationLayer({
 
   // Show annotations starting at the placed timestamp, visible for the window duration after
   const visibleAnnotations = (annotations || []).filter((ann) => {
+    const annVideoKey = typeof ann?.sourceVideoKey === 'string' ? ann.sourceVideoKey : null
+    const isSameVideo = !!currentVideoFeedbackKey && !!annVideoKey && annVideoKey === currentVideoFeedbackKey
+    const hasEmoji = Boolean(ann?.emoji)
+    const hasText = Boolean(ann?.text)
+
+    if (hideInlineEmojiForCurrentVideo && isSameVideo && hasEmoji && !hasText) {
+      return false
+    }
+
     const elapsed = currentTime - ann.timestamp
     return elapsed >= 0 && elapsed <= ANNOTATION_VISIBLE_WINDOW
   })
@@ -412,10 +424,16 @@ export default function VideoAnnotationLayer({
 
       {/* Annotations */}
       {visibleAnnotations.map((ann) => {
+        const annVideoKey = typeof ann?.sourceVideoKey === 'string' ? ann.sourceVideoKey : null
+        const isEditableOnCurrentVideo = !allowEditOnCurrentVideoOnly
+          || !currentVideoFeedbackKey
+          || !annVideoKey
+          || annVideoKey === currentVideoFeedbackKey
+
         const timeDiff = Math.abs(currentTime - ann.timestamp)
         const isInTimeWindow = timeDiff <= ANNOTATION_VISIBLE_WINDOW
         const isVisible = isInTimeWindow
-        const canDelete = isPausedIdle
+        const canDelete = isPausedIdle && isEditableOnCurrentVideo
         const isDraggable = canDelete && !!onUpdateAnnotation
         const { color, angle } = getAnnStyle(ann.id)
 

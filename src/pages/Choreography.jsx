@@ -428,6 +428,15 @@ export default function Choreography() {
   const [videoError, setVideoError] = useState('')
   const liveScreenRef = useRef(null)
   const liveVideoRef = useRef(null)
+  const currentFeedbackVideoKey = useMemo(() => {
+    if (sessionId) {
+      return activeSession?.rehearsalVideoKey || liveVideoStorageKey || null
+    }
+    if (routineId) {
+      return `${routineId}:${selectedVersion?.id || 'latest'}:${videoFileName || ''}`
+    }
+    return videoFileName || null
+  }, [sessionId, activeSession?.rehearsalVideoKey, liveVideoStorageKey, routineId, selectedVersion?.id, videoFileName])
   const [liveIsPlaying, setLiveIsPlaying] = useState(false)
   const [liveTime, setLiveTime] = useState(0)
   const [liveDuration, setLiveDuration] = useState(0)
@@ -1205,6 +1214,16 @@ export default function Choreography() {
       { id: `new-${Date.now()}`, text, masteredAt: null, isNew: true },
     ])
     setNewGoalText('')
+  }
+
+  const handleUpdateNewLivingGoal = (goalId, text) => {
+    setLivingGoals((prev) => prev.map((goal) => (
+      goal.id === goalId ? { ...goal, text } : goal
+    )))
+  }
+
+  const handleRemoveNewLivingGoal = (goalId) => {
+    setLivingGoals((prev) => prev.filter((goal) => goal.id !== goalId))
   }
 
   const handleSavePracticeSummary = async () => {
@@ -2334,6 +2353,8 @@ export default function Choreography() {
     && !isKidLiveView
     && Boolean(sessionId)
     && routineFeedbackKids.length > 1
+  const priorLivingGoals = livingGoals.filter((g) => !g.isNew)
+  const newLivingGoals = livingGoals.filter((g) => g.isNew)
 
   return (
     <div className={styles['choreo-page']}>
@@ -2668,7 +2689,11 @@ export default function Choreography() {
               }}
               onTogglePlay={toggleLivePlay}
               onAddAnnotation={(ann) => {
-                const updated = [...videoAnnotations, ann]
+                const annotationWithVideoScope = {
+                  ...ann,
+                  sourceVideoKey: currentFeedbackVideoKey || ann.sourceVideoKey || null,
+                }
+                const updated = [...videoAnnotations, annotationWithVideoScope]
                 if (sessionId) {
                   if (!feedbackKidProfileId) return
                   setSessionFeedback((prev) => ({ ...prev, videoAnnotations: updated }))
@@ -2705,6 +2730,9 @@ export default function Choreography() {
                   editChoreographyVersion(routineId, selectedVersion?.id, { videoAnnotations: updated })
                 }
               }}
+              currentVideoFeedbackKey={currentFeedbackVideoKey}
+              hideInlineEmojiForCurrentVideo
+              allowEditOnCurrentVideoOnly
             />
           )}
 
@@ -2948,7 +2976,6 @@ export default function Choreography() {
                       ? Math.max(0.12, Number(beatData.beats[1]) - Number(beatData.beats[0]))
                       : null
                     const recapEmojiStep = beatIntervalFromBpm || beatIntervalFromGrid || 0.5
-                    const feedbackDelay = stageIntroStartDelay + (stageRecap.emojiPills.length * recapEmojiStep)
 
                     return (
                       <>
@@ -2966,14 +2993,6 @@ export default function Choreography() {
                     </div>
                   )}
 
-                  {stageRecap.feedbackPreview && (
-                    <p
-                      className={`${styles['stage-recap-feedback']} ${styles['stage-recap-seq']}`}
-                      style={{ animationDelay: `${stageRecap.emojiPills.length > 0 ? feedbackDelay : stageIntroStartDelay}s` }}
-                    >
-                      “{stageRecap.feedbackPreview}”
-                    </p>
-                  )}
                       </>
                     )
                   })()}
@@ -2995,13 +3014,13 @@ export default function Choreography() {
 
                   {/* Right column — living goals */}
                   <div className={styles['stage-form-col']}>
-                    {livingGoals.length > 0 ? (
+                    {priorLivingGoals.length > 0 && (
                       <>
                         <label className={styles['stage-form-label']}>
                           How did these go? Tap an emoji — only 🤩 clears it!
                         </label>
                         <div className={styles['stage-goal-list']}>
-                          {livingGoals.filter((g) => !g.isNew).map((goal) => (
+                          {priorLivingGoals.map((goal) => (
                             <div
                               key={goal.id}
                               className={`${styles['stage-goal-item']} ${goalReactions[goal.id] === 3 ? styles['stage-goal-mastered'] : ''}`}
@@ -3027,17 +3046,38 @@ export default function Choreography() {
                               </div>
                             </div>
                           ))}
-                          {livingGoals.filter((g) => g.isNew).map((goal) => (
-                            <div key={goal.id} className={styles['stage-goal-item']}>
-                              <span className={styles['stage-goal-text']}>{goal.text}</span>
-                              <span className={styles['stage-goal-new-badge']}>new</span>
-                            </div>
-                          ))}
                         </div>
-                        <label className={styles['stage-form-label']}>Anything else to work on?</label>
                       </>
-                    ) : (
-                      <label className={styles['stage-form-label']}>What do you want to work on next time?</label>
+                    )}
+                    <label className={styles['stage-form-label']}>
+                      {priorLivingGoals.length > 0 ? 'Anything else to work on?' : 'What do you want to work on next time?'}
+                    </label>
+                    {newLivingGoals.length > 0 && (
+                      <div className={styles['stage-goal-list']}>
+                        {newLivingGoals.map((goal) => (
+                          <div key={goal.id} className={styles['stage-goal-item']}>
+                            <input
+                              type="text"
+                              className={styles['stage-goal-edit-input']}
+                              value={goal.text || ''}
+                              onChange={(e) => handleUpdateNewLivingGoal(goal.id, e.target.value)}
+                              aria-label="Edit next video goal"
+                            />
+                            <div className={styles['stage-goal-edit-actions']}>
+                              <span className={styles['stage-goal-new-badge']}>new</span>
+                              <button
+                                type="button"
+                                className={styles['stage-goal-remove-btn']}
+                                onClick={() => handleRemoveNewLivingGoal(goal.id)}
+                                aria-label="Remove goal"
+                                title="Remove"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     )}
                     <div className={styles['stage-goal-add-row']}>
                       <input

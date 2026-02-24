@@ -1748,6 +1748,40 @@
   color: rgba(255, 255, 255, 0.88);
 }
 
+.stage-goal-edit-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.96);
+  font-size: 0.95rem;
+  font-family: inherit;
+  outline: none;
+  min-width: 0;
+}
+
+.stage-goal-edit-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stage-goal-remove-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 0.8rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.stage-goal-remove-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.45);
+}
+
 .stage-goal-emojis {
   display: flex;
   gap: 4px;

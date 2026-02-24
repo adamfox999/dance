@@ -467,7 +467,7 @@ export function AppProvider({ children }) {
     if (!isValid) return false
     setActiveProfile({ type: 'adult' })
     return true
-  }, [authUser?.id])
+  }, [authUser])
 
   const setParentPin = useCallback(async (pin) => {
     if (!authUser?.id || typeof window === 'undefined') {
@@ -477,13 +477,13 @@ export function AppProvider({ children }) {
     window.localStorage.setItem(getParentPinStorageKey(authUser.id), JSON.stringify(record))
     setHasParentPin(true)
     return true
-  }, [authUser?.id])
+  }, [authUser])
 
   const clearParentPin = useCallback(() => {
     if (!authUser?.id || typeof window === 'undefined') return
     window.localStorage.removeItem(getParentPinStorageKey(authUser.id))
     setHasParentPin(false)
-  }, [authUser?.id])
+  }, [authUser])
 
   // ============ PROFILE MANAGEMENT ============
   const loadProfiles = useCallback(async () => {

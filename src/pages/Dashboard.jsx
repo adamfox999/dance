@@ -37,7 +37,7 @@ export default function Dashboard() {
   const focusItem = currentFocus?.type === 'routine'
     ? routines.find(r => r.id === currentFocus.id)
     : currentFocus?.type === 'discipline'
-      ? disciplines.find(d => d.id === currentFocus.id)
+      ? dancerDisciplines.find(d => d.id === currentFocus.id)
       : null
 
   // Find next upcoming show

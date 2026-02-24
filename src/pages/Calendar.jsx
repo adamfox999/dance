@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { getCurrentStreak } from '../utils/milestones'
@@ -38,11 +38,11 @@ export default function Calendar() {
     [routines, scheduleRoutineId]
   )
 
-  const getSessionDate = (session) => {
+  const getSessionDate = useCallback((session) => {
     if (session?.date) return session.date
     const source = session?.scheduledAt || session?.completedAt || ''
     return typeof source === 'string' && source.length >= 10 ? source.slice(0, 10) : ''
-  }
+  }, [])
   const selectedRoutineVersions = useMemo(
     () => selectedRoutine?.choreographyVersions || [],
     [selectedRoutine]
@@ -68,7 +68,7 @@ export default function Calendar() {
       const d = new Date(getSessionDate(s))
       return d.getFullYear() === viewYear && d.getMonth() === viewMonth
     })
-  }, [sessions, viewYear, viewMonth])
+  }, [sessions, viewYear, viewMonth, getSessionDate])
 
   // Shows/events in this month (dot display)
   const monthShows = useMemo(() => {
@@ -89,7 +89,7 @@ export default function Calendar() {
       .filter((s) => isFuture(getSessionDate(s)))
       .sort((a, b) => new Date(getSessionDate(a)) - new Date(getSessionDate(b)))
       .slice(0, 5)
-  }, [sessions])
+  }, [sessions, getSessionDate])
 
   // Upcoming shows/events
   const upcomingShows = useMemo(() => {
