@@ -1571,8 +1571,15 @@ export default function Timeline() {
                               e.stopPropagation()
                               navigate(sessionLink)
                             }}
+                            aria-label={sessionHasVideo ? 'Play video' : 'Add video'}
+                            title={sessionHasVideo ? 'Play video' : 'Add video'}
                           >
-                            {sessionHasVideo ? '▶ Play Video' : '➕ Add Video'}
+                            <span
+                              className={sessionHasVideo ? styles.sessionMediaCenterAlertIconPlay : styles.sessionMediaCenterAlertIconAdd}
+                              aria-hidden="true"
+                            >
+                              {sessionHasVideo ? '▶' : '📹'}
+                            </span>
                           </button>
                         </div>
                       )}

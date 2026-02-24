@@ -2712,6 +2712,7 @@ export default function Choreography() {
                 if (liveAudioMode === 'music' && audio) audio.pause()
               }}
               onTogglePlay={toggleLivePlay}
+              onRevealUi={revealLiveUi}
               onAddAnnotation={(ann) => {
                 const annotationWithVideoScope = {
                   ...ann,
@@ -2755,7 +2756,6 @@ export default function Choreography() {
                 }
               }}
               currentVideoFeedbackKey={currentFeedbackVideoKey}
-              hideInlineEmojiForCurrentVideo
               allowEditOnCurrentVideoOnly
             />
           )}

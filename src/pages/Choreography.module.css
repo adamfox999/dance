@@ -835,7 +835,7 @@
 /* Top bar */
 .live-top-bar {
   position: relative;
-  z-index: 6;
+  z-index: 30;
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -1420,7 +1420,7 @@
 .stage-backdrop {
   position: absolute;
   inset: 0;
-  z-index: 11;
+  z-index: 50;
   background: radial-gradient(ellipse at 50% 80%, #1a0808 0%, #0d0418 50%, #020617 100%);
   overflow: hidden;
   display: flex;
@@ -1430,7 +1430,7 @@
 .stage-replay-overlay {
   position: absolute;
   inset: 0;
-  z-index: 11;
+  z-index: 50;
   overflow: hidden;
   pointer-events: none;
   animation: replayCurtainFadeOut 1.35s ease-out forwards;
@@ -2257,7 +2257,7 @@
 .live-bottom-bar {
   position: absolute;
   bottom: 0; left: 0; right: 0;
-  z-index: 6;
+  z-index: 30;
   padding: 0 20px 28px;
   opacity: 1;
   transform: translateY(0);
@@ -2544,7 +2544,7 @@
   bottom: 0;
   left: 0;
   right: 0;
-  z-index: 10;
+  z-index: 35;
   max-height: 78vh;
   display: flex;
   flex-direction: column;

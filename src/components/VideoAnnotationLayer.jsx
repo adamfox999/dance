@@ -93,6 +93,7 @@ export default function VideoAnnotationLayer({
   isPlaying,
   onPause,
   onTogglePlay,
+  onRevealUi,
   onAddAnnotation,
   onDeleteAnnotation,
   onUpdateAnnotation,
@@ -297,12 +298,19 @@ export default function VideoAnnotationLayer({
           clientY: e.clientY,
           pointerType,
         }
-        // Only schedule single-tap play/pause for mouse/pen — NOT touch.
-        // On touch, the play timer races against the second tap of a double-tap:
-        // if the user is slightly slower than doubleTapMs the timer fires first,
-        // toggling playback and breaking double-tap detection on every retry.
-        // Touch users have the play button in the bottom bar instead.
-        if (!isTouchPointer && !state.wasPlayingAtStart && onTogglePlay) {
+        if (isTouchPointer) {
+          // Touch single-tap: reveal the UI bars after the double-tap window
+          // expires. This ensures bars never appear mid-double-tap, and the
+          // user can access play controls by single-tapping the video.
+          if (onRevealUi) {
+            clearSingleTapTimer()
+            singleTapTimerRef.current = setTimeout(() => {
+              onRevealUi()
+              singleTapTimerRef.current = null
+            }, doubleTapMs)
+          }
+        } else if (!state.wasPlayingAtStart && onTogglePlay) {
+          // Mouse/pen single-tap: toggle play after the double-tap window.
           clearSingleTapTimer()
           singleTapTimerRef.current = setTimeout(() => {
             onTogglePlay()
@@ -322,7 +330,7 @@ export default function VideoAnnotationLayer({
       movedBeyondCancelThreshold: false,
       pressTimestamp: 0,
     }
-  }, [clearSingleTapTimer, onTogglePlay, openPopoverAt])
+  }, [clearSingleTapTimer, onRevealUi, onTogglePlay, openPopoverAt])
 
   const handleOverlayPointerCancel = useCallback((e) => {
     const state = pressStateRef.current
