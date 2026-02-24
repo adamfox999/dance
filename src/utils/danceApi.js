@@ -144,6 +144,19 @@ function mapSession(r) {
   }
 }
 
+function mapSessionFeedback(r) {
+  return {
+    id: r.id,
+    sessionId: r.session_id,
+    kidProfileId: r.kid_profile_id,
+    dancerReflection: r.dancer_reflection || { feeling: '', note: '', goals: [] },
+    videoAnnotations: r.video_annotations || [],
+    emojiReactions: r.emoji_reactions || [],
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }
+}
+
 function mapEvent(r) {
   return {
     id: r.id,
@@ -216,6 +229,45 @@ function mapGoal(r) {
     text: r.goal_text,
     createdDate: r.created_date,
     completedDate: r.completed_date,
+  }
+}
+
+function mapPracticeReflectionGoal(r) {
+  return {
+    id: r.id,
+    reflectionId: r.reflection_id,
+    text: r.goal_text || '',
+    sortOrder: Number.isFinite(r.sort_order) ? r.sort_order : 0,
+    masteredAt: r.mastered_at || null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }
+}
+
+function mapPracticeReflectionCheckin(r) {
+  return {
+    id: r.id,
+    sessionId: r.session_id,
+    kidProfileId: r.kid_profile_id || null,
+    priorGoalId: r.prior_goal_id,
+    rating: Number(r.rating) || 0,
+    note: r.note || '',
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }
+}
+
+function mapPracticeReflection(r, goals = [], checkins = []) {
+  return {
+    id: r.id,
+    sessionId: r.session_id,
+    kidProfileId: r.kid_profile_id || null,
+    routineId: r.routine_id,
+    reflectionNote: r.reflection_note || '',
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    goals,
+    checkins,
   }
 }
 
@@ -856,11 +908,237 @@ export async function updateSession(id, updates) {
   return mapSession(data)
 }
 
+export async function fetchSessionFeedback(sessionId, kidProfileId) {
+  const client = ensureClient()
+  await requireUser()
+  if (!sessionId || !kidProfileId) {
+    return {
+      sessionId: sessionId || null,
+      kidProfileId: kidProfileId || null,
+      dancerReflection: { feeling: '', note: '', goals: [] },
+      videoAnnotations: [],
+      emojiReactions: [],
+    }
+  }
+
+  const { data, error } = await client
+    .from('session_feedback')
+    .select('*')
+    .eq('session_id', sessionId)
+    .eq('kid_profile_id', kidProfileId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  if (data) return mapSessionFeedback(data)
+
+  // Legacy fallback while old session-level feedback data still exists.
+  const { data: legacy, error: legacyError } = await client
+    .from('session')
+    .select('dancer_reflection, video_annotations, emoji_reactions')
+    .eq('id', sessionId)
+    .maybeSingle()
+  if (legacyError) throw new Error(legacyError.message)
+
+  return {
+    sessionId,
+    kidProfileId,
+    dancerReflection: legacy?.dancer_reflection || { feeling: '', note: '', goals: [] },
+    videoAnnotations: legacy?.video_annotations || [],
+    emojiReactions: legacy?.emoji_reactions || [],
+  }
+}
+
+export async function upsertSessionFeedback(sessionId, kidProfileId, updates = {}) {
+  const client = ensureClient()
+  await requireUser()
+  if (!sessionId || !kidProfileId) throw new Error('Session and dancer are required.')
+
+  const payload = {
+    session_id: sessionId,
+    kid_profile_id: kidProfileId,
+  }
+  if (updates.dancerReflection !== undefined) payload.dancer_reflection = updates.dancerReflection || { feeling: '', note: '', goals: [] }
+  if (updates.videoAnnotations !== undefined) payload.video_annotations = updates.videoAnnotations || []
+  if (updates.emojiReactions !== undefined) payload.emoji_reactions = updates.emojiReactions || []
+
+  const { data, error } = await client
+    .from('session_feedback')
+    .upsert(payload, { onConflict: 'session_id,kid_profile_id' })
+    .select('*')
+    .single()
+
+  if (error) throw new Error(error.message)
+  return mapSessionFeedback(data)
+}
+
 export async function deleteSession(id) {
   const client = ensureClient()
   await requireUser()
   const { error } = await client.from('session').delete().eq('id', id)
   if (error) throw new Error(error.message)
+}
+
+// ================================================================
+// PRACTICE REFLECTION FLOW
+// ================================================================
+
+export async function fetchSessionPracticeReflection(sessionId, kidProfileId = null) {
+  const client = ensureClient()
+  await requireUser()
+
+  let reflectionQuery = client
+    .from('practice_reflection')
+    .select('*')
+    .eq('session_id', sessionId)
+
+  if (kidProfileId) {
+    reflectionQuery = reflectionQuery.eq('kid_profile_id', kidProfileId)
+  }
+
+  const { data: reflection, error: reflectionError } = await reflectionQuery.maybeSingle()
+
+  if (reflectionError) throw new Error(reflectionError.message)
+  if (!reflection) return null
+
+  const { data: goals, error: goalsError } = await client
+    .from('practice_reflection_goal')
+    .select('*')
+    .eq('reflection_id', reflection.id)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true })
+
+  if (goalsError) throw new Error(goalsError.message)
+
+  let checkinsQuery = client
+    .from('practice_reflection_goal_checkin')
+    .select('*')
+    .eq('session_id', sessionId)
+
+  if (kidProfileId) {
+    checkinsQuery = checkinsQuery.eq('kid_profile_id', kidProfileId)
+  }
+
+  const { data: checkins, error: checkinsError } = await checkinsQuery
+
+  if (checkinsError) throw new Error(checkinsError.message)
+
+  return mapPracticeReflection(
+    reflection,
+    (goals || []).map(mapPracticeReflectionGoal),
+    (checkins || []).map(mapPracticeReflectionCheckin)
+  )
+}
+
+export async function fetchRoutineLivingGoals(routineId, kidProfileId = null) {
+  if (!routineId) return []
+
+  const client = ensureClient()
+  await requireUser()
+
+  // Get all reflections for this routine
+  let reflectionsQuery = client
+    .from('practice_reflection')
+    .select('id')
+    .eq('routine_id', routineId)
+
+  if (kidProfileId) {
+    reflectionsQuery = reflectionsQuery.eq('kid_profile_id', kidProfileId)
+  }
+
+  const { data: reflections, error: refError } = await reflectionsQuery
+
+  if (refError) throw new Error(refError.message)
+  if (!reflections || reflections.length === 0) return []
+
+  const reflectionIds = reflections.map((r) => r.id)
+
+  // Get all active (un-mastered) goals across all reflections for this routine
+  const { data: goals, error: goalsError } = await client
+    .from('practice_reflection_goal')
+    .select('*')
+    .in('reflection_id', reflectionIds)
+    .is('mastered_at', null)
+    .order('created_at', { ascending: true })
+
+  if (goalsError) throw new Error(goalsError.message)
+  return (goals || []).map(mapPracticeReflectionGoal)
+}
+
+export async function upsertSessionPracticeReflection(sessionId, payload = {}) {
+  const client = ensureClient()
+  await requireUser()
+
+  const kidProfileId = payload.kidProfileId || null
+
+  const { data: reflection, error: reflectionError } = await client
+    .from('practice_reflection')
+    .upsert({
+      session_id: sessionId,
+      kid_profile_id: kidProfileId,
+      routine_id: payload.routineId || null,
+      reflection_note: payload.reflectionNote || '',
+    }, { onConflict: kidProfileId ? 'session_id,kid_profile_id' : 'session_id' })
+    .select('*')
+    .single()
+
+  if (reflectionError) throw new Error(reflectionError.message)
+
+  // Insert only NEW goals added this session (don't delete existing living goals)
+  const newGoals = (payload.newGoals || [])
+    .map((g) => (typeof g === 'string' ? g.trim() : ''))
+    .filter(Boolean)
+
+  if (newGoals.length > 0) {
+    const rows = newGoals.map((goalText, index) => ({
+      reflection_id: reflection.id,
+      goal_text: goalText,
+      sort_order: index,
+    }))
+    const { error: insertGoalsError } = await client
+      .from('practice_reflection_goal')
+      .insert(rows)
+    if (insertGoalsError) throw new Error(insertGoalsError.message)
+  }
+
+  // Save goal reactions (1=tough, 2=ok, 3=nailed) and mark mastered
+  const reactions = (payload.goalReactions || [])
+    .filter((item) => item?.goalId && [1, 2, 3].includes(item.rating))
+
+  if (reactions.length > 0) {
+    // Upsert checkins
+    const checkinRows = reactions.map((item) => ({
+      session_id: sessionId,
+      kid_profile_id: kidProfileId,
+      prior_goal_id: item.goalId,
+      rating: item.rating,
+      note: '',
+    }))
+    const { error: checkinError } = await client
+      .from('practice_reflection_goal_checkin')
+      .upsert(checkinRows, { onConflict: kidProfileId ? 'session_id,prior_goal_id,kid_profile_id' : 'session_id,prior_goal_id' })
+    if (checkinError) throw new Error(checkinError.message)
+
+    // Mark goals with rating 3 as mastered
+    const masteredIds = reactions
+      .filter((item) => item.rating === 3)
+      .map((item) => item.goalId)
+    if (masteredIds.length > 0) {
+      const { error: masterError } = await client
+        .from('practice_reflection_goal')
+        .update({ mastered_at: new Date().toISOString() })
+        .in('id', masteredIds)
+        .is('mastered_at', null)
+      if (masterError) throw new Error(masterError.message)
+    }
+  }
+
+  return fetchSessionPracticeReflection(sessionId, kidProfileId)
+}
+
+// savePracticeGoalCheckins is no longer used — reactions are saved inline
+// via upsertSessionPracticeReflection. Keeping as a no-op export for safety.
+export async function savePracticeGoalCheckins() {
+  return []
 }
 
 // ================================================================

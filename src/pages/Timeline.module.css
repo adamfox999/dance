@@ -403,6 +403,34 @@
   flex-shrink: 0;
 }
 
+.sessionMediaCenterAlert {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 0.28rem;
+  pointer-events: none;
+}
+
+.sessionMediaCenterAlertBtn {
+  pointer-events: auto;
+  border: 1px solid rgba(255,255,255,0.95);
+  background: rgba(17, 24, 39, 0.58);
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.76rem;
+  font-weight: 800;
+  cursor: pointer;
+  backdrop-filter: blur(2px);
+}
+
+.sessionMediaCenterAlertBtn:hover {
+  background: rgba(17, 24, 39, 0.72);
+}
+
 .sessionQuickActions {
   display: flex;
   align-items: center;

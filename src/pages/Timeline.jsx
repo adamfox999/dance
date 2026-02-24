@@ -1500,9 +1500,6 @@ export default function Timeline() {
                               </div>
                             )}
                           />
-                          <div className={styles.sessionMediaPlayOverlay} aria-hidden="true">
-                            <span className={styles.sessionMediaPlayIcon}>▶</span>
-                          </div>
                         </>
                       ) : (
                         <div className={styles.sessionMediaFallback}>
@@ -1510,6 +1507,20 @@ export default function Timeline() {
                             <span className={styles.sessionMediaPromptTitle}>Add practice video</span>
                             <span className={styles.sessionMediaPromptText}>Open Live View to upload</span>
                           </div>
+                        </div>
+                      )}
+
+                      {sessionLink && (
+                        <div className={styles.sessionMediaCenterAlert}>
+                          <button
+                            className={styles.sessionMediaCenterAlertBtn}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              navigate(sessionLink)
+                            }}
+                          >
+                            {sessionHasVideo ? '▶ Play Video' : '➕ Add Video'}
+                          </button>
                         </div>
                       )}
 
@@ -1555,18 +1566,6 @@ export default function Timeline() {
                                 Delete
                               </button>
                             </div>
-                          )}
-
-                          {!sessionHasVideo && sessionLink && (
-                            <button
-                              className={`${styles.reflectBtn} ${styles.reflectBtnOverlay}`}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                navigate(sessionLink)
-                              }}
-                            >
-                              Add practice video
-                            </button>
                           )}
 
                           {item.data.dancerReflection?.feeling && (

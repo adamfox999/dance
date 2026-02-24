@@ -5,6 +5,7 @@ import { setFileStorageUserScope } from '../utils/fileStorage'
 import { hasSupabaseConfig, supabase } from '../utils/supabaseClient'
 import { setDanceOwnerId as setBackendDanceOwnerId } from '../utils/backendApi'
 import { notify } from '../utils/notify'
+import { hashParentPin, verifyParentPin } from '../utils/parentPin'
 import {
   initializeDanceData,
   setDanceOwnerId as setDanceDataOwnerId,
@@ -33,7 +34,13 @@ import {
   createPracticeVideo    as apiCreatePracticeVideo,
   createSession          as apiCreateSession,
   updateSession          as apiUpdateSession,
+  fetchSessionFeedback   as apiFetchSessionFeedback,
+  upsertSessionFeedback  as apiUpsertSessionFeedback,
   deleteSession          as apiDeleteSession,
+  fetchSessionPracticeReflection as apiFetchSessionPracticeReflection,
+  fetchRoutineLivingGoals as apiFetchRoutineLivingGoals,
+  upsertSessionPracticeReflection as apiUpsertSessionPracticeReflection,
+  savePracticeGoalCheckins as apiSavePracticeGoalCheckins,
   createEvent            as apiCreateEvent,
   updateEvent            as apiUpdateEvent,
   deleteEvent            as apiDeleteEvent,
@@ -93,10 +100,14 @@ import {
 } from '../utils/profileApi'
 
 const AppContext = createContext(null)
-const ADMIN_PIN = '6789'
 const ACTIVE_PROFILE_STORAGE_KEY = 'dance-tracker:active-profile'
+const PARENT_PIN_STORAGE_PREFIX = 'dance-tracker:parent-pin:'
 const SESSION_UPLOAD_REMINDER_PREFIX = 'dance-tracker:session-upload-reminder:'
 const SESSION_UPLOAD_PERMISSION_ASKED_KEY = 'dance-tracker:session-upload-reminder-permission-asked'
+
+function getParentPinStorageKey(userId) {
+  return `${PARENT_PIN_STORAGE_PREFIX}${userId}`
+}
 
 function toSessionDateString(session = {}) {
   const directDate = typeof session.date === 'string' ? session.date.trim() : ''
@@ -175,10 +186,34 @@ export function AppProvider({ children }) {
   const [authLoading, setAuthLoading] = useState(hasSupabaseConfig)
   const [authSession, setAuthSession] = useState(null)
   const [authUser, setAuthUser] = useState(null)
+  const [hasParentPin, setHasParentPin] = useState(false)
   const authUserIdRef = useRef(null)
 
   useEffect(() => {
     authUserIdRef.current = authUser?.id || null
+  }, [authUser?.id])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      setHasParentPin(false)
+      return
+    }
+    if (!authUser?.id) {
+      setHasParentPin(false)
+      return
+    }
+
+    try {
+      const raw = window.localStorage.getItem(getParentPinStorageKey(authUser.id))
+      if (!raw) {
+        setHasParentPin(false)
+        return
+      }
+      const parsed = JSON.parse(raw)
+      setHasParentPin(Boolean(parsed?.salt && parsed?.hash))
+    } catch {
+      setHasParentPin(false)
+    }
   }, [authUser?.id])
 
   // Profile state
@@ -211,7 +246,7 @@ export function AppProvider({ children }) {
   const [dancerGoals, setDancerGoals] = useState([])
   const [dancerDisciplines, setDancerDisciplines] = useState([])
   const [dancerJourneyEvents, setDancerJourneyEvents] = useState([])
-  const [settings, setSettingsState] = useState({ dancerName: 'My Dancing', themeColor: '#a855f7', promptLeadMs: 200 })
+  const [settings, setSettingsState] = useState({ dancerName: 'My Dancing', themeColor: '#a855f7', promptLeadMs: 0 })
 
   // Refs for read-then-write patterns (stable callbacks that need current data)
   const sessionsRef = useRef(sessions)
@@ -412,11 +447,38 @@ export function AppProvider({ children }) {
 
   // ============ PROFILE SWITCHING ============
   const switchToKidProfile = useCallback((kidId) => { setActiveProfile({ type: 'kid', kidId }) }, [])
-  const switchToAdultProfile = useCallback((pin) => {
-    if (pin !== ADMIN_PIN) return false
+  const switchToAdultProfile = useCallback(async (pin) => {
+    if (!authUser?.id || typeof window === 'undefined') return false
+    let parsed
+    try {
+      const raw = window.localStorage.getItem(getParentPinStorageKey(authUser.id))
+      if (!raw) return false
+      parsed = JSON.parse(raw)
+    } catch {
+      return false
+    }
+
+    const isValid = await verifyParentPin(pin, parsed)
+    if (!isValid) return false
     setActiveProfile({ type: 'adult' })
     return true
-  }, [])
+  }, [authUser?.id])
+
+  const setParentPin = useCallback(async (pin) => {
+    if (!authUser?.id || typeof window === 'undefined') {
+      throw new Error('Sign in to set a parent PIN.')
+    }
+    const record = await hashParentPin(pin)
+    window.localStorage.setItem(getParentPinStorageKey(authUser.id), JSON.stringify(record))
+    setHasParentPin(true)
+    return true
+  }, [authUser?.id])
+
+  const clearParentPin = useCallback(() => {
+    if (!authUser?.id || typeof window === 'undefined') return
+    window.localStorage.removeItem(getParentPinStorageKey(authUser.id))
+    setHasParentPin(false)
+  }, [authUser?.id])
 
   // ============ PROFILE MANAGEMENT ============
   const loadProfiles = useCallback(async () => {
@@ -713,6 +775,40 @@ export function AppProvider({ children }) {
     apiUpdateSession(sessionId, { emojiReactions: updated }).catch(e => console.warn('Save reaction:', e))
   }, [])
 
+  const fetchSessionPracticeReflection = useCallback(async (sessionId, kidProfileId = null) => {
+    if (!sessionId) return null
+    const resolvedKidProfileId = kidProfileId || (activeProfile?.type === 'kid' ? activeProfile.kidId : null)
+    return apiFetchSessionPracticeReflection(sessionId, resolvedKidProfileId)
+  }, [activeProfile])
+
+  const fetchRoutineLivingGoals = useCallback(async (routineId, kidProfileId = null) => {
+    if (!routineId) return []
+    const resolvedKidProfileId = kidProfileId || (activeProfile?.type === 'kid' ? activeProfile.kidId : null)
+    return apiFetchRoutineLivingGoals(routineId, resolvedKidProfileId)
+  }, [activeProfile])
+
+  const fetchSessionFeedback = useCallback(async (sessionId, kidProfileId) => {
+    if (!sessionId || !kidProfileId) return null
+    return apiFetchSessionFeedback(sessionId, kidProfileId)
+  }, [])
+
+  const saveSessionFeedback = useCallback(async (sessionId, kidProfileId, payload = {}) => {
+    if (!sessionId || !kidProfileId) return null
+    return apiUpsertSessionFeedback(sessionId, kidProfileId, payload)
+  }, [])
+
+  const saveSessionPracticeReflection = useCallback(async (sessionId, payload = {}) => {
+    if (!sessionId) return null
+    const kidProfileId = payload.kidProfileId
+      || (activeProfile?.type === 'kid' ? activeProfile.kidId : null)
+    return apiUpsertSessionPracticeReflection(sessionId, { ...payload, kidProfileId })
+  }, [activeProfile])
+
+  const saveSessionGoalCheckins = useCallback(async (sessionId, ratings = []) => {
+    if (!sessionId) return []
+    return apiSavePracticeGoalCheckins(sessionId, ratings)
+  }, [])
+
   // ---- Disciplines ----
   const addDiscipline = useCallback(async (payload) => {
     const created = await apiCreateDiscipline(payload)
@@ -991,7 +1087,7 @@ export function AppProvider({ children }) {
   const resetState = useCallback(() => {
     setDisciplines(defaultState.disciplines); setRoutines([]); setSessions([]); setEvents([])
     setStickers([]); setPracticeLog([]); setDancerProfile({ name: 'My Dancing', currentFocus: null })
-    setDancerGoals([]); setDancerDisciplines([]); setDancerJourneyEvents([]); setSettingsState({ dancerName: 'My Dancing', themeColor: '#a855f7', promptLeadMs: 200 })
+    setDancerGoals([]); setDancerDisciplines([]); setDancerJourneyEvents([]); setSettingsState({ dancerName: 'My Dancing', themeColor: '#a855f7', promptLeadMs: 0 })
   }, [])
 
   // ================================================================
@@ -1213,8 +1309,11 @@ export function AppProvider({ children }) {
       activeKidProfile,
       activeProfileName,
       activeProfileEmoji,
+      hasParentPin,
       switchToKidProfile,
       switchToAdultProfile,
+      setParentPin,
+      clearParentPin,
       saveUserProfile,
       addKidProfile,
       editKidProfile,
@@ -1268,12 +1367,18 @@ export function AppProvider({ children }) {
       addSession,
       scheduleRehearsal,
       editSession,
+      fetchSessionFeedback,
+      saveSessionFeedback,
       removeSession,
       setRehearsalVersion,
       completeRehearsal,
       attachRehearsalVideo,
       setSessionReflection,
       addEmojiReaction,
+      fetchSessionPracticeReflection,
+      fetchRoutineLivingGoals,
+      saveSessionPracticeReflection,
+      saveSessionGoalCheckins,
       addDiscipline,
       editDiscipline,
       removeDiscipline,

@@ -49,6 +49,23 @@ function getStoragePath(ownerId, key, fileName) {
   return base
 }
 
+async function resolveStoragePathFromPrefix(client, ownerId, key) {
+  const normalizedKey = String(key || '').replace(/^files\//, '')
+  const prefix = `users/${ownerId}/files/${normalizedKey}`
+  try {
+    const { data, error } = await client.storage
+      .from(STORAGE_BUCKET)
+      .list(prefix, { limit: 20, sortBy: { column: 'updated_at', order: 'desc' } })
+
+    if (error || !Array.isArray(data) || data.length === 0) return ''
+    const firstFile = data.find((item) => item?.name && !item?.id?.endsWith('/')) || data[0]
+    if (!firstFile?.name) return ''
+    return `${prefix}/${firstFile.name}`
+  } catch {
+    return ''
+  }
+}
+
 export async function fetchStateFromBackend() {
   const client = ensureSupabaseClient()
   const user = await requireUser()
@@ -175,23 +192,44 @@ export async function getFileFromBackend(key) {
   if (metaError) throw new Error(metaError.message)
 
   const meta = metaRow?.meta_data || {}
-  let storagePath = meta.storagePath || ''
-  if (!storagePath) {
-    storagePath = getStoragePath(ownerId, normalizedKey, meta.fileName)
+  const candidatePaths = []
+  const addCandidate = (value) => {
+    if (!value || typeof value !== 'string') return
+    if (candidatePaths.includes(value)) return
+    candidatePaths.push(value)
   }
 
-  const { data, error } = await client.storage
-    .from(STORAGE_BUCKET)
-    .download(storagePath)
+  addCandidate(meta.storagePath)
+  addCandidate(getStoragePath(ownerId, normalizedKey, meta.fileName))
+  addCandidate(getStoragePath(ownerId, normalizedKey, meta.originalFileName))
 
-  if (error) return null
-  if (!data) return null
+  if (!meta.storagePath) {
+    const resolvedPath = await resolveStoragePathFromPrefix(client, ownerId, normalizedKey)
+    addCandidate(resolvedPath)
+  }
 
-  if (storagePath && meta.storagePath !== storagePath) {
+  addCandidate(getStoragePath(ownerId, normalizedKey))
+
+  let downloadedBlob = null
+  let resolvedStoragePath = ''
+  for (const path of candidatePaths) {
+    const { data, error } = await client.storage
+      .from(STORAGE_BUCKET)
+      .download(path)
+
+    if (error || !data) continue
+    downloadedBlob = data
+    resolvedStoragePath = path
+    break
+  }
+
+  if (!downloadedBlob) return null
+
+  if (resolvedStoragePath && meta.storagePath !== resolvedStoragePath) {
     const mergedMeta = {
       ...meta,
-      storagePath,
-      contentType: meta.contentType || data.type || '',
+      storagePath: resolvedStoragePath,
+      contentType: meta.contentType || downloadedBlob.type || '',
       updatedAt: Date.now(),
     }
     await client
@@ -200,7 +238,7 @@ export async function getFileFromBackend(key) {
   }
 
   return {
-    blob: data,
+    blob: downloadedBlob,
     meta: metaRow?.meta_data || {},
   }
 }

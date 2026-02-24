@@ -236,9 +236,48 @@
 
 .emoji-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: clamp(3px, 1.1vw, 4px);
+  margin-bottom: clamp(6px, 2.2vw, 8px);
+}
+
+.emoji-carousel {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: clamp(6px, 2vw, 8px);
   margin-bottom: clamp(8px, 2.8vw, 10px);
+}
+
+.emoji-carousel-arrow {
+  width: clamp(24px, 7vw, 28px);
+  height: clamp(24px, 7vw, 28px);
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: clamp(0.8rem, 2.8vw, 1rem);
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.emoji-carousel-arrow:hover:not(:disabled) {
+  background: rgba(168, 85, 247, 0.2);
+  border-color: rgba(168, 85, 247, 0.45);
+}
+
+.emoji-carousel-arrow:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.emoji-carousel-meta {
+  text-align: center;
+  font-size: clamp(0.58rem, 1.9vw, 0.65rem);
+  color: rgba(255, 255, 255, 0.58);
 }
 
 .emoji-btn {

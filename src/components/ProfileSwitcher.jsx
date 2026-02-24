@@ -15,12 +15,14 @@ export default function ProfileSwitcher({ open, onClose }) {
     activeProfile,
     isKidMode,
     isAdmin,
+    hasParentPin,
     switchToKidProfile,
     switchToAdultProfile,
   } = useApp()
 
   const [pin, setPin] = useState('')
   const [pinError, setPinError] = useState(false)
+  const [pinBusy, setPinBusy] = useState(false)
   const [showPinEntry, setShowPinEntry] = useState(false)
   const navigate = useNavigate()
 
@@ -45,9 +47,12 @@ export default function ProfileSwitcher({ open, onClose }) {
     setPinError(false)
   }
 
-  const handlePinSubmit = (e) => {
+  const handlePinSubmit = async (e) => {
     e.preventDefault()
-    const ok = switchToAdultProfile(pin)
+    if (pinBusy) return
+    setPinBusy(true)
+    const ok = await switchToAdultProfile(pin)
+    setPinBusy(false)
     if (ok) {
       setShowPinEntry(false)
       setPin('')
@@ -108,20 +113,25 @@ export default function ProfileSwitcher({ open, onClose }) {
         {/* PIN entry for switching back to adult */}
         {showPinEntry && (
           <div className={styles.pinSection}>
-            <div className={styles.pinLabel}>Enter PIN to switch to parent view</div>
+            <div className={styles.pinLabel}>
+              {hasParentPin
+                ? 'Enter PIN to switch to parent view'
+                : 'No parent PIN available. Change it in Settings from parent mode first.'}
+            </div>
             <form className={styles.pinRow} onSubmit={handlePinSubmit}>
               <input
                 type="password"
                 inputMode="numeric"
-                maxLength={6}
+                maxLength={10}
                 placeholder="PIN"
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}
                 className={`${styles.pinInput} ${pinError ? styles.error : ''}`}
+                disabled={!hasParentPin || pinBusy}
                 autoFocus
               />
-              <button type="submit" className={styles.pinSubmit}>
-                Unlock
+              <button type="submit" className={styles.pinSubmit} disabled={!hasParentPin || pinBusy}>
+                {pinBusy ? 'Checking…' : 'Unlock'}
               </button>
             </form>
           </div>

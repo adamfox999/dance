@@ -49,6 +49,39 @@ function getPersistableMediaUrl(value) {
   return trimmed
 }
 
+function truncatePreviewText(value, maxLength = 120) {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  if (text.length <= maxLength) return text
+  return `${text.slice(0, Math.max(1, maxLength - 1)).trimEnd()}…`
+}
+
+const LIVE_PROMPT_MAX_CHARS = 24
+const LIVE_EXPANDED_MAX_CHARS = 200
+
+function clampInstructionPrompt(value) {
+  return String(value || '').slice(0, LIVE_PROMPT_MAX_CHARS)
+}
+
+function getInstructionPromptText(inst) {
+  return clampInstructionPrompt(inst?.promptText ?? inst?.text ?? '')
+}
+
+function getInstructionExpandedText(inst) {
+  return String(inst?.expandedText || '').slice(0, LIVE_EXPANDED_MAX_CHARS)
+}
+
+function normalizeSongInstruction(inst) {
+  const promptText = getInstructionPromptText(inst)
+  const expandedText = getInstructionExpandedText(inst)
+  return {
+    ...inst,
+    promptText,
+    text: promptText,
+    expandedText,
+  }
+}
+
 const MAX_VIDEO_UPLOAD_BYTES = 50 * 1024 * 1024
 
 async function compressVideoToMax720p(inputFile, options = {}) {
@@ -185,7 +218,26 @@ export default function Choreography() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { routineId } = useParams()
-  const { routines, sessions, settings, isAdmin, isKidMode, isLoading, setRehearsalVersion, editChoreographyVersion, attachRehearsalVideo, addChoreographyVersion, editSession, updateSettings } = useApp()
+  const {
+    routines,
+    sessions,
+    settings,
+    isAdmin,
+    isKidMode,
+    activeKidProfile,
+    isLoading,
+    setRehearsalVersion,
+    editChoreographyVersion,
+    attachRehearsalVideo,
+    addChoreographyVersion,
+    editSession,
+    fetchSessionFeedback,
+    saveSessionFeedback,
+    fetchSessionPracticeReflection,
+    fetchRoutineLivingGoals,
+    saveSessionPracticeReflection,
+    saveSessionGoalCheckins,
+  } = useApp()
 
   // Find the routine from the new data model
   const routine = routines?.find(r => r.id === routineId)
@@ -195,7 +247,7 @@ export default function Choreography() {
   // Alias so all existing code that reads `choreography.*` still works
   const choreography = selectedVersion
 
-  const promptLeadMs = Math.max(0, Math.min(600, Number(settings?.promptLeadMs ?? 200)))
+  const promptLeadMs = Math.max(0, Math.min(600, Number(settings?.promptLeadMs ?? 0)))
   const requestedView = searchParams.get('view') === 'kid' ? 'kid' : 'adult'
   const isKidLiveView = requestedView === 'kid'
   const isLiveOnly = searchParams.get('live') === 'true'
@@ -237,9 +289,18 @@ export default function Choreography() {
     }
   }, [sessionSyncBackupKey])
   const localSessionSyncBackup = readSessionSyncBackup()
+  const routineMusicStorageKey = routineId ? `choreo-music-${routineId}` : 'choreo-music'
+  const routineVideoStorageKey = routineId ? `choreo-video-${routineId}` : 'choreo-video'
   const liveVideoStorageKey = sessionId
     ? (activeSession?.rehearsalVideoKey || `rehearsal-video-${sessionId}`)
-    : 'choreo-video'
+    : routineVideoStorageKey
+
+  const feedbackKidProfileId = useMemo(() => {
+    if (!sessionId) return null
+    if (activeKidProfile?.id) return activeKidProfile.id
+    const routineKidIds = Array.isArray(routine?.kidProfileIds) ? routine.kidProfileIds : []
+    return routineKidIds[0] || null
+  }, [sessionId, activeKidProfile?.id, routine?.kidProfileIds])
 
   // Modes: 'edit' | 'live'
   const [mode, setMode] = useState((isKidLiveView || isLiveOnly) ? 'live' : 'edit')
@@ -369,10 +430,174 @@ export default function Choreography() {
   const [liveUiVisible, setLiveUiVisible] = useState(true)
   const [isLiveFullscreen, setIsLiveFullscreen] = useState(false)
   const liveUiHideTimerRef = useRef(null)
+  const [showPracticeSummary, setShowPracticeSummary] = useState(false)
+  const [reflectionNote, setReflectionNote] = useState('')
+  const [livingGoals, setLivingGoals] = useState([])
+  const [goalReactions, setGoalReactions] = useState({})
+  const [newGoalText, setNewGoalText] = useState('')
+  const [summarySaving, setSummarySaving] = useState(false)
+  const [summaryError, setSummaryError] = useState('')
+  const [summaryClosing, setSummaryClosing] = useState(false)
+  const [sessionFeedback, setSessionFeedback] = useState({
+    dancerReflection: { feeling: '', note: '', goals: [] },
+    videoAnnotations: [],
+    emojiReactions: [],
+  })
+  const [showReplayCurtainOpening, setShowReplayCurtainOpening] = useState(false)
+  const replayCurtainTimerRef = useRef(null)
+
+  const stageStars = useMemo(() => {
+    const positions = [
+      { left: 8, top: 12 }, { left: 22, top: 8 }, { left: 38, top: 18 },
+      { left: 52, top: 6 }, { left: 68, top: 14 }, { left: 82, top: 10 },
+      { left: 15, top: 35 }, { left: 45, top: 28 }, { left: 72, top: 32 },
+      { left: 90, top: 22 }, { left: 30, top: 45 }, { left: 60, top: 42 },
+      { left: 85, top: 38 }, { left: 12, top: 55 }, { left: 55, top: 52 },
+    ]
+    return positions.map((pos, i) => ({
+      ...pos,
+      delay: i * 0.25,
+      size: 8 + (i % 4) * 4,
+      char: ['\u2726', '\u2B50', '\u2728', '\u22C6'][i % 4],
+    }))
+  }, [])
+
+  const stageRecap = useMemo(() => {
+    const feedbackAnnotations = sessionId
+      ? (sessionFeedback.videoAnnotations || activeSession?.videoAnnotations || [])
+      : (choreography.videoAnnotations || [])
+
+    const emojiCountMap = new Map()
+    for (const ann of feedbackAnnotations) {
+      const emoji = String(ann?.emoji || '').trim()
+      if (!emoji) continue
+      emojiCountMap.set(emoji, (emojiCountMap.get(emoji) || 0) + 1)
+    }
+
+    return {
+      emojiPills: Array.from(emojiCountMap.entries()).map(([emoji, count]) => ({ emoji, count })),
+      feedbackPreview: truncatePreviewText(reflectionNote, 140),
+    }
+  }, [sessionId, sessionFeedback.videoAnnotations, activeSession?.videoAnnotations, choreography.videoAnnotations, reflectionNote])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const reset = () => {
+      if (cancelled) return
+      setSessionFeedback({
+        dancerReflection: { feeling: '', note: '', goals: [] },
+        videoAnnotations: [],
+        emojiReactions: [],
+      })
+    }
+
+    if (!sessionId || !feedbackKidProfileId) {
+      reset()
+      return () => { cancelled = true }
+    }
+
+    const load = async () => {
+      try {
+        const feedback = await fetchSessionFeedback(sessionId, feedbackKidProfileId)
+        if (cancelled || !feedback) return
+        setSessionFeedback(feedback)
+      } catch (error) {
+        console.warn('Failed to load session feedback:', error)
+      }
+    }
+
+    load()
+    return () => { cancelled = true }
+  }, [sessionId, feedbackKidProfileId, fetchSessionFeedback])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const resetReflectionUi = () => {
+      if (cancelled) return
+      setShowPracticeSummary(false)
+      setReflectionNote('')
+      setLivingGoals([])
+      setGoalReactions({})
+      setNewGoalText('')
+      setSummaryError('')
+    }
+
+    if (!sessionId || !routineId) {
+      resetReflectionUi()
+      return () => { cancelled = true }
+    }
+
+    const loadReflectionContext = async () => {
+      try {
+        const [currentReflection, activeGoals] = await Promise.all([
+          fetchSessionPracticeReflection(sessionId, feedbackKidProfileId),
+          fetchRoutineLivingGoals(routineId, feedbackKidProfileId),
+        ])
+        if (cancelled) return
+
+        setReflectionNote(currentReflection?.reflectionNote || sessionFeedback?.dancerReflection?.note || activeSession?.dancerReflection?.note || '')
+        setLivingGoals(activeGoals || [])
+
+        // Restore any reactions already saved for this session
+        const existingReactions = {}
+        ;(currentReflection?.checkins || []).forEach((row) => {
+          existingReactions[row.priorGoalId] = row.rating
+        })
+        setGoalReactions(existingReactions)
+      } catch (error) {
+        console.warn('Failed to load practice reflection context:', error)
+      }
+    }
+
+    loadReflectionContext()
+    return () => { cancelled = true }
+  }, [
+    sessionId,
+    routineId,
+    feedbackKidProfileId,
+    sessionFeedback?.dancerReflection?.note,
+    activeSession?.dancerReflection?.note,
+    fetchSessionPracticeReflection,
+    fetchRoutineLivingGoals,
+  ])
+
+  useEffect(() => () => {
+    if (replayCurtainTimerRef.current) {
+      clearTimeout(replayCurtainTimerRef.current)
+      replayCurtainTimerRef.current = null
+    }
+  }, [])
+
+  const goBackFromLive = useCallback(() => {
+    liveVideoRef.current?.pause()
+    audioRef.current?.pause()
+    setLiveIsPlaying(false)
+    setIsPlaying(false)
+    if (routineId) {
+      navigate(`/timeline/routine/${routineId}`)
+    } else if (activeSession?.disciplineId) {
+      navigate(`/timeline/discipline/${activeSession.disciplineId}`)
+    } else if (isLiveOnly) {
+      navigate('/')
+    } else {
+      setMode('edit')
+    }
+  }, [activeSession?.disciplineId, isLiveOnly, navigate, routineId])
+
+  const closeStageThen = useCallback((callback) => {
+    setSummaryClosing(true)
+    setTimeout(() => {
+      setShowPracticeSummary(false)
+      setSummaryClosing(false)
+      if (callback) callback()
+    }, 800)
+  }, [])
 
   // Video annotations — per-session when practicing, per-choreography when editing
-  const videoAnnotations = (sessionId && activeSession)
-    ? (activeSession.videoAnnotations || [])
+  const videoAnnotations = sessionId
+    ? (sessionFeedback.videoAnnotations || activeSession?.videoAnnotations || [])
     : (choreography.videoAnnotations || [])
 
   const clearLiveUiHideTimer = useCallback(() => {
@@ -610,8 +835,10 @@ export default function Choreography() {
     let cancelled = false
     const restore = async () => {
       try {
+        const fallbackMusicUrl = getPersistableMediaUrl(choreography.musicUrl)
         if (!cancelled) {
-          setAudioUrl('')
+          setAudioUrl(fallbackMusicUrl)
+          setMusicFileName(choreography.musicFileName || '')
           setLiveVideoUrl('')
           setVideoFileName('')
         }
@@ -644,25 +871,38 @@ export default function Choreography() {
         }
 
         let resolvedMusic = false
-        const localMusic = await loadLocalFile('choreo-music')
-        if (localMusic?.blob && !cancelled) {
-          await applyMusicBlob(localMusic.blob, localMusic.meta?.fileName || choreography.musicFileName || 'music.mp3', localMusic.meta?.duration || 0)
-          resolvedMusic = true
-        } else {
-          // Final fallback: load from Supabase and cache locally for next run.
-          if (!cancelled && !resolvedMusic) {
-            const music = await loadFile('choreo-music')
-            if (music?.blob) {
-              try {
-                await saveLocalFile('choreo-music', music.blob, music.meta || {})
-              } catch (cacheErr) {
-                console.warn('Could not cache fetched music locally:', cacheErr)
-              }
-              if (!cancelled) {
-                await applyMusicBlob(music.blob, music.meta?.fileName || choreography.musicFileName || 'music.mp3', music.meta?.duration || 0)
-                resolvedMusic = true
-              }
-            }
+        const musicKeys = Array.from(new Set([routineMusicStorageKey, 'choreo-music']))
+
+        for (const musicKey of musicKeys) {
+          if (resolvedMusic || cancelled) break
+
+          const localMusic = await loadLocalFile(musicKey)
+          if (localMusic?.blob) {
+            await applyMusicBlob(
+              localMusic.blob,
+              localMusic.meta?.fileName || choreography.musicFileName || 'music.mp3',
+              localMusic.meta?.duration || 0
+            )
+            resolvedMusic = true
+            break
+          }
+
+          const remoteMusic = await loadFile(musicKey)
+          if (!remoteMusic?.blob) continue
+
+          try {
+            await saveLocalFile(musicKey, remoteMusic.blob, remoteMusic.meta || {})
+          } catch (cacheErr) {
+            console.warn('Could not cache fetched music locally:', cacheErr)
+          }
+
+          if (!cancelled) {
+            await applyMusicBlob(
+              remoteMusic.blob,
+              remoteMusic.meta?.fileName || choreography.musicFileName || 'music.mp3',
+              remoteMusic.meta?.duration || 0
+            )
+            resolvedMusic = true
           }
         }
 
@@ -725,6 +965,7 @@ export default function Choreography() {
   }, [
     isLoading,
     routineId,
+    routineMusicStorageKey,
     sessionId,
     selectedVersion?.id,
     choreography.musicFileName,
@@ -738,11 +979,12 @@ export default function Choreography() {
     try {
       const url = URL.createObjectURL(file)
       const audioBuffer = await decodeAudioFile(file)
-      await saveFile('choreo-music', file, {
+      await saveFile(routineMusicStorageKey, file, {
         fileName: file.name,
         type: file.type,
         size: file.size,
         duration: audioBuffer.duration,
+        routineId,
       })
 
       setAudioUrl(url)
@@ -777,7 +1019,7 @@ export default function Choreography() {
       console.warn('Could not apply music change:', err)
       throw err
     }
-  }, [liveVideoUrl, routineId, runSyncAnalysis, selectedVersion?.id])
+  }, [liveVideoUrl, routineId, routineMusicStorageKey, runSyncAnalysis, selectedVersion?.id])
 
   // ========== MUSIC FILE UPLOAD ==========
   const handleMusicUpload = async (e) => {
@@ -889,6 +1131,12 @@ export default function Choreography() {
     const endTime = audioRef.current?.duration || duration || 0
     setCurrentTime(endTime)
     drawWaveform(endTime)
+    const isLiveModeActive = mode === 'live' || isKidLiveView
+    if (isLiveModeActive) {
+      setShowPracticeSummary(true)
+      setLiveUiVisible(true)
+      setLiveEditOpen(false)
+    }
   }
 
   const handleLiveVideoEnded = () => {
@@ -908,6 +1156,79 @@ export default function Choreography() {
       audio.currentTime = musicEnd
       setCurrentTime(musicEnd)
       setIsPlaying(false)
+    }
+
+    setShowPracticeSummary(true)
+    setLiveUiVisible(true)
+    setLiveEditOpen(false)
+  }
+
+  const handleAddLivingGoal = () => {
+    const text = (newGoalText || '').trim()
+    if (!text) return
+    setLivingGoals((prev) => [
+      ...prev,
+      { id: `new-${Date.now()}`, text, masteredAt: null, isNew: true },
+    ])
+    setNewGoalText('')
+  }
+
+  const handleSavePracticeSummary = async () => {
+    if (!sessionId) {
+      closeStageThen()
+      return
+    }
+
+    setSummarySaving(true)
+    setSummaryError('')
+    try {
+      // Collect new goals added this session
+      const newGoals = livingGoals
+        .filter((g) => g.isNew)
+        .map((g) => g.text)
+
+      // Collect emoji reactions for existing (prior) goals
+      const reactions = Object.entries(goalReactions)
+        .filter(([, rating]) => [1, 2, 3].includes(rating))
+        .map(([goalId, rating]) => ({ goalId, rating }))
+
+      await saveSessionPracticeReflection(sessionId, {
+        kidProfileId: feedbackKidProfileId,
+        routineId: routineId || null,
+        reflectionNote,
+        newGoals,
+        goalReactions: reactions,
+      })
+
+      const allGoalTexts = livingGoals
+        .filter((g) => goalReactions[g.id] !== 3)
+        .map((g) => g.text)
+      const fallbackReflection = sessionFeedback?.dancerReflection || activeSession?.dancerReflection || { feeling: '', note: '', goals: [] }
+      if (feedbackKidProfileId) {
+        const savedFeedback = await saveSessionFeedback(sessionId, feedbackKidProfileId, {
+          dancerReflection: {
+            ...fallbackReflection,
+            note: reflectionNote,
+            goals: allGoalTexts,
+          },
+        })
+        if (savedFeedback) setSessionFeedback(savedFeedback)
+      } else {
+        await editSession(sessionId, {
+          dancerReflection: {
+            ...fallbackReflection,
+            note: reflectionNote,
+            goals: allGoalTexts,
+          },
+        })
+      }
+
+      setSummarySaving(false)
+      closeStageThen(() => notify.success('Practice summary saved ✨'))
+    } catch (error) {
+      console.warn('Failed to save practice summary:', error)
+      setSummaryError(error?.message || 'Could not save summary yet.')
+      setSummarySaving(false)
     }
   }
 
@@ -997,6 +1318,8 @@ export default function Choreography() {
         originalFileName: file.name,
         type: compressedFile.type,
         size: compressedFile.size,
+        routineId,
+        sessionId: sessionId || null,
       })
       setVideoDownloadProgress(90)
 
@@ -1350,13 +1673,22 @@ export default function Choreography() {
     setManualSyncMessage('Uploading local files...')
 
     try {
-      const localFileKeys = ['choreo-music', liveVideoStorageKey]
+      const localFileKeys = Array.from(new Set([
+        routineMusicStorageKey,
+        'choreo-music',
+        liveVideoStorageKey,
+        'choreo-video',
+      ]))
       let uploadedCount = 0
 
       for (const key of localFileKeys) {
         const localFile = await loadLocalFile(key)
         if (!localFile?.blob) continue
-        await saveFile(key, localFile.blob, localFile.meta || {})
+        await saveFile(key, localFile.blob, {
+          ...(localFile.meta || {}),
+          routineId: localFile.meta?.routineId || routineId,
+          sessionId: localFile.meta?.sessionId || sessionId || null,
+        })
         uploadedCount += 1
       }
 
@@ -1410,12 +1742,16 @@ export default function Choreography() {
       : (liveTime - syncOffset))
     : currentTime
   const liveTotalDuration = liveDuration || duration
+  const isLivePlaybackActive = isPlaying || liveIsPlaying
 
   // Derived beat info for live mode
   const liveBeatInfo = beatData ? getCurrentBeatInfo(effectiveLiveTime, beatData) : null
 
   // ========== SONG-LEVEL INSTRUCTIONS ==========
-  const songInstructions = useMemo(() => choreography.songInstructions || [], [choreography.songInstructions])
+  const songInstructions = useMemo(
+    () => (choreography.songInstructions || []).map(normalizeSongInstruction),
+    [choreography.songInstructions]
+  )
   const cues = useMemo(() => choreography.cues || [], [choreography.cues])
   const songInstructionsRef = useRef(songInstructions)
   songInstructionsRef.current = songInstructions
@@ -1424,13 +1760,31 @@ export default function Choreography() {
     const newId = generateId('sinst')
     const minPos = Math.min(startPos, endPos)
     const maxPos = Math.max(startPos, endPos)
-    const updated = [...songInstructions, { id: newId, text, startPos: minPos, endPos: maxPos }]
+    const promptText = clampInstructionPrompt(text)
+    const updated = [...songInstructions, {
+      id: newId,
+      text: promptText,
+      promptText,
+      expandedText: '',
+      startPos: minPos,
+      endPos: maxPos,
+    }]
     editChoreographyVersion(routineId, selectedVersion?.id, { songInstructions: updated })
     return newId
   }
 
   const updateSongInstruction = (id, patch) => {
-    const updated = songInstructions.map(inst => inst.id === id ? { ...inst, ...patch } : inst)
+    const updated = songInstructions.map((inst) => {
+      if (inst.id !== id) return inst
+      const nextInst = { ...inst, ...patch }
+      const promptText = clampInstructionPrompt(nextInst.promptText ?? nextInst.text ?? '')
+      return {
+        ...nextInst,
+        promptText,
+        text: promptText,
+        expandedText: String(nextInst.expandedText || '').slice(0, LIVE_EXPANDED_MAX_CHARS),
+      }
+    })
     editChoreographyVersion(routineId, selectedVersion?.id, { songInstructions: updated })
   }
 
@@ -1593,8 +1947,8 @@ export default function Choreography() {
   }
 
   // Active song instruction for live display (returns { text, id, emoji } or null)
-  // Triggers PEAK_OFFSET seconds early so the spring animation peaks ON the beat
   const liveSongInstruction = useMemo(() => {
+    const leadSec = promptLeadMs / 1000
     if (!beatData?.beats?.length || !songInstructions.length) {
       if (!cues.length) return null
       const sortedCues = [...cues].sort((a, b) => a.time - b.time)
@@ -1603,8 +1957,8 @@ export default function Choreography() {
       for (let i = 0; i < sortedCues.length; i++) {
         const cue = sortedCues[i]
         const nextCue = sortedCues[i + 1]
-        const startTime = cue.time
-        const endTime = nextCue ? nextCue.time : cue.time + 2
+        const startTime = cue.time - leadSec
+        const endTime = nextCue ? (nextCue.time - leadSec) : (cue.time + 2 - leadSec)
         if (time >= startTime && time < endTime) {
           return {
             text: cue.label,
@@ -1617,8 +1971,6 @@ export default function Choreography() {
     }
     const time = effectiveLiveTime
     const beatInterval = 60 / beatData.bpm
-    // cue-slam is 0.25s; text reaches full scale at 40% = 0.1s
-    const PEAK_OFFSET = 0.1
 
     // Convert a beat position (e.g. 3 or 3.5) to an absolute time in seconds
     const getBeatTime = (pos) => {
@@ -1631,14 +1983,16 @@ export default function Choreography() {
 
     const matches = []
     for (const inst of songInstructions) {
-      if (!String(inst.text || '').trim()) continue
+      const promptText = getInstructionPromptText(inst)
+      if (!promptText.trim()) continue
       const startTime = getBeatTime(inst.startPos)
       if (startTime == null) continue
       const endTime = getBeatTime(inst.endPos)
-      // Show early by PEAK_OFFSET so animation peak lands on the beat
-      const triggerTime = startTime - PEAK_OFFSET
+      const triggerTime = startTime - leadSec
       // Stay visible until half a beat after the last position
-      const hideTime = endTime != null ? endTime + beatInterval * 0.5 : startTime + beatInterval
+      const hideTime = endTime != null
+        ? endTime + beatInterval * 0.5 - leadSec
+        : startTime + beatInterval - leadSec
       if (time >= triggerTime && time < hideTime) {
         matches.push(inst)
       }
@@ -1647,8 +2001,14 @@ export default function Choreography() {
     // Prefer narrower (more specific) instructions
     matches.sort((a, b) => (a.endPos - a.startPos) - (b.endPos - b.startPos))
     const best = matches[0]
-    return { text: best.text, id: best.id, emoji: best.emoji || suggestEmoji(best.text) }
-  }, [effectiveLiveTime, beatData, songInstructions, cues])
+    const promptText = getInstructionPromptText(best)
+    return {
+      text: promptText,
+      expandedText: getInstructionExpandedText(best),
+      id: best.id,
+      emoji: best.emoji || suggestEmoji(promptText),
+    }
+  }, [effectiveLiveTime, beatData, songInstructions, cues, promptLeadMs])
 
   // Next upcoming instruction for preview
   const nextSongInstruction = useMemo(() => {
@@ -1680,7 +2040,8 @@ export default function Choreography() {
     // Find instructions that haven't started yet
     const upcoming = songInstructions
       .filter(inst => {
-        if (!String(inst.text || '').trim()) return false
+        const promptText = getInstructionPromptText(inst)
+        if (!promptText.trim()) return false
         const startTime = getBeatTime(inst.startPos)
         if (startTime == null) return false
         // Exclude the currently active instruction
@@ -1691,8 +2052,19 @@ export default function Choreography() {
 
     if (upcoming.length === 0) return null
     const next = upcoming[0]
-    return { text: next.text, id: next.id, emoji: next.emoji || suggestEmoji(next.text) }
+    const promptText = getInstructionPromptText(next)
+    return { text: promptText, id: next.id, emoji: next.emoji || suggestEmoji(promptText) }
   }, [effectiveLiveTime, beatData, songInstructions, liveSongInstruction, cues])
+
+  const liveInstructionDisplayText = liveSongInstruction
+    ? (isLivePlaybackActive
+      ? liveSongInstruction.text
+      : (liveSongInstruction.expandedText || liveSongInstruction.text))
+    : ''
+  const showLiveInstructionCard = !/press\s*play\s*(and|&)\s*dance/i.test(liveInstructionDisplayText || '')
+  const isExpandedLiveInstruction = Boolean(
+    liveSongInstruction && !isLivePlaybackActive && liveSongInstruction.expandedText
+  )
 
   // ESC key handler: cancel beat range selection
   useEffect(() => {
@@ -1743,7 +2115,7 @@ export default function Choreography() {
       if (!Number.isFinite(videoTime)) return
       const clampedTime = Math.max(0, videoTime)
       const last = lastLiveClockTimeRef.current
-      if (last < 0 || Math.abs(clampedTime - last) >= 0.03) {
+      if (last < 0 || Math.abs(clampedTime - last) >= 0.008) {
         lastLiveClockTimeRef.current = clampedTime
         setLiveTime(clampedTime)
       }
@@ -2009,19 +2381,6 @@ export default function Choreography() {
                 >
                   {showBeats ? '🔢 Beats On' : '🔢 Beats Off'}
                 </button>
-                <label className={styles['prompt-lead-control']}>
-                  Prompt Lead (ms)
-                  <input
-                    type="number"
-                    value={promptLeadMs}
-                    min={0}
-                    max={600}
-                    step={10}
-                    onChange={(e) => updateSettings({
-                      promptLeadMs: Math.max(0, Math.min(600, Number(e.target.value) || 0)),
-                    })}
-                  />
-                </label>
               </div>
             )}
           </div>
@@ -2210,29 +2569,33 @@ export default function Choreography() {
             <div className={styles['live-no-video']}>
               {!isKidLiveView && (
                 <div className={styles['live-no-video-card']}>
-                  <span className={styles['live-state-icon']} style={{ marginBottom: 8 }}>🎬</span>
-                  <p className={styles['live-no-video-title']}>No video loaded</p>
-                  <p className={styles['live-no-video-subtitle']}>Add video or music to get started</p>
-                  {canManageLiveControls && (
-                    <div className={styles['live-no-video-actions']}>
-                      <button
-                        type="button"
-                        className={styles['live-no-video-action-btn']}
-                        onClick={() => videoPickerInputRef.current?.click()}
-                      >
-                        📹 Add Video
-                      </button>
-                      {!audioUrl && (
-                        <button
-                          type="button"
-                          className={styles['live-no-video-action-btn']}
-                          onClick={() => musicPickerInputRef.current?.click()}
-                        >
-                          🎵 Add Music
-                        </button>
+                  {filesLoaded ? (
+                    <>
+                      <span className={styles['live-state-icon']} style={{ marginBottom: 8 }}>🎬</span>
+                      <p className={styles['live-no-video-title']}>No video loaded</p>
+                      <p className={styles['live-no-video-subtitle']}>Add video or music to get started</p>
+                      {canManageLiveControls && (
+                        <div className={styles['live-no-video-actions']}>
+                          <button
+                            type="button"
+                            className={styles['live-no-video-action-btn']}
+                            onClick={() => videoPickerInputRef.current?.click()}
+                          >
+                            📹 Add Video
+                          </button>
+                          {!audioUrl && (
+                            <button
+                              type="button"
+                              className={styles['live-no-video-action-btn']}
+                              onClick={() => musicPickerInputRef.current?.click()}
+                            >
+                              🎵 Add Music
+                            </button>
+                          )}
+                        </div>
                       )}
-                    </div>
-                  )}
+                    </>
+                  ) : null}
                 </div>
               )}
             </div>
@@ -2258,7 +2621,12 @@ export default function Choreography() {
               onTogglePlay={toggleLivePlay}
               onAddAnnotation={(ann) => {
                 const updated = [...videoAnnotations, ann]
-                if (sessionId) {
+                if (sessionId && feedbackKidProfileId) {
+                  setSessionFeedback((prev) => ({ ...prev, videoAnnotations: updated }))
+                  saveSessionFeedback(sessionId, feedbackKidProfileId, { videoAnnotations: updated })
+                    .then((saved) => { if (saved) setSessionFeedback(saved) })
+                    .catch((e) => console.warn('Save annotation feedback:', e))
+                } else if (sessionId) {
                   editSession(sessionId, { videoAnnotations: updated })
                 } else {
                   editChoreographyVersion(routineId, selectedVersion?.id, { videoAnnotations: updated })
@@ -2266,7 +2634,12 @@ export default function Choreography() {
               }}
               onDeleteAnnotation={(annId) => {
                 const updated = videoAnnotations.filter(a => a.id !== annId)
-                if (sessionId) {
+                if (sessionId && feedbackKidProfileId) {
+                  setSessionFeedback((prev) => ({ ...prev, videoAnnotations: updated }))
+                  saveSessionFeedback(sessionId, feedbackKidProfileId, { videoAnnotations: updated })
+                    .then((saved) => { if (saved) setSessionFeedback(saved) })
+                    .catch((e) => console.warn('Delete annotation feedback:', e))
+                } else if (sessionId) {
                   editSession(sessionId, { videoAnnotations: updated })
                 } else {
                   editChoreographyVersion(routineId, selectedVersion?.id, { videoAnnotations: updated })
@@ -2276,7 +2649,12 @@ export default function Choreography() {
                 const updated = videoAnnotations.map((ann) => (
                   ann.id === annId ? { ...ann, ...updates } : ann
                 ))
-                if (sessionId) {
+                if (sessionId && feedbackKidProfileId) {
+                  setSessionFeedback((prev) => ({ ...prev, videoAnnotations: updated }))
+                  saveSessionFeedback(sessionId, feedbackKidProfileId, { videoAnnotations: updated })
+                    .then((saved) => { if (saved) setSessionFeedback(saved) })
+                    .catch((e) => console.warn('Update annotation feedback:', e))
+                } else if (sessionId) {
                   editSession(sessionId, { videoAnnotations: updated })
                 } else {
                   editChoreographyVersion(routineId, selectedVersion?.id, { videoAnnotations: updated })
@@ -2291,20 +2669,7 @@ export default function Choreography() {
               <div className={`${styles['live-top-bar']} ${!liveUiVisible ? styles['live-top-bar-hidden'] : ''}`}>
                 <button
                   className={styles['live-exit-btn']}
-                  onClick={() => {
-                    liveVideoRef.current?.pause()
-                    audioRef.current?.pause()
-                    setLiveIsPlaying(false)
-                    if (routineId) {
-                      navigate(`/timeline/routine/${routineId}`)
-                    } else if (activeSession?.disciplineId) {
-                      navigate(`/timeline/discipline/${activeSession.disciplineId}`)
-                    } else if (isLiveOnly) {
-                      navigate('/')
-                    } else {
-                      setMode('edit')
-                    }
-                  }}
+                  onClick={goBackFromLive}
                 >
                   ✕ Exit
                 </button>
@@ -2439,7 +2804,7 @@ export default function Choreography() {
                 </div>
               )}
 
-              {nextSongInstruction && (isPlaying || liveIsPlaying) && (
+              {nextSongInstruction && isLivePlaybackActive && (
                 <div className={styles['live-next-preview']}>
                   Up next: {nextSongInstruction.emoji && <span>{nextSongInstruction.emoji} </span>}{nextSongInstruction.text}
                 </div>
@@ -2449,28 +2814,237 @@ export default function Choreography() {
 
           {/* Current instruction — big animated card */}
           {!filesLoaded ? (
-            <div className={styles['live-cue-idle']}>
+            <div className={`${styles['live-cue-idle']} ${styles['live-cue-loading-centered']}`}>
               <span className={styles['live-state-icon']}>⏳</span>
               <p style={{ fontWeight: 600, marginTop: 8 }}>
                 Loading music & video…
               </p>
               <p className={styles['live-cue-idle-subtitle']}>Almost ready!</p>
             </div>
-          ) : liveSongInstruction ? (
+          ) : (liveSongInstruction && showLiveInstructionCard) ? (
             <div key={liveSongInstruction.id} className={styles['live-cue-card']}>
-              <span className={styles['live-beat-move-label']}>
+              <span className={`${styles['live-beat-move-label']} ${isExpandedLiveInstruction ? styles['live-beat-move-label-expanded'] : ''}`}>
                 {liveSongInstruction.emoji && <span className={styles['live-inst-emoji']}>{liveSongInstruction.emoji} </span>}
-                {liveSongInstruction.text}
+                {liveInstructionDisplayText}
               </span>
             </div>
-          ) : (liveIsPlaying || isPlaying) ? null : (
-            <div className={styles['live-cue-idle']}>
-              <span className={styles['live-state-icon']}>💃</span>
-              <p>Press play and dance!</p>
+          ) : null}
+
+          {showPracticeSummary && (
+            <div className={`${styles['stage-backdrop']} ${summaryClosing ? styles['stage-closing'] : ''}`}>
+              {/* Top valance */}
+              <div className={styles['stage-valance']} />
+
+              {/* Curtains */}
+              <div className={styles['stage-curtain-left']} />
+              <div className={styles['stage-curtain-right']} />
+
+              {/* Spotlight glow */}
+              <div className={styles['stage-spotlight']} />
+
+              {/* Floating stars */}
+              <div className={styles['stage-stars']}>
+                {stageStars.map((star, i) => (
+                  <span
+                    key={i}
+                    className={styles['stage-star']}
+                    style={{
+                      left: `${star.left}%`,
+                      top: `${star.top}%`,
+                      animationDelay: `${star.delay}s`,
+                      fontSize: `${star.size}px`,
+                    }}
+                  >
+                    {star.char}
+                  </span>
+                ))}
+              </div>
+
+              {/* Scrollable content */}
+              <div className={styles['stage-content']}>
+                {/* Celebration header */}
+                <div className={styles['stage-celebration']}>
+                  <div className={styles['stage-bravo']}>Bravo!</div>
+                  <p className={styles['stage-bravo-sub']}>What an amazing performance!</p>
+                </div>
+
+                <div className={styles['stage-recap']}>
+                  {(() => {
+                    // Start near the end of the intro so it overlaps slightly (less perceived delay).
+                    const stageIntroStartDelay = 1.35
+
+                    const bpm = Number(beatData?.bpm)
+                    const beatIntervalFromBpm = Number.isFinite(bpm) && bpm > 0 ? (60 / bpm) : null
+                    const beatIntervalFromGrid = (Array.isArray(beatData?.beats) && beatData.beats.length > 1)
+                      ? Math.max(0.12, Number(beatData.beats[1]) - Number(beatData.beats[0]))
+                      : null
+                    const recapEmojiStep = beatIntervalFromBpm || beatIntervalFromGrid || 0.5
+                    const feedbackDelay = stageIntroStartDelay + (stageRecap.emojiPills.length * recapEmojiStep)
+
+                    return (
+                      <>
+                  {stageRecap.emojiPills.length > 0 && (
+                    <div className={styles['stage-recap-emojis']}>
+                      {stageRecap.emojiPills.map((item, idx) => (
+                        <span
+                          key={`${item.emoji}-${idx}`}
+                          className={`${styles['stage-recap-pill']} ${styles['stage-recap-seq']}`}
+                          style={{ animationDelay: `${stageIntroStartDelay + (idx * recapEmojiStep)}s` }}
+                        >
+                          {item.emoji}{item.count > 1 ? ` × ${item.count}` : ''}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {stageRecap.feedbackPreview && (
+                    <p
+                      className={`${styles['stage-recap-feedback']} ${styles['stage-recap-seq']}`}
+                      style={{ animationDelay: `${stageRecap.emojiPills.length > 0 ? feedbackDelay : stageIntroStartDelay}s` }}
+                    >
+                      “{stageRecap.feedbackPreview}”
+                    </p>
+                  )}
+                      </>
+                    )
+                  })()}
+                </div>
+
+                {/* 2-col form grid (collapses to 1 col on compact) */}
+                <div className={styles['stage-form-grid']}>
+                  {/* Left column — what went well */}
+                  <div className={styles['stage-form-col']}>
+                    <label className={styles['stage-form-label']}>What went well?</label>
+                    <textarea
+                      className={styles['stage-form-textarea']}
+                      placeholder="I nailed my turns today..."
+                      value={reflectionNote}
+                      rows={4}
+                      onChange={(e) => setReflectionNote(e.target.value)}
+                    />
+                  </div>
+
+                  {/* Right column — living goals */}
+                  <div className={styles['stage-form-col']}>
+                    {livingGoals.length > 0 ? (
+                      <>
+                        <label className={styles['stage-form-label']}>
+                          How did these go? Tap an emoji — only 🤩 clears it!
+                        </label>
+                        <div className={styles['stage-goal-list']}>
+                          {livingGoals.filter((g) => !g.isNew).map((goal) => (
+                            <div
+                              key={goal.id}
+                              className={`${styles['stage-goal-item']} ${goalReactions[goal.id] === 3 ? styles['stage-goal-mastered'] : ''}`}
+                            >
+                              <span className={styles['stage-goal-text']}>{goal.text}</span>
+                              <div className={styles['stage-goal-emojis']}>
+                                {[
+                                  { value: 1, emoji: '😤', label: 'Tough' },
+                                  { value: 2, emoji: '😊', label: 'Okay' },
+                                  { value: 3, emoji: '🤩', label: 'Nailed it' },
+                                ].map((opt) => (
+                                  <button
+                                    key={opt.value}
+                                    type="button"
+                                    className={`${styles['stage-emoji-btn']} ${goalReactions[goal.id] === opt.value ? styles['stage-emoji-active'] : ''}`}
+                                    onClick={() => setGoalReactions((prev) => ({ ...prev, [goal.id]: opt.value }))}
+                                    aria-label={`${goal.text}: ${opt.label}`}
+                                    title={opt.label}
+                                  >
+                                    {opt.emoji}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                          {livingGoals.filter((g) => g.isNew).map((goal) => (
+                            <div key={goal.id} className={styles['stage-goal-item']}>
+                              <span className={styles['stage-goal-text']}>{goal.text}</span>
+                              <span className={styles['stage-goal-new-badge']}>new</span>
+                            </div>
+                          ))}
+                        </div>
+                        <label className={styles['stage-form-label']}>Anything else to work on?</label>
+                      </>
+                    ) : (
+                      <label className={styles['stage-form-label']}>What do you want to work on next time?</label>
+                    )}
+                    <div className={styles['stage-goal-add-row']}>
+                      <input
+                        type="text"
+                        className={styles['stage-form-input']}
+                        placeholder="e.g. Land my back walkover"
+                        value={newGoalText}
+                        onChange={(e) => setNewGoalText(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddLivingGoal() } }}
+                      />
+                      <button
+                        type="button"
+                        className={styles['stage-form-add']}
+                        onClick={handleAddLivingGoal}
+                        disabled={!newGoalText.trim()}
+                      >
+                        + Add
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {summaryError && <p className={styles['stage-form-error']}>{summaryError}</p>}
+
+                <div className={styles['stage-actions']}>
+                  <button
+                    type="button"
+                    className={styles['stage-btn-secondary']}
+                    onClick={() => closeStageThen(() => {
+                      setShowReplayCurtainOpening(true)
+                      if (replayCurtainTimerRef.current) {
+                        clearTimeout(replayCurtainTimerRef.current)
+                      }
+                      replayCurtainTimerRef.current = setTimeout(() => {
+                        setShowReplayCurtainOpening(false)
+                        replayCurtainTimerRef.current = null
+                      }, 1000)
+                      restartLive()
+                      toggleLivePlay()
+                    })}
+                    disabled={summaryClosing}
+                  >
+                    🔄 Replay
+                  </button>
+                  <button
+                    type="button"
+                    className={styles['stage-btn-primary']}
+                    onClick={handleSavePracticeSummary}
+                    disabled={summarySaving || summaryClosing}
+                  >
+                    {summarySaving ? 'Saving…' : (sessionId ? '✨ Save & Take a Bow' : '🎭 Done')}
+                  </button>
+                </div>
+              </div>
+
+              {/* Stage floor with footlights */}
+              <div className={styles['stage-floor']}>
+                <div className={styles['stage-footlights']}>
+                  {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+                    <div key={i} className={styles['stage-footlight']} />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showReplayCurtainOpening && !showPracticeSummary && (
+            <div className={styles['stage-replay-overlay']} aria-hidden="true">
+              <div className={styles['stage-valance']} />
+              <div className={styles['stage-curtain-left']} />
+              <div className={styles['stage-curtain-right']} />
             </div>
           )}
 
           {/* Bottom bar: progress + controls */}
+          {filesLoaded && !showPracticeSummary && (
           <div className={`${styles['live-bottom-bar']} ${!liveUiVisible ? styles['live-bottom-bar-hidden'] : ''}`}>
             <div className={styles['live-progress-meta']}>
               <span>{formatTimestamp(liveProgressTime)}</span>
@@ -2528,7 +3102,7 @@ export default function Choreography() {
                         key={inst.id}
                         className={`${styles['live-progress-dot']} ${isActive ? styles['live-progress-dot-active'] : ''}`}
                         style={{ left: `${(progressTime / liveTotalDuration) * 100}%` }}
-                        title={`${inst.emoji || ''} ${inst.text || ''}`}
+                        title={`${inst.emoji || ''} ${getInstructionPromptText(inst)}`}
                         onClick={(e) => { e.stopPropagation(); seekLive(progressTime) }}
                       />
                     )
@@ -2638,6 +3212,7 @@ export default function Choreography() {
               </div>
             )}
           </div>
+          )}
 
           {/* Live edit panel — full-song beat timeline + instructions */}
           {!isKidLiveView && liveEditOpen && (
@@ -2712,7 +3287,7 @@ export default function Choreography() {
                       const inDragRange = rangeStartPos !== null && dragEndPos !== null &&
                         row.pos >= Math.min(rangeStartPos, dragEndPos) && row.pos <= Math.max(rangeStartPos, dragEndPos)
                       const hasCoverage = songInstructions.some(inst =>
-                        row.pos >= inst.startPos && row.pos <= inst.endPos && String(inst.text || '').trim()
+                        row.pos >= inst.startPos && row.pos <= inst.endPos && getInstructionPromptText(inst).trim()
                       )
 
                       return (
@@ -2771,23 +3346,46 @@ export default function Choreography() {
                             onPointerDown={(e) => handleResizePointerDown(e, inst.id, 'top')}
                           />
                           {editingInstId === inst.id ? (
-                            <input
-                              autoFocus
-                              className={styles['song-inst-input']}
-                              value={inst.text || ''}
-                              onChange={(e) => {
-                                const text = e.target.value
-                                const emoji = suggestEmoji(text)
-                                updateSongInstruction(inst.id, { text, emoji: emoji || undefined })
+                            <div
+                              className={styles['song-inst-editor-fields']}
+                              onBlur={(e) => {
+                                if (!e.currentTarget.contains(e.relatedTarget)) {
+                                  setEditingInstId(null)
+                                }
                               }}
-                              onBlur={() => setEditingInstId(null)}
-                              onKeyDown={(e) => { if (e.key === 'Enter') setEditingInstId(null); if (e.key === 'Escape') { setEditingInstId(null) } }}
-                              placeholder="Type instruction…"
-                            />
+                            >
+                              <input
+                                autoFocus
+                                className={styles['song-inst-input']}
+                                value={inst.promptText || ''}
+                                maxLength={LIVE_PROMPT_MAX_CHARS}
+                                onChange={(e) => {
+                                  const promptText = e.target.value
+                                  const emoji = suggestEmoji(promptText)
+                                  updateSongInstruction(inst.id, {
+                                    promptText,
+                                    text: promptText,
+                                    emoji: emoji || undefined,
+                                  })
+                                }}
+                                onKeyDown={(e) => { if (e.key === 'Enter') setEditingInstId(null); if (e.key === 'Escape') { setEditingInstId(null) } }}
+                                placeholder={`Prompt (${LIVE_PROMPT_MAX_CHARS} max)…`}
+                              />
+                              <input
+                                className={styles['song-inst-expanded-input']}
+                                value={inst.expandedText || ''}
+                                maxLength={LIVE_EXPANDED_MAX_CHARS}
+                                onChange={(e) => {
+                                  updateSongInstruction(inst.id, { expandedText: e.target.value })
+                                }}
+                                onKeyDown={(e) => { if (e.key === 'Escape') { setEditingInstId(null) } }}
+                                placeholder="Expanded text (shown when paused)…"
+                              />
+                            </div>
                           ) : (
                             <span className={styles['song-inst-text']}>
-                              {(inst.emoji || suggestEmoji(inst.text)) && <span className={styles['song-inst-emoji']}>{inst.emoji || suggestEmoji(inst.text)} </span>}
-                              {inst.text || 'Tap to edit…'}
+                              {(inst.emoji || suggestEmoji(inst.promptText)) && <span className={styles['song-inst-emoji']}>{inst.emoji || suggestEmoji(inst.promptText)} </span>}
+                              {inst.promptText || 'Tap to edit…'}
                             </span>
                           )}
                           <button

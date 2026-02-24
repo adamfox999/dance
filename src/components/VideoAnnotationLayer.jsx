@@ -1,12 +1,18 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { generateId } from '../utils/helpers'
 import { formatTimestamp } from '../utils/audioSync'
 import styles from './VideoAnnotationLayer.module.css'
 
-const EMOJI_PALETTE = ['💯', '🔥', '⭐', '💪', '👏', '❤️', '😍', '🎯', '✨', '🙌', '⚡', '👀']
+const EMOJI_PALETTE = [
+  '💯', '🔥', '⭐', '💪', '👏', '❤️', '😍', '🎯', '✨', '🙌', '⚡', '👀',
+  '🌈', '🦄', '🍀', '🏆', '🪙', '🌟', '🎉', '🎊', '🥳', '🌸', '🦋', '🍭',
+  '🍩', '🍦', '🧁', '🍉', '🐣', '🐬', '🐼', '🐯', '🦊', '🐨', '🚀', '🎈',
+]
+const EMOJI_PAGE_SIZE = 12
 const ANNOTATION_VISIBLE_WINDOW = 2 // seconds before/after to show
-const LONG_PRESS_MS = 420
 const MOVE_CANCEL_PX = 10
+const DOUBLE_TAP_MS = 280
+const DOUBLE_TAP_DISTANCE_PX = 28
 
 // Vibrant pill colours for text comments
 const PILL_COLORS = [
@@ -94,9 +100,15 @@ export default function VideoAnnotationLayer({
   const [commentText, setCommentText] = useState('')
   const [videoRect, setVideoRect] = useState(null)
   const [dragPreview, setDragPreview] = useState(null)
+  const [emojiPage, setEmojiPage] = useState(0)
   const commentInputRef = useRef(null)
   const overlayRef = useRef(null)
-  const longPressTimerRef = useRef(null)
+  const singleTapTimerRef = useRef(null)
+  const lastTapRef = useRef({
+    atMs: 0,
+    clientX: 0,
+    clientY: 0,
+  })
   const dragStateRef = useRef({
     isDragging: false,
     pointerId: null,
@@ -108,7 +120,7 @@ export default function VideoAnnotationLayer({
     startX: 0,
     startY: 0,
     wasPlayingAtStart: false,
-    longPressTriggered: false,
+    movedBeyondCancelThreshold: false,
     pressTimestamp: 0,
   })
 
@@ -150,13 +162,25 @@ export default function VideoAnnotationLayer({
     })
     setSelectedEmoji('')
     setCommentText('')
+    setEmojiPage(0)
     setTimeout(() => commentInputRef.current?.focus(), 100)
   }, [videoRect])
 
-  const clearLongPressTimer = useCallback(() => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current)
-      longPressTimerRef.current = null
+  const emojiPages = useMemo(() => {
+    const pages = []
+    for (let i = 0; i < EMOJI_PALETTE.length; i += EMOJI_PAGE_SIZE) {
+      pages.push(EMOJI_PALETTE.slice(i, i + EMOJI_PAGE_SIZE))
+    }
+    return pages
+  }, [])
+
+  const maxEmojiPage = Math.max(0, emojiPages.length - 1)
+  const visibleEmojiPage = emojiPages[emojiPage] || emojiPages[0] || []
+
+  const clearSingleTapTimer = useCallback(() => {
+    if (singleTapTimerRef.current) {
+      clearTimeout(singleTapTimerRef.current)
+      singleTapTimerRef.current = null
     }
   }, [])
 
@@ -175,22 +199,14 @@ export default function VideoAnnotationLayer({
       startX: e.clientX,
       startY: e.clientY,
       wasPlayingAtStart,
-      longPressTriggered: false,
+      movedBeyondCancelThreshold: false,
       pressTimestamp: currentTime,
     }
 
     if (wasPlayingAtStart && onPause) {
       onPause()
     }
-
-    clearLongPressTimer()
-    longPressTimerRef.current = setTimeout(() => {
-      const state = pressStateRef.current
-      if (!state.isPressing || state.longPressTriggered) return
-      state.longPressTriggered = true
-      openPopoverAt(e.clientX, e.clientY, state.pressTimestamp)
-    }, LONG_PRESS_MS)
-  }, [videoRect, popover, isPlaying, onPause, currentTime, clearLongPressTimer, openPopoverAt])
+  }, [videoRect, popover, isPlaying, onPause, currentTime])
 
   const handleOverlayPointerMove = useCallback((e) => {
     const state = pressStateRef.current
@@ -200,9 +216,9 @@ export default function VideoAnnotationLayer({
     const dx = e.clientX - state.startX
     const dy = e.clientY - state.startY
     if (Math.hypot(dx, dy) > MOVE_CANCEL_PX) {
-      clearLongPressTimer()
+      state.movedBeyondCancelThreshold = true
     }
-  }, [clearLongPressTimer])
+  }, [])
 
   const handleOverlayPointerUp = useCallback((e) => {
     const state = pressStateRef.current
@@ -210,10 +226,32 @@ export default function VideoAnnotationLayer({
     if (state.pointerId !== null && e.pointerId !== state.pointerId) return
 
     e.stopPropagation()
-    clearLongPressTimer()
+    if (!state.movedBeyondCancelThreshold) {
+      const nowMs = Date.now()
+      const lastTap = lastTapRef.current
+      const isDoubleTap =
+        lastTap.atMs > 0
+        && (nowMs - lastTap.atMs) <= DOUBLE_TAP_MS
+        && Math.hypot(e.clientX - lastTap.clientX, e.clientY - lastTap.clientY) <= DOUBLE_TAP_DISTANCE_PX
 
-    if (!state.longPressTriggered && !state.wasPlayingAtStart && onTogglePlay) {
-      onTogglePlay()
+      if (isDoubleTap) {
+        clearSingleTapTimer()
+        lastTapRef.current = { atMs: 0, clientX: 0, clientY: 0 }
+        openPopoverAt(e.clientX, e.clientY, state.pressTimestamp)
+      } else {
+        lastTapRef.current = {
+          atMs: nowMs,
+          clientX: e.clientX,
+          clientY: e.clientY,
+        }
+        if (!state.wasPlayingAtStart && onTogglePlay) {
+          clearSingleTapTimer()
+          singleTapTimerRef.current = setTimeout(() => {
+            onTogglePlay()
+            singleTapTimerRef.current = null
+          }, DOUBLE_TAP_MS)
+        }
+      }
     }
 
     pressStateRef.current = {
@@ -222,29 +260,28 @@ export default function VideoAnnotationLayer({
       startX: 0,
       startY: 0,
       wasPlayingAtStart: false,
-      longPressTriggered: false,
+      movedBeyondCancelThreshold: false,
       pressTimestamp: 0,
     }
-  }, [clearLongPressTimer, onTogglePlay])
+  }, [clearSingleTapTimer, onTogglePlay, openPopoverAt])
 
   const handleOverlayPointerCancel = useCallback((e) => {
     const state = pressStateRef.current
     if (state.pointerId !== null && e.pointerId !== state.pointerId) return
-    clearLongPressTimer()
     pressStateRef.current = {
       isPressing: false,
       pointerId: null,
       startX: 0,
       startY: 0,
       wasPlayingAtStart: false,
-      longPressTriggered: false,
+      movedBeyondCancelThreshold: false,
       pressTimestamp: 0,
     }
-  }, [clearLongPressTimer])
+  }, [])
 
   useEffect(() => () => {
-    clearLongPressTimer()
-  }, [clearLongPressTimer])
+    clearSingleTapTimer()
+  }, [clearSingleTapTimer])
 
   const isPausedIdle = !isPlaying && !popover
 
@@ -514,32 +551,61 @@ export default function VideoAnnotationLayer({
               <span className={styles['popover-time']}>{formatTimestamp(popover.timestamp)}</span>
             </div>
 
-            <div className={styles['emoji-grid']}>
-              {EMOJI_PALETTE.map((emoji) => (
-                <button
-                  key={emoji}
-                  className={styles['emoji-btn']}
-                  onClick={() => {
-                    // Instant save: tapping an emoji immediately adds the annotation
-                    if (popover) {
-                      onAddAnnotation({
-                        id: generateId('ann'),
-                        timestamp: popover.timestamp,
-                        x: popover.x,
-                        y: popover.y,
-                        emoji,
-                        text: '',
-                        createdAt: new Date().toISOString(),
-                      })
-                      setPopover(null)
-                      setSelectedEmoji('')
-                      setCommentText('')
-                    }
-                  }}
-                >
-                  {emoji}
-                </button>
-              ))}
+            <div className={styles['emoji-carousel']}>
+              <button
+                type="button"
+                className={styles['emoji-carousel-arrow']}
+                onClick={() => setEmojiPage((prev) => Math.max(0, prev - 1))}
+                disabled={emojiPage <= 0}
+                aria-label="Previous emoji page"
+              >
+                ←
+              </button>
+
+              <div>
+                <div className={styles['emoji-grid']}>
+                  {visibleEmojiPage.map((emoji) => (
+                    <button
+                      key={emoji}
+                      className={styles['emoji-btn']}
+                      onClick={() => {
+                        // Instant save: tapping an emoji immediately adds the annotation
+                        if (popover) {
+                          onAddAnnotation({
+                            id: generateId('ann'),
+                            timestamp: popover.timestamp,
+                            x: popover.x,
+                            y: popover.y,
+                            emoji,
+                            text: '',
+                            createdAt: new Date().toISOString(),
+                          })
+                          setPopover(null)
+                          setSelectedEmoji('')
+                          setCommentText('')
+                        }
+                      }}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+                {emojiPages.length > 1 && (
+                  <div className={styles['emoji-carousel-meta']}>
+                    {emojiPage + 1} / {emojiPages.length}
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="button"
+                className={styles['emoji-carousel-arrow']}
+                onClick={() => setEmojiPage((prev) => Math.min(maxEmojiPage, prev + 1))}
+                disabled={emojiPage >= maxEmojiPage}
+                aria-label="Next emoji page"
+              >
+                →
+              </button>
             </div>
 
             <input
