@@ -13,6 +13,8 @@ const ANNOTATION_VISIBLE_WINDOW = 2 // seconds before/after to show
 const MOVE_CANCEL_PX = 10
 const DOUBLE_TAP_MS = 280
 const DOUBLE_TAP_DISTANCE_PX = 28
+const DOUBLE_TAP_MS_TOUCH = 420
+const DOUBLE_TAP_DISTANCE_TOUCH_PX = 44
 
 // Vibrant pill colours for text comments
 const PILL_COLORS = [
@@ -111,6 +113,7 @@ export default function VideoAnnotationLayer({
     atMs: 0,
     clientX: 0,
     clientY: 0,
+    pointerType: '',
   })
   const dragStateRef = useRef({
     isDragging: false,
@@ -120,6 +123,7 @@ export default function VideoAnnotationLayer({
   const pressStateRef = useRef({
     isPressing: false,
     pointerId: null,
+    pointerType: '',
     startX: 0,
     startY: 0,
     wasPlayingAtStart: false,
@@ -195,10 +199,16 @@ export default function VideoAnnotationLayer({
     const coords = screenToVideoCoords(e.clientX, e.clientY, videoRect)
     if (!coords) return
 
+    const pointerType = e.pointerType || ''
+    if (pointerType === 'touch') {
+      e.preventDefault()
+    }
+
     const wasPlayingAtStart = Boolean(isPlaying)
     pressStateRef.current = {
       isPressing: true,
       pointerId: e.pointerId,
+      pointerType,
       startX: e.clientX,
       startY: e.clientY,
       wasPlayingAtStart,
@@ -228,31 +238,41 @@ export default function VideoAnnotationLayer({
     if (!state.isPressing) return
     if (state.pointerId !== null && e.pointerId !== state.pointerId) return
 
+    const pointerType = state.pointerType || e.pointerType || ''
+    const isTouchPointer = pointerType === 'touch'
+    const doubleTapMs = isTouchPointer ? DOUBLE_TAP_MS_TOUCH : DOUBLE_TAP_MS
+    const doubleTapDistance = isTouchPointer ? DOUBLE_TAP_DISTANCE_TOUCH_PX : DOUBLE_TAP_DISTANCE_PX
+
     e.stopPropagation()
+    if (isTouchPointer) {
+      e.preventDefault()
+    }
     if (!state.movedBeyondCancelThreshold) {
       const nowMs = Date.now()
       const lastTap = lastTapRef.current
       const isDoubleTap =
         lastTap.atMs > 0
-        && (nowMs - lastTap.atMs) <= DOUBLE_TAP_MS
-        && Math.hypot(e.clientX - lastTap.clientX, e.clientY - lastTap.clientY) <= DOUBLE_TAP_DISTANCE_PX
+        && lastTap.pointerType === pointerType
+        && (nowMs - lastTap.atMs) <= doubleTapMs
+        && Math.hypot(e.clientX - lastTap.clientX, e.clientY - lastTap.clientY) <= doubleTapDistance
 
       if (isDoubleTap) {
         clearSingleTapTimer()
-        lastTapRef.current = { atMs: 0, clientX: 0, clientY: 0 }
+        lastTapRef.current = { atMs: 0, clientX: 0, clientY: 0, pointerType: '' }
         openPopoverAt(e.clientX, e.clientY, state.pressTimestamp)
       } else {
         lastTapRef.current = {
           atMs: nowMs,
           clientX: e.clientX,
           clientY: e.clientY,
+          pointerType,
         }
         if (!state.wasPlayingAtStart && onTogglePlay) {
           clearSingleTapTimer()
           singleTapTimerRef.current = setTimeout(() => {
             onTogglePlay()
             singleTapTimerRef.current = null
-          }, DOUBLE_TAP_MS)
+          }, doubleTapMs)
         }
       }
     }
@@ -260,6 +280,7 @@ export default function VideoAnnotationLayer({
     pressStateRef.current = {
       isPressing: false,
       pointerId: null,
+      pointerType: '',
       startX: 0,
       startY: 0,
       wasPlayingAtStart: false,
@@ -274,6 +295,7 @@ export default function VideoAnnotationLayer({
     pressStateRef.current = {
       isPressing: false,
       pointerId: null,
+      pointerType: '',
       startX: 0,
       startY: 0,
       wasPlayingAtStart: false,
