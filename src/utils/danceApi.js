@@ -237,6 +237,7 @@ function mapPracticeReflectionGoal(r) {
   return {
     id: r.id,
     reflectionId: r.reflection_id,
+    reflectionSessionId: r.reflection_session_id || null,
     text: r.goal_text || '',
     sortOrder: Number.isFinite(r.sort_order) ? r.sort_order : 0,
     masteredAt: r.mastered_at || null,
@@ -1040,7 +1041,7 @@ export async function fetchRoutineLivingGoals(routineId, kidProfileId = null) {
   // Get all reflections for this routine
   let reflectionsQuery = client
     .from('practice_reflection')
-    .select('id')
+    .select('id, session_id')
     .eq('routine_id', routineId)
 
   if (kidProfileId) {
@@ -1053,6 +1054,7 @@ export async function fetchRoutineLivingGoals(routineId, kidProfileId = null) {
   if (!reflections || reflections.length === 0) return []
 
   const reflectionIds = reflections.map((r) => r.id)
+  const reflectionSessionById = new Map(reflections.map((row) => [row.id, row.session_id || null]))
 
   // Get all active (un-mastered) goals across all reflections for this routine
   const { data: goals, error: goalsError } = await client
@@ -1063,7 +1065,10 @@ export async function fetchRoutineLivingGoals(routineId, kidProfileId = null) {
     .order('created_at', { ascending: true })
 
   if (goalsError) throw new Error(goalsError.message)
-  return (goals || []).map(mapPracticeReflectionGoal)
+  return (goals || []).map((row) => mapPracticeReflectionGoal({
+    ...row,
+    reflection_session_id: reflectionSessionById.get(row.reflection_id) || null,
+  }))
 }
 
 export async function upsertSessionPracticeReflection(sessionId, payload = {}) {
@@ -1092,6 +1097,17 @@ export async function upsertSessionPracticeReflection(sessionId, payload = {}) {
     .map((g) => (typeof g === 'string' ? g.trim() : ''))
     .filter(Boolean)
 
+  const currentVideoGoals = (payload.currentVideoGoals || [])
+    .map((goal) => ({
+      id: goal?.id,
+      text: typeof goal?.text === 'string' ? goal.text.trim() : '',
+    }))
+    .filter((goal) => goal.id && goal.text)
+
+  const removeCurrentVideoGoalIds = Array.from(new Set((payload.removeCurrentVideoGoalIds || [])
+    .map((goalId) => (typeof goalId === 'string' ? goalId : ''))
+    .filter(Boolean)))
+
   if (newGoals.length > 0) {
     const rows = newGoals.map((goalText, index) => ({
       reflection_id: reflection.id,
@@ -1102,6 +1118,26 @@ export async function upsertSessionPracticeReflection(sessionId, payload = {}) {
       .from('practice_reflection_goal')
       .insert(rows)
     if (insertGoalsError) throw new Error(insertGoalsError.message)
+  }
+
+  if (currentVideoGoals.length > 0) {
+    for (const goal of currentVideoGoals) {
+      const { error: updateGoalError } = await client
+        .from('practice_reflection_goal')
+        .update({ goal_text: goal.text })
+        .eq('id', goal.id)
+        .eq('reflection_id', reflection.id)
+      if (updateGoalError) throw new Error(updateGoalError.message)
+    }
+  }
+
+  if (removeCurrentVideoGoalIds.length > 0) {
+    const { error: deleteGoalError } = await client
+      .from('practice_reflection_goal')
+      .delete()
+      .in('id', removeCurrentVideoGoalIds)
+      .eq('reflection_id', reflection.id)
+    if (deleteGoalError) throw new Error(deleteGoalError.message)
   }
 
   // Save goal reactions (1=tough, 2=ok, 3=nailed) and mark mastered

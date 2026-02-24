@@ -476,6 +476,7 @@ export default function Choreography() {
   const [showPracticeSummary, setShowPracticeSummary] = useState(false)
   const [reflectionNote, setReflectionNote] = useState('')
   const [livingGoals, setLivingGoals] = useState([])
+  const [removedCurrentVideoGoalIds, setRemovedCurrentVideoGoalIds] = useState([])
   const [goalReactions, setGoalReactions] = useState({})
   const [newGoalText, setNewGoalText] = useState('')
   const [summarySaving, setSummarySaving] = useState(false)
@@ -562,6 +563,7 @@ export default function Choreography() {
       setShowPracticeSummary(false)
       setReflectionNote('')
       setLivingGoals([])
+      setRemovedCurrentVideoGoalIds([])
       setGoalReactions({})
       setNewGoalText('')
       setSummaryError('')
@@ -581,7 +583,17 @@ export default function Choreography() {
         if (cancelled) return
 
         setReflectionNote(currentReflection?.reflectionNote || sessionFeedback?.dancerReflection?.note || activeSession?.dancerReflection?.note || '')
-        setLivingGoals(activeGoals || [])
+        const scopedGoals = (activeGoals || []).map((goal) => {
+          const fromCurrentSession = Boolean(sessionId) && goal.reflectionSessionId === sessionId
+          return {
+            ...goal,
+            isNew: fromCurrentSession,
+            isPersisted: fromCurrentSession,
+          }
+        })
+
+        setLivingGoals(scopedGoals)
+        setRemovedCurrentVideoGoalIds([])
 
         // Restore any reactions already saved for this session
         const existingReactions = {}
@@ -1211,7 +1223,7 @@ export default function Choreography() {
     if (!text) return
     setLivingGoals((prev) => [
       ...prev,
-      { id: `new-${Date.now()}`, text, masteredAt: null, isNew: true },
+      { id: `new-${Date.now()}`, text, masteredAt: null, isNew: true, isPersisted: false },
     ])
     setNewGoalText('')
   }
@@ -1223,7 +1235,13 @@ export default function Choreography() {
   }
 
   const handleRemoveNewLivingGoal = (goalId) => {
-    setLivingGoals((prev) => prev.filter((goal) => goal.id !== goalId))
+    setLivingGoals((prev) => {
+      const target = prev.find((goal) => goal.id === goalId)
+      if (target?.isPersisted) {
+        setRemovedCurrentVideoGoalIds((ids) => (ids.includes(goalId) ? ids : [...ids, goalId]))
+      }
+      return prev.filter((goal) => goal.id !== goalId)
+    })
   }
 
   const handleSavePracticeSummary = async () => {
@@ -1242,8 +1260,12 @@ export default function Choreography() {
     try {
       // Collect new goals added this session
       const newGoals = livingGoals
-        .filter((g) => g.isNew)
+        .filter((g) => g.isNew && !g.isPersisted)
         .map((g) => g.text)
+
+      const currentVideoGoals = livingGoals
+        .filter((g) => g.isNew && g.isPersisted)
+        .map((g) => ({ id: g.id, text: g.text }))
 
       // Collect emoji reactions for existing (prior) goals
       const reactions = Object.entries(goalReactions)
@@ -1255,6 +1277,8 @@ export default function Choreography() {
         routineId: routineId || null,
         reflectionNote,
         newGoals,
+        currentVideoGoals,
+        removeCurrentVideoGoalIds: removedCurrentVideoGoalIds,
         goalReactions: reactions,
       })
 
