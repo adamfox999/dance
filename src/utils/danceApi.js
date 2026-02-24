@@ -1072,6 +1072,8 @@ export async function upsertSessionPracticeReflection(sessionId, payload = {}) {
 
   const kidProfileId = payload.kidProfileId || null
 
+  if (!kidProfileId) throw new Error('Kid profile is required for session reflections.')
+
   const { data: reflection, error: reflectionError } = await client
     .from('practice_reflection')
     .upsert({
@@ -1079,7 +1081,7 @@ export async function upsertSessionPracticeReflection(sessionId, payload = {}) {
       kid_profile_id: kidProfileId,
       routine_id: payload.routineId || null,
       reflection_note: payload.reflectionNote || '',
-    }, { onConflict: kidProfileId ? 'session_id,kid_profile_id' : 'session_id' })
+    }, { onConflict: 'session_id,kid_profile_id' })
     .select('*')
     .single()
 
@@ -1107,7 +1109,6 @@ export async function upsertSessionPracticeReflection(sessionId, payload = {}) {
     .filter((item) => item?.goalId && [1, 2, 3].includes(item.rating))
 
   if (reactions.length > 0) {
-    // Upsert checkins
     const checkinRows = reactions.map((item) => ({
       session_id: sessionId,
       kid_profile_id: kidProfileId,
@@ -1115,9 +1116,10 @@ export async function upsertSessionPracticeReflection(sessionId, payload = {}) {
       rating: item.rating,
       note: '',
     }))
+
     const { error: checkinError } = await client
       .from('practice_reflection_goal_checkin')
-      .upsert(checkinRows, { onConflict: kidProfileId ? 'session_id,prior_goal_id,kid_profile_id' : 'session_id,prior_goal_id' })
+      .upsert(checkinRows, { onConflict: 'session_id,prior_goal_id,kid_profile_id' })
     if (checkinError) throw new Error(checkinError.message)
 
     // Mark goals with rating 3 as mastered

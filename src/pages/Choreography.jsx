@@ -222,6 +222,7 @@ export default function Choreography() {
   const {
     routines,
     sessions,
+    ownKidProfiles,
     settings,
     isAdmin,
     isKidMode,
@@ -296,12 +297,44 @@ export default function Choreography() {
     ? (activeSession?.rehearsalVideoKey || `rehearsal-video-${sessionId}`)
     : routineVideoStorageKey
 
+  const routineFeedbackKids = useMemo(() => {
+    const routineKidIds = Array.isArray(routine?.kidProfileIds) ? routine.kidProfileIds : []
+    if (!routineKidIds.length) return []
+    const ownKids = Array.isArray(ownKidProfiles) ? ownKidProfiles : []
+    return routineKidIds
+      .map((kidId) => ownKids.find((kid) => kid.id === kidId))
+      .filter(Boolean)
+  }, [routine?.kidProfileIds, ownKidProfiles])
+
+  const [selectedFeedbackKidId, setSelectedFeedbackKidId] = useState(null)
+
+  useEffect(() => {
+    if (!sessionId) {
+      setSelectedFeedbackKidId(null)
+      return
+    }
+
+    if (isKidMode && activeKidProfile?.id) {
+      setSelectedFeedbackKidId(activeKidProfile.id)
+      return
+    }
+
+    const availableIds = routineFeedbackKids.map((kid) => kid.id)
+    if (!availableIds.length) {
+      setSelectedFeedbackKidId(null)
+      return
+    }
+
+    if (!selectedFeedbackKidId || !availableIds.includes(selectedFeedbackKidId)) {
+      setSelectedFeedbackKidId(availableIds[0])
+    }
+  }, [sessionId, isKidMode, activeKidProfile?.id, routineFeedbackKids, selectedFeedbackKidId])
+
   const feedbackKidProfileId = useMemo(() => {
     if (!sessionId) return null
-    if (activeKidProfile?.id) return activeKidProfile.id
-    const routineKidIds = Array.isArray(routine?.kidProfileIds) ? routine.kidProfileIds : []
-    return routineKidIds[0] || null
-  }, [sessionId, activeKidProfile?.id, routine?.kidProfileIds])
+    if (isKidMode && activeKidProfile?.id) return activeKidProfile.id
+    return selectedFeedbackKidId || routineFeedbackKids[0]?.id || null
+  }, [sessionId, isKidMode, activeKidProfile?.id, selectedFeedbackKidId, routineFeedbackKids])
 
   // Modes: 'edit' | 'live'
   const [mode, setMode] = useState((isKidLiveView || isLiveOnly) ? 'live' : 'edit')
@@ -1177,6 +1210,11 @@ export default function Choreography() {
   const handleSavePracticeSummary = async () => {
     if (!sessionId) {
       closeStageThen()
+      return
+    }
+
+    if (!feedbackKidProfileId) {
+      setSummaryError('Choose which child this feedback is for first.')
       return
     }
 
@@ -2265,10 +2303,15 @@ export default function Choreography() {
     ? null
     : Math.max(0, Math.min(100, Math.round(syncConfidence * 100)))
   const syncLabel = syncing
-    ? '⏳ Syncing...'
+    ? 'Syncing...'
     : (hasSyncResult
-      ? `✅ Synced • ${syncOffsetMs}ms${syncConfidencePct != null ? ` • ${syncConfidencePct}%` : ''}`
-      : '🔗 Tap to Sync')
+      ? 'Synced'
+      : 'Tap to Sync')
+  const syncTooltip = !audioUrl || !liveVideoUrl
+    ? 'Load both song and video first'
+    : (hasSyncResult
+      ? `Click to re-sync and refresh offset/confidence • ${syncOffsetMs}ms${syncConfidencePct != null ? ` • ${syncConfidencePct}%` : ''}`
+      : 'Click to re-sync and refresh offset/confidence')
   const hasVideoProgress = typeof videoDownloadProgress === 'number'
   const videoProgressLabel = hasVideoProgress ? `${Math.max(0, Math.min(100, Math.round(videoDownloadProgress)))}%` : ''
   const compressionPctLabel = typeof videoCompressionProgress === 'number'
@@ -2287,6 +2330,10 @@ export default function Choreography() {
     ? compressingLabel
     : (liveVideoUrl ? '🎥 Change video' : '📹 Upload practice video')
   const canManageLiveControls = !isKidMode && !isKidLiveView
+  const showLiveFeedbackToggle = !isKidMode
+    && !isKidLiveView
+    && Boolean(sessionId)
+    && routineFeedbackKids.length > 1
 
   return (
     <div className={styles['choreo-page']}>
@@ -2622,26 +2669,24 @@ export default function Choreography() {
               onTogglePlay={toggleLivePlay}
               onAddAnnotation={(ann) => {
                 const updated = [...videoAnnotations, ann]
-                if (sessionId && feedbackKidProfileId) {
+                if (sessionId) {
+                  if (!feedbackKidProfileId) return
                   setSessionFeedback((prev) => ({ ...prev, videoAnnotations: updated }))
                   saveSessionFeedback(sessionId, feedbackKidProfileId, { videoAnnotations: updated })
                     .then((saved) => { if (saved) setSessionFeedback(saved) })
                     .catch((e) => console.warn('Save annotation feedback:', e))
-                } else if (sessionId) {
-                  editSession(sessionId, { videoAnnotations: updated })
                 } else {
                   editChoreographyVersion(routineId, selectedVersion?.id, { videoAnnotations: updated })
                 }
               }}
               onDeleteAnnotation={(annId) => {
                 const updated = videoAnnotations.filter(a => a.id !== annId)
-                if (sessionId && feedbackKidProfileId) {
+                if (sessionId) {
+                  if (!feedbackKidProfileId) return
                   setSessionFeedback((prev) => ({ ...prev, videoAnnotations: updated }))
                   saveSessionFeedback(sessionId, feedbackKidProfileId, { videoAnnotations: updated })
                     .then((saved) => { if (saved) setSessionFeedback(saved) })
                     .catch((e) => console.warn('Delete annotation feedback:', e))
-                } else if (sessionId) {
-                  editSession(sessionId, { videoAnnotations: updated })
                 } else {
                   editChoreographyVersion(routineId, selectedVersion?.id, { videoAnnotations: updated })
                 }
@@ -2650,13 +2695,12 @@ export default function Choreography() {
                 const updated = videoAnnotations.map((ann) => (
                   ann.id === annId ? { ...ann, ...updates } : ann
                 ))
-                if (sessionId && feedbackKidProfileId) {
+                if (sessionId) {
+                  if (!feedbackKidProfileId) return
                   setSessionFeedback((prev) => ({ ...prev, videoAnnotations: updated }))
                   saveSessionFeedback(sessionId, feedbackKidProfileId, { videoAnnotations: updated })
                     .then((saved) => { if (saved) setSessionFeedback(saved) })
                     .catch((e) => console.warn('Update annotation feedback:', e))
-                } else if (sessionId) {
-                  editSession(sessionId, { videoAnnotations: updated })
                 } else {
                   editChoreographyVersion(routineId, selectedVersion?.id, { videoAnnotations: updated })
                 }
@@ -2674,6 +2718,22 @@ export default function Choreography() {
                 >
                   ✕ Exit
                 </button>
+                {showLiveFeedbackToggle && (
+                  <label className={styles['live-feedback-toggle']}>
+                    <span className={styles['live-feedback-toggle-label']}>Leaving feedback for</span>
+                    <select
+                      className={styles['live-feedback-toggle-select']}
+                      value={feedbackKidProfileId || ''}
+                      onChange={(e) => setSelectedFeedbackKidId(e.target.value || null)}
+                    >
+                      {routineFeedbackKids.map((kid) => (
+                        <option key={kid.id} value={kid.id}>
+                          {kid.display_name || 'Dancer'}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 {canManageLiveControls && (
                   <>
                     <button
@@ -2682,7 +2742,8 @@ export default function Choreography() {
                       title={musicFileName || 'No song loaded'}
                       onClick={() => openMediaPicker('audio')}
                     >
-                      <span className={styles['live-upload-text']}>🎵 Music</span>
+                      <span className={styles['live-upload-icon']} aria-hidden="true">🎵</span>
+                      <span className={styles['live-upload-text']}>Music</span>
                       <span className={styles['live-upload-pencil']} aria-hidden="true">✏️</span>
                     </button>
                     <button
@@ -2692,16 +2753,23 @@ export default function Choreography() {
                       disabled={videoProcessing}
                       onClick={() => openMediaPicker('video')}
                     >
-                      <span className={styles['live-upload-text']}>{videoProcessing ? `🎥 ${compressingLabel}` : '🎥 Video'}</span>
+                      <span className={styles['live-upload-icon']} aria-hidden="true">🎥</span>
+                      <span className={styles['live-upload-text']}>{videoProcessing ? compressingLabel : 'Video'}</span>
                       {!videoProcessing && <span className={styles['live-upload-pencil']} aria-hidden="true">✏️</span>}
                     </button>
                     <button
                       className={styles['live-sync-btn']}
                       onClick={handleLiveResync}
                       disabled={!audioUrl || !liveVideoUrl || syncing}
-                      title={!audioUrl || !liveVideoUrl ? 'Load both song and video first' : 'Click to re-sync and refresh offset/confidence'}
+                      title={syncTooltip}
                     >
-                      {syncLabel}
+                      <span
+                        className={`${styles['live-sync-icon']} ${syncing ? styles['live-sync-icon-spinning'] : ''}`}
+                        aria-hidden="true"
+                      >
+                        ↻
+                      </span>
+                      <span className={styles['live-sync-text']}>{syncLabel}</span>
                     </button>
                   </>
                 )}
@@ -3006,7 +3074,7 @@ export default function Choreography() {
                       replayCurtainTimerRef.current = setTimeout(() => {
                         setShowReplayCurtainOpening(false)
                         replayCurtainTimerRef.current = null
-                      }, 1000)
+                      }, 1350)
                       restartLive()
                       toggleLivePlay()
                     })}
