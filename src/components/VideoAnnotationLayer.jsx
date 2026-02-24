@@ -156,6 +156,24 @@ export default function VideoAnnotationLayer({
 
   useEffect(() => { updateRect() }, [updateRect])
 
+  // Attach native touch listeners with { passive: false } to call preventDefault().
+  // This prevents the browser from hijacking the second tap of a double-tap for
+  // zoom/gesture recognition, which would fire pointercancel instead of pointerup
+  // and break double-tap feedback on mobile.
+  useEffect(() => {
+    const el = overlayRef.current
+    if (!el) return
+    const prevent = (e) => { e.preventDefault() }
+    el.addEventListener('touchstart', prevent, { passive: false })
+    el.addEventListener('touchend', prevent, { passive: false })
+    el.addEventListener('touchmove', prevent, { passive: false })
+    return () => {
+      el.removeEventListener('touchstart', prevent)
+      el.removeEventListener('touchend', prevent)
+      el.removeEventListener('touchmove', prevent)
+    }
+  }, [])
+
   const openPopoverAt = useCallback((clientX, clientY, timestamp) => {
     if (!videoRect) return
     const coords = screenToVideoCoords(clientX, clientY, videoRect)
@@ -292,6 +310,39 @@ export default function VideoAnnotationLayer({
   const handleOverlayPointerCancel = useCallback((e) => {
     const state = pressStateRef.current
     if (state.pointerId !== null && e.pointerId !== state.pointerId) return
+
+    // Even on cancel, record this as a tap for double-tap detection if the
+    // finger didn't move.  Some mobile browsers fire pointercancel instead of
+    // pointerup for the first tap of a double-tap gesture; without this the
+    // second tap never recognises the pair.
+    if (!state.movedBeyondCancelThreshold && state.isPressing) {
+      const pointerType = state.pointerType || e.pointerType || ''
+      const isTouchPointer = pointerType === 'touch'
+      const doubleTapMs = isTouchPointer ? DOUBLE_TAP_MS_TOUCH : DOUBLE_TAP_MS
+      const doubleTapDistance = isTouchPointer ? DOUBLE_TAP_DISTANCE_TOUCH_PX : DOUBLE_TAP_DISTANCE_PX
+
+      const nowMs = Date.now()
+      const lastTap = lastTapRef.current
+      const isDoubleTap =
+        lastTap.atMs > 0
+        && lastTap.pointerType === pointerType
+        && (nowMs - lastTap.atMs) <= doubleTapMs
+        && Math.hypot(e.clientX - lastTap.clientX, e.clientY - lastTap.clientY) <= doubleTapDistance
+
+      if (isDoubleTap) {
+        clearSingleTapTimer()
+        lastTapRef.current = { atMs: 0, clientX: 0, clientY: 0, pointerType: '' }
+        openPopoverAt(e.clientX, e.clientY, state.pressTimestamp)
+      } else {
+        lastTapRef.current = {
+          atMs: nowMs,
+          clientX: e.clientX,
+          clientY: e.clientY,
+          pointerType,
+        }
+      }
+    }
+
     pressStateRef.current = {
       isPressing: false,
       pointerId: null,
@@ -302,7 +353,7 @@ export default function VideoAnnotationLayer({
       movedBeyondCancelThreshold: false,
       pressTimestamp: 0,
     }
-  }, [])
+  }, [clearSingleTapTimer, openPopoverAt])
 
   useEffect(() => () => {
     clearSingleTapTimer()
