@@ -197,7 +197,6 @@ export default function VideoAnnotationLayer({
     setSelectedEmoji('')
     setCommentText('')
     setEmojiPage(0)
-    setTimeout(() => commentInputRef.current?.focus(), 100)
   }, [videoRect])
 
   const emojiPages = useMemo(() => {
