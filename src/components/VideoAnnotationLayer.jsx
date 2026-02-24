@@ -285,7 +285,12 @@ export default function VideoAnnotationLayer({
           clientY: e.clientY,
           pointerType,
         }
-        if (!state.wasPlayingAtStart && onTogglePlay) {
+        // Only schedule single-tap play/pause for mouse/pen — NOT touch.
+        // On touch, the play timer races against the second tap of a double-tap:
+        // if the user is slightly slower than doubleTapMs the timer fires first,
+        // toggling playback and breaking double-tap detection on every retry.
+        // Touch users have the play button in the bottom bar instead.
+        if (!isTouchPointer && !state.wasPlayingAtStart && onTogglePlay) {
           clearSingleTapTimer()
           singleTapTimerRef.current = setTimeout(() => {
             onTogglePlay()
@@ -631,10 +636,6 @@ export default function VideoAnnotationLayer({
           />
           <div
             className={styles['popover']}
-            style={{
-              left: videoRect.relLeft + popover.screenX,
-              top: Math.max(videoRect.relTop + 120, videoRect.relTop + popover.screenY - 8),
-            }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className={styles['popover-header']}>

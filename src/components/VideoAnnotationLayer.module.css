@@ -182,16 +182,20 @@
 
 /* ===== Input Popover ===== */
 .popover-backdrop {
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: 14;
 }
 
 .popover {
-  position: absolute;
+  position: fixed;
   z-index: 15;
-  transform: translate(-50%, -100%);
-  width: clamp(210px, 72vw, 260px);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: clamp(210px, 72vw, 280px);
+  max-height: 90vh;
+  overflow-y: auto;
   background: rgba(15, 10, 30, 0.95);
   backdrop-filter: blur(16px);
   border: 1.5px solid rgba(168, 85, 247, 0.4);
@@ -203,11 +207,11 @@
 
 @keyframes popover-in {
   from {
-    transform: translate(-50%, -100%) scale(0.85);
+    transform: translate(-50%, -50%) scale(0.85);
     opacity: 0;
   }
   to {
-    transform: translate(-50%, -100%) scale(1);
+    transform: translate(-50%, -50%) scale(1);
     opacity: 1;
   }
 }
