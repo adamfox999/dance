@@ -19,6 +19,9 @@ export default function Calendar() {
   const [viewYear, setViewYear] = useState(today.getFullYear())
   const [viewMonth, setViewMonth] = useState(today.getMonth())
   const [scheduleDate, setScheduleDate] = useState(() => new Date(Date.now() + 86400000).toISOString().split('T')[0])
+  const [scheduleStartTime, setScheduleStartTime] = useState('')
+  const [scheduleEndTime, setScheduleEndTime] = useState('')
+  const [scheduleWith, setScheduleWith] = useState('')
   const [scheduleRoutineId, setScheduleRoutineId] = useState(() => routines?.[0]?.id || '')
   const [scheduleVersionId, setScheduleVersionId] = useState('')
   const [addMode, setAddMode] = useState('practice') // 'practice' | 'event'
@@ -34,6 +37,12 @@ export default function Calendar() {
     () => routines.find((routine) => routine.id === scheduleRoutineId) || null,
     [routines, scheduleRoutineId]
   )
+
+  const getSessionDate = (session) => {
+    if (session?.date) return session.date
+    const source = session?.scheduledAt || session?.completedAt || ''
+    return typeof source === 'string' && source.length >= 10 ? source.slice(0, 10) : ''
+  }
   const selectedRoutineVersions = useMemo(
     () => selectedRoutine?.choreographyVersions || [],
     [selectedRoutine]
@@ -56,7 +65,7 @@ export default function Calendar() {
   // Sessions in this month
   const monthSessions = useMemo(() => {
     return sessions.filter((s) => {
-      const d = new Date(s.date)
+      const d = new Date(getSessionDate(s))
       return d.getFullYear() === viewYear && d.getMonth() === viewMonth
     })
   }, [sessions, viewYear, viewMonth])
@@ -77,8 +86,8 @@ export default function Calendar() {
   // Upcoming sessions
   const upcoming = useMemo(() => {
     return sessions
-      .filter((s) => isFuture(s.date))
-      .sort((a, b) => new Date(a.date) - new Date(b.date))
+      .filter((s) => isFuture(getSessionDate(s)))
+      .sort((a, b) => new Date(getSessionDate(a)) - new Date(getSessionDate(b)))
       .slice(0, 5)
   }, [sessions])
 
@@ -93,7 +102,7 @@ export default function Calendar() {
 
   const getSessionsForDay = (day) => {
     const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-    return monthSessions.filter((s) => s.date === dateStr)
+    return monthSessions.filter((s) => getSessionDate(s) === dateStr)
   }
 
   const getShowsForDay = (day) => {
@@ -127,6 +136,9 @@ export default function Calendar() {
     scheduleRehearsal({
       date: scheduleDate,
       scheduledAt: scheduleDate,
+      startTime: scheduleStartTime,
+      endTime: scheduleEndTime,
+      with: scheduleWith.trim(),
       title: `${routine.name} rehearsal`,
       routineId: routine.id,
       disciplineId: routine.disciplineId || null,
@@ -253,6 +265,22 @@ export default function Calendar() {
                   type="date"
                   value={scheduleDate}
                   onChange={(e) => setScheduleDate(e.target.value)}
+                />
+                <input
+                  type="time"
+                  value={scheduleStartTime}
+                  onChange={(e) => setScheduleStartTime(e.target.value)}
+                />
+                <input
+                  type="time"
+                  value={scheduleEndTime}
+                  onChange={(e) => setScheduleEndTime(e.target.value)}
+                />
+                <input
+                  type="text"
+                  value={scheduleWith}
+                  onChange={(e) => setScheduleWith(e.target.value)}
+                  placeholder="Who with? (optional)"
                 />
                 <select
                   value={scheduleRoutineId}
@@ -451,17 +479,21 @@ export default function Calendar() {
 
             {/* Upcoming sessions */}
             {upcoming.map((s) => {
-              const days = daysUntil(s.date)
+              const sessionDate = getSessionDate(s)
+              const days = daysUntil(sessionDate)
               const linked = getRoutineVersion(s)
+              const timeRange = [s.startTime || s.time || '', s.endTime || ''].filter(Boolean).join(' - ')
               return (
                 <div key={s.id} className={styles['upcoming-item']}>
                   <span className={styles['upcoming-icon']}>
                     {getSessionIcon(s.type)}
                   </span>
                   <div className={styles['upcoming-info']}>
-                    <div className={styles['upcoming-title']}>{s.title}</div>
+                    <div className={styles['upcoming-title']}>
+                      {s.with ? `Practice with ${s.with}` : (s.title || 'Practice')}
+                    </div>
                     <div className={styles['upcoming-date']}>
-                      {formatDate(s.date)}
+                      {formatDate(sessionDate)}{timeRange ? ` · ${timeRange}` : ''}
                     </div>
                     {linked?.version && (
                       <div className={styles['upcoming-date']}>

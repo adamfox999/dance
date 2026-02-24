@@ -16,6 +16,8 @@ import {
   fetchPracticeLog       as apiFetchPracticeLog,
   fetchDancerProfile     as apiFetchDancerProfile,
   fetchDancerGoals       as apiFetchDancerGoals,
+  fetchDancerDisciplines as apiFetchDancerDisciplines,
+  fetchDancerJourneyEvents as apiFetchDancerJourneyEvents,
   fetchSettings          as apiFetchSettings,
   createDiscipline       as apiCreateDiscipline,
   updateDiscipline       as apiUpdateDiscipline,
@@ -47,6 +49,12 @@ import {
   upsertDancerProfile    as apiUpsertDancerProfile,
   createDancerGoal       as apiCreateDancerGoal,
   updateDancerGoal       as apiUpdateDancerGoal,
+  createDancerDiscipline as apiCreateDancerDiscipline,
+  updateDancerDiscipline as apiUpdateDancerDiscipline,
+  deleteDancerDiscipline as apiDeleteDancerDiscipline,
+  createDancerJourneyEvent as apiCreateDancerJourneyEvent,
+  updateDancerJourneyEvent as apiUpdateDancerJourneyEvent,
+  deleteDancerJourneyEvent as apiDeleteDancerJourneyEvent,
   updateSettings         as apiUpdateSettings,
 } from '../utils/danceApi'
 import {
@@ -87,6 +95,64 @@ import {
 const AppContext = createContext(null)
 const ADMIN_PIN = '6789'
 const ACTIVE_PROFILE_STORAGE_KEY = 'dance-tracker:active-profile'
+const SESSION_UPLOAD_REMINDER_PREFIX = 'dance-tracker:session-upload-reminder:'
+const SESSION_UPLOAD_PERMISSION_ASKED_KEY = 'dance-tracker:session-upload-reminder-permission-asked'
+
+function toSessionDateString(session = {}) {
+  const directDate = typeof session.date === 'string' ? session.date.trim() : ''
+  if (directDate) return directDate.slice(0, 10)
+  const scheduledAt = typeof session.scheduledAt === 'string' ? session.scheduledAt.trim() : ''
+  if (scheduledAt) return scheduledAt.slice(0, 10)
+  const completedAt = typeof session.completedAt === 'string' ? session.completedAt.trim() : ''
+  if (completedAt) return completedAt.slice(0, 10)
+  return ''
+}
+
+function toLocalDateTimeMs(dateStr, timeStr = '') {
+  if (!dateStr) return null
+  const [yearRaw, monthRaw, dayRaw] = String(dateStr).split('-')
+  const year = Number.parseInt(yearRaw, 10)
+  const month = Number.parseInt(monthRaw, 10)
+  const day = Number.parseInt(dayRaw, 10)
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null
+
+  const parsedTime = String(timeStr || '').trim()
+  if (!parsedTime) {
+    return new Date(year, month - 1, day, 0, 0, 0, 0).getTime()
+  }
+
+  const [hourRaw, minuteRaw] = parsedTime.split(':')
+  const hours = Number.parseInt(hourRaw, 10)
+  const minutes = Number.parseInt(minuteRaw, 10)
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return new Date(year, month - 1, day, 0, 0, 0, 0).getTime()
+  }
+
+  return new Date(year, month - 1, day, hours, minutes, 0, 0).getTime()
+}
+
+function hasSessionCompletedWithoutVideo(session = {}) {
+  if (!session?.id || session?.rehearsalVideoKey) return false
+  const now = Date.now()
+  if (session.status === 'completed' || session.completedAt) return true
+
+  const dateStr = toSessionDateString(session)
+  if (!dateStr) return false
+
+  const endMs = toLocalDateTimeMs(dateStr, session.endTime || '')
+  if (Number.isFinite(endMs) && endMs <= now) return true
+
+  const startMs = toLocalDateTimeMs(dateStr, session.startTime || session.time || '')
+  if (Number.isFinite(startMs) && startMs + (60 * 60 * 1000) <= now) return true
+
+  const dayStartMs = toLocalDateTimeMs(dateStr, '')
+  if (Number.isFinite(dayStartMs)) {
+    const todayStart = new Date(new Date().toISOString().slice(0, 10)).getTime()
+    if (dayStartMs < todayStart) return true
+  }
+
+  return false
+}
 
 function readStoredActiveProfile() {
   if (typeof window === 'undefined') return { type: 'adult' }
@@ -143,6 +209,8 @@ export function AppProvider({ children }) {
   const [practiceLog, setPracticeLog] = useState([])
   const [dancerProfile, setDancerProfile] = useState({ name: 'My Dancing', currentFocus: null })
   const [dancerGoals, setDancerGoals] = useState([])
+  const [dancerDisciplines, setDancerDisciplines] = useState([])
+  const [dancerJourneyEvents, setDancerJourneyEvents] = useState([])
   const [settings, setSettingsState] = useState({ dancerName: 'My Dancing', themeColor: '#a855f7', promptLeadMs: 200 })
 
   // Refs for read-then-write patterns (stable callbacks that need current data)
@@ -216,6 +284,93 @@ export function AppProvider({ children }) {
   const activeProfileEmoji = isKidMode
     ? (activeKidProfile?.avatar_emoji || '💃')
     : (userProfile?.avatar_emoji || '👤')
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!isAdmin) return
+    if (!Array.isArray(sessions) || !sessions.length) return
+
+    const routineNameById = new Map((routines || []).map((routine) => [routine.id, routine.name || 'Routine']))
+    const dueSessions = sessions.filter((session) => hasSessionCompletedWithoutVideo(session) && session.routineId)
+    if (!dueSessions.length) return
+
+    const canNotify = typeof Notification !== 'undefined'
+    if (canNotify && Notification.permission === 'default') {
+      try {
+        const asked = window.localStorage.getItem(SESSION_UPLOAD_PERMISSION_ASKED_KEY)
+        if (!asked) {
+          window.localStorage.setItem(SESSION_UPLOAD_PERMISSION_ASKED_KEY, '1')
+          Notification.requestPermission().catch(() => {})
+        }
+      } catch {
+        // Ignore local storage failures
+      }
+    }
+
+    dueSessions.forEach(async (session) => {
+      const reminderKey = `${SESSION_UPLOAD_REMINDER_PREFIX}${session.id}`
+      try {
+        if (window.localStorage.getItem(reminderKey)) return
+      } catch {
+        // Continue; still attempt reminder if storage is unavailable
+      }
+
+      const title = (session.title || '').trim() || routineNameById.get(session.routineId) || 'Practice session'
+      const deepLink = `/choreography/${session.routineId}?live=true&sessionId=${session.id}&openMedia=video`
+      const fullUrl = `${window.location.origin}${deepLink}`
+
+      const markSeen = () => {
+        try {
+          window.localStorage.setItem(reminderKey, new Date().toISOString())
+        } catch {
+          // Ignore local storage failures
+        }
+      }
+
+      if (canNotify && Notification.permission === 'granted') {
+        try {
+          const registration = await navigator.serviceWorker?.ready
+          if (registration?.showNotification) {
+            await registration.showNotification('Add practice video', {
+              body: `${title} has ended. Tap Upload now to add the session video.`,
+              tag: `upload-reminder-${session.id}`,
+              renotify: true,
+              requireInteraction: true,
+              actions: [{ action: 'upload-now', title: 'Upload now' }],
+              data: { url: fullUrl },
+            })
+            markSeen()
+            return
+          }
+        } catch {
+          // Fallback to in-page Notification API below
+        }
+
+        const notification = new Notification('Add practice video', {
+          body: `${title} has ended. Tap Upload now to add the session video.`,
+          tag: `upload-reminder-${session.id}`,
+          renotify: true,
+          requireInteraction: true,
+          data: { url: fullUrl },
+        })
+
+        notification.onclick = (event) => {
+          event?.preventDefault?.()
+          try { window.focus() } catch {
+            // Ignore focus errors
+          }
+          window.location.assign(fullUrl)
+          notification.close()
+        }
+
+        markSeen()
+        return
+      }
+
+      notify(`Add practice video: ${title}`)
+      markSeen()
+    })
+  }, [isAdmin, routines, sessions])
 
   // Family units
   const familyUnits = (() => {
@@ -792,6 +947,40 @@ export function AppProvider({ children }) {
     apiUpsertDancerProfile({ currentFocus: focus }).catch(e => console.warn('Save focus:', e))
   }, [])
 
+  const addDancerDiscipline = useCallback(async (payload) => {
+    const created = await apiCreateDancerDiscipline(payload)
+    setDancerDisciplines(prev => [...prev, created])
+    return created
+  }, [])
+
+  const editDancerDiscipline = useCallback(async (disciplineId, updates) => {
+    const updated = await apiUpdateDancerDiscipline(disciplineId, updates)
+    setDancerDisciplines(prev => prev.map((discipline) => discipline.id === disciplineId ? updated : discipline))
+    return updated
+  }, [])
+
+  const removeDancerDiscipline = useCallback(async (disciplineId) => {
+    setDancerDisciplines(prev => prev.filter((discipline) => discipline.id !== disciplineId))
+    await apiDeleteDancerDiscipline(disciplineId)
+  }, [])
+
+  const addDancerJourneyEvent = useCallback(async (payload) => {
+    const created = await apiCreateDancerJourneyEvent(payload)
+    setDancerJourneyEvents(prev => [created, ...prev])
+    return created
+  }, [])
+
+  const editDancerJourneyEvent = useCallback(async (eventId, updates) => {
+    const updated = await apiUpdateDancerJourneyEvent(eventId, updates)
+    setDancerJourneyEvents(prev => prev.map((eventItem) => eventItem.id === eventId ? updated : eventItem))
+    return updated
+  }, [])
+
+  const removeDancerJourneyEvent = useCallback(async (eventId) => {
+    setDancerJourneyEvents(prev => prev.filter((eventItem) => eventItem.id !== eventId))
+    await apiDeleteDancerJourneyEvent(eventId)
+  }, [])
+
   // ---- Settings ----
   const updateSettingsFn = useCallback(async (updates) => {
     setSettingsState(prev => ({ ...prev, ...updates }))
@@ -802,7 +991,7 @@ export function AppProvider({ children }) {
   const resetState = useCallback(() => {
     setDisciplines(defaultState.disciplines); setRoutines([]); setSessions([]); setEvents([])
     setStickers([]); setPracticeLog([]); setDancerProfile({ name: 'My Dancing', currentFocus: null })
-    setDancerGoals([]); setSettingsState({ dancerName: 'My Dancing', themeColor: '#a855f7', promptLeadMs: 200 })
+    setDancerGoals([]); setDancerDisciplines([]); setDancerJourneyEvents([]); setSettingsState({ dancerName: 'My Dancing', themeColor: '#a855f7', promptLeadMs: 200 })
   }, [])
 
   // ================================================================
@@ -824,7 +1013,7 @@ export function AppProvider({ children }) {
         setDanceDataOwnerId(init.ownerId)
         setBackendDanceOwnerId(init.ownerId)
 
-        const [disc, rout, sess, evts, stick, log, prof, goals, sett, incoming] = await Promise.all([
+        const [disc, rout, sess, evts, stick, log, prof, goals, dancerDisc, dancerJourney, sett, incoming] = await Promise.all([
           fetchDisciplinesWithChildren(),
           fetchRoutinesWithChildren(),
           apiFetchSessions(),
@@ -833,6 +1022,8 @@ export function AppProvider({ children }) {
           apiFetchPracticeLog(),
           apiFetchDancerProfile(),
           apiFetchDancerGoals(),
+          apiFetchDancerDisciplines(),
+          apiFetchDancerJourneyEvents(),
           apiFetchSettings(),
           fetchIncomingShares(),
         ])
@@ -878,11 +1069,13 @@ export function AppProvider({ children }) {
             })
             .filter(Boolean)
 
-          const visibleDisciplineIds = new Set(nextRout.map((routine) => routine.disciplineId).filter(Boolean))
-          nextDisc = disc.filter((discipline) => visibleDisciplineIds.has(discipline.id))
+          // Routine shares do not include discipline data.
+          // Discipline access is reserved for owners/guardians (family access).
+          nextDisc = []
         }
 
-        setDisciplines(nextDisc.length ? nextDisc : defaultState.disciplines)
+        const shouldUseDefaultDisciplines = authUser?.id === init.ownerId && (!nextDisc || nextDisc.length === 0)
+        setDisciplines(shouldUseDefaultDisciplines ? defaultState.disciplines : nextDisc)
         setRoutines(nextRout)
         setSessions(nextSess)
         setEvents(nextEvts)
@@ -890,6 +1083,8 @@ export function AppProvider({ children }) {
         setPracticeLog(log)
         setDancerProfile(prof || { name: 'My Dancing', currentFocus: null })
         setDancerGoals(goals)
+        setDancerDisciplines(dancerDisc)
+        setDancerJourneyEvents(dancerJourney)
         setSettingsState(sett)
       } catch (err) {
         console.warn('Hydration failed:', err)
@@ -990,6 +1185,8 @@ export function AppProvider({ children }) {
       practiceLog,
       dancerProfile,
       dancerGoals,
+      dancerDisciplines,
+      dancerJourneyEvents,
       settings,
       isLoading,
       isAdmin,
@@ -1105,6 +1302,12 @@ export function AppProvider({ children }) {
       addGoal,
       completeGoal,
       setCurrentFocus,
+      addDancerDiscipline,
+      editDancerDiscipline,
+      removeDancerDiscipline,
+      addDancerJourneyEvent,
+      editDancerJourneyEvent,
+      removeDancerJourneyEvent,
       updateSettings: updateSettingsFn,
       resetState,
     }}>

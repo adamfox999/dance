@@ -199,6 +199,7 @@ export default function Choreography() {
   const requestedView = searchParams.get('view') === 'kid' ? 'kid' : 'adult'
   const isKidLiveView = requestedView === 'kid'
   const isLiveOnly = searchParams.get('live') === 'true'
+  const openMediaType = searchParams.get('openMedia')
   const sessionId = searchParams.get('sessionId')
   const activeSession = sessionId ? (sessions || []).find((session) => session.id === sessionId) : null
   const sessionSyncBackupKey = sessionId ? `live-sync:${sessionId}` : null
@@ -363,6 +364,7 @@ export default function Choreography() {
   const [mediaPickerSelectingId, setMediaPickerSelectingId] = useState('')
   const musicPickerInputRef = useRef(null)
   const videoPickerInputRef = useRef(null)
+  const hasAutoOpenedVideoPickerRef = useRef(false)
   const isLiveVideoPlayback = !!liveVideoUrl
   const [liveUiVisible, setLiveUiVisible] = useState(true)
   const [isLiveFullscreen, setIsLiveFullscreen] = useState(false)
@@ -584,6 +586,16 @@ export default function Choreography() {
       setMediaPickerLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    if (openMediaType !== 'video') return
+    if (!sessionId) return
+    if (isKidMode || isKidLiveView) return
+    if (mode !== 'live' && !isLiveOnly) return
+    if (hasAutoOpenedVideoPickerRef.current) return
+    hasAutoOpenedVideoPickerRef.current = true
+    openMediaPicker('video')
+  }, [openMediaType, sessionId, isKidMode, isKidLiveView, mode, isLiveOnly, openMediaPicker])
 
   // Beat detection
   const [beatData, setBeatData] = useState(null) // { bpm, firstBeat, beats[], eightCounts[] }
@@ -2197,11 +2209,31 @@ export default function Choreography() {
           ) : (
             <div className={styles['live-no-video']}>
               {!isKidLiveView && (
-                <>
+                <div className={styles['live-no-video-card']}>
                   <span className={styles['live-state-icon']} style={{ marginBottom: 8 }}>🎬</span>
                   <p className={styles['live-no-video-title']}>No video loaded</p>
-                  <p className={styles['live-no-video-subtitle']}>Upload a practice video below, or dance along to music only</p>
-                </>
+                  <p className={styles['live-no-video-subtitle']}>Add video or music to get started</p>
+                  {canManageLiveControls && (
+                    <div className={styles['live-no-video-actions']}>
+                      <button
+                        type="button"
+                        className={styles['live-no-video-action-btn']}
+                        onClick={() => videoPickerInputRef.current?.click()}
+                      >
+                        📹 Add Video
+                      </button>
+                      {!audioUrl && (
+                        <button
+                          type="button"
+                          className={styles['live-no-video-action-btn']}
+                          onClick={() => musicPickerInputRef.current?.click()}
+                        >
+                          🎵 Add Music
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )}

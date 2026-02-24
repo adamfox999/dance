@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { getEventTypeIcon } from '../data/aedEvents'
+import { getSessionIcon } from '../utils/helpers'
 import { notify } from '../utils/notify'
 import styles from './Dashboard.module.css'
 
@@ -9,8 +10,9 @@ const AVATAR_EMOJIS = ['💃', '🩰', '👧', '👦', '🧒', '🌟', '✨', '�
 
 export default function Dashboard() {
   const {
-    disciplines, routines, sessions, events, stickers,
+    routines, sessions, events, stickers,
     dancerProfile, dancerGoals, settings,
+    dancerDisciplines, dancerJourneyEvents,
     completeGoal,
     isKidMode, activeKidProfile, userProfile, sharedDances,
     hasSupabaseAuth, kidProfiles, ownKidProfiles, addKidProfile, isAdmin, profilesLoaded,
@@ -23,6 +25,12 @@ export default function Dashboard() {
   const [setupBusy, setSetupBusy] = useState(false)
   const [shareTagBusyId, setShareTagBusyId] = useState(null)
   const today = new Date().toISOString().split('T')[0]
+
+  const getSessionDate = (session) => {
+    if (session?.date) return session.date
+    const source = session?.scheduledAt || session?.completedAt || ''
+    return typeof source === 'string' && source.length >= 10 ? source.slice(0, 10) : ''
+  }
 
   // Find current focus
   const currentFocus = dancerProfile?.currentFocus
@@ -37,6 +45,54 @@ export default function Dashboard() {
     .filter(s => (s.startDate || s.date) >= today)
     .sort((a, b) => (a.startDate || a.date).localeCompare(b.startDate || b.date))
   const nextShow = upcomingShows[0]
+
+  const visibleRoutineIds = new Set(
+    (isKidMode && activeKidProfile
+      ? routines.filter((routine) => {
+          const kids = routine.kidProfileIds || []
+          return kids.length === 0 || kids.includes(activeKidProfile.id)
+        })
+      : routines
+    ).map((routine) => routine.id)
+  )
+
+  const todaysSessions = (sessions || [])
+    .filter((session) => {
+      const date = getSessionDate(session)
+      if (date !== today) return false
+      if (!session.routineId) return true
+      return visibleRoutineIds.has(session.routineId)
+    })
+    .sort((a, b) => {
+      const left = a.startTime || a.time || '99:99'
+      const right = b.startTime || b.time || '99:99'
+      return left.localeCompare(right)
+    })
+
+  const todaysEvents = (events || [])
+    .filter((eventItem) => {
+      const start = eventItem.startDate || eventItem.date
+      const end = eventItem.endDate || start
+      if (!start) return false
+      const entries = eventItem.entries || []
+      const visibleEntries = entries.filter((entry) => {
+        if (!entry?.routineId) return true
+        return visibleRoutineIds.has(entry.routineId)
+      })
+      if (visibleEntries.length > 0) {
+        return visibleEntries.some((entry) => entry.scheduledDate === today)
+      }
+      return start === today || eventItem.date === today
+    })
+    .sort((a, b) => (a.startDate || a.date || '').localeCompare(b.startDate || b.date || ''))
+
+  const hasTodayItems = todaysSessions.length > 0 || todaysEvents.length > 0
+
+  const toLabel = (value, fallback) => {
+    const raw = String(value || '').trim()
+    if (!raw) return fallback
+    return raw.charAt(0).toUpperCase() + raw.slice(1)
+  }
 
   // Days until next show
   const daysUntilShow = nextShow
@@ -70,6 +126,19 @@ export default function Dashboard() {
       setShareTagBusyId(null)
     }
   }
+
+  const visibleDancerDisciplineCards = (dancerDisciplines || [])
+    .filter((disciplineItem) => {
+      if (!isKidMode) return true
+      return activeKidProfile?.id && disciplineItem.kidProfileId === activeKidProfile.id
+    })
+    .map((disciplineItem) => {
+      const kid = (kidProfiles || []).find((profile) => profile.id === disciplineItem.kidProfileId)
+      return {
+        ...disciplineItem,
+        kid,
+      }
+    })
 
   return (
     <div className={styles.dashboard}>
@@ -182,6 +251,59 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Happening today */}
+      {hasTodayItems && (
+        <section className={styles.section}>
+          <h2 className={styles.sectionTitle}>Happening Today</h2>
+          <div className={styles.todayCard}>
+            {todaysSessions.map((sessionItem) => {
+              const routine = routines.find((routineItem) => routineItem.id === sessionItem.routineId)
+              const timeLabel = sessionItem.startTime || sessionItem.time || 'Anytime'
+              const sessionTypeLabel = toLabel(sessionItem.type, 'Practice')
+              return (
+                <button
+                  key={sessionItem.id}
+                  type="button"
+                  className={styles.todayItem}
+                  onClick={() => {
+                    if (sessionItem.routineId) {
+                      navigate(`/choreography/${sessionItem.routineId}?live=true&sessionId=${sessionItem.id}`)
+                      return
+                    }
+                    navigate('/calendar')
+                  }}
+                >
+                  <span className={styles.todayItemIcon}>{getSessionIcon(sessionItem.type)}</span>
+                  <span className={styles.todayItemBody}>
+                    <span className={styles.todayItemTitle}>{routine?.name || sessionItem.title || 'Practice session'}</span>
+                    <span className={styles.todayItemMeta}>{timeLabel} • {sessionTypeLabel}</span>
+                  </span>
+                </button>
+              )
+            })}
+
+            {todaysEvents.map((eventItem) => (
+              <button
+                key={eventItem.id}
+                type="button"
+                className={styles.todayItem}
+                onClick={() => {
+                  if (isKidMode) return
+                  navigate(`/show/${eventItem.id}`)
+                }}
+                style={{ cursor: isKidMode ? 'default' : 'pointer' }}
+              >
+                <span className={styles.todayItemIcon}>{getEventTypeIcon(eventItem.eventType)}</span>
+                <span className={styles.todayItemBody}>
+                  <span className={styles.todayItemTitle}>{eventItem.name}</span>
+                  <span className={styles.todayItemMeta}>Today • {toLabel(eventItem.eventType, 'Event')}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* My Dances (Routines) */}
       {(() => {
         const visibleRoutines = isKidMode && activeKidProfile
@@ -192,7 +314,7 @@ export default function Dashboard() {
           : routines
         return visibleRoutines.length > 0 && (
         <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>My Dances</h2>
+          <h2 className={styles.sectionTitle}>Dances</h2>
           <div className={styles.cardGrid}>
             {visibleRoutines.map(routine => {
               const videoCount = (routine.practiceVideos || []).length
@@ -234,36 +356,33 @@ export default function Dashboard() {
         )
       })()}
 
-      {/* My Disciplines */}
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>My Disciplines</h2>
-        <div className={styles.cardGrid}>
-          {disciplines.map(disc => {
-            const totalElements = (disc.elements || []).length
-            const masteredElements = (disc.elements || []).filter(e => e.status === 'mastered').length
-            return (
-              <div
-                key={disc.id}
-                className={styles.disciplineCard}
-                onClick={() => navigate(`/timeline/discipline/${disc.id}`)}
-              >
-                <div className={styles.disciplineIcon}>{disc.icon}</div>
-                <div className={styles.disciplineName}>{disc.name}</div>
-                <div className={styles.disciplineGrade}>{disc.currentGrade}</div>
-                {totalElements > 0 && (
-                  <div className={styles.progressBar}>
-                    <div
-                      className={styles.progressFill}
-                      style={{ width: `${(masteredElements / totalElements) * 100}%` }}
-                    />
-                    <span className={styles.progressText}>{masteredElements}/{totalElements}</span>
+      {/* Disciplines */}
+      {visibleDancerDisciplineCards.length > 0 && (
+        <section className={styles.section}>
+          <h2 className={styles.sectionTitle}>Disciplines</h2>
+          <div className={styles.cardGrid}>
+            {visibleDancerDisciplineCards.map((disciplineItem) => {
+              const eventCount = (dancerJourneyEvents || []).filter((item) => {
+                return item.kidProfileId === disciplineItem.kidProfileId && item.disciplineId === disciplineItem.id
+              }).length
+              return (
+                <div
+                  key={disciplineItem.id}
+                  className={styles.disciplineCard}
+                  onClick={() => navigate(`/timeline/dancer/${disciplineItem.kidProfileId}`)}
+                >
+                  <div className={styles.disciplineIcon}>{disciplineItem.icon || '💃'}</div>
+                  <div className={styles.disciplineName}>{disciplineItem.name}</div>
+                  <div className={styles.disciplineGrade}>
+                    {(disciplineItem.kid?.avatar_emoji || '🧒')} {(disciplineItem.kid?.display_name || 'Dancer')}
                   </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      </section>
+                  <div className={styles.progressText}>{eventCount} timeline events</div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
 
       {/* My Goals */}
       {activeGoals.length > 0 && (

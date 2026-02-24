@@ -15,7 +15,8 @@ const AVATAR_EMOJIS = ['👤', '💃', '🩰', '👧', '👦', '🧒', '🌟', '
 export default function Settings() {
   const {
     disciplines, routines, events, settings,
-    addDiscipline, editDiscipline, removeDiscipline,
+    dancerDisciplines,
+    addDancerDiscipline, editDancerDiscipline, removeDancerDiscipline,
     addRoutine, editRoutine, removeRoutine,
     addShow, editShow, removeShow,
     resetState,
@@ -39,6 +40,8 @@ export default function Settings() {
   const [editingProfile, setEditingProfile] = useState(false)
   const [profileName, setProfileName] = useState(userProfile?.display_name || '')
   const [profileEmoji, setProfileEmoji] = useState(userProfile?.avatar_emoji || '👤')
+  const [selectedDisciplineKidId, setSelectedDisciplineKidId] = useState('')
+  const [disciplineNameDrafts, setDisciplineNameDrafts] = useState({})
   const [newKidName, setNewKidName] = useState('')
   const [newKidEmoji, setNewKidEmoji] = useState('💃')
   const [profileBusy, setProfileBusy] = useState(false)
@@ -112,6 +115,49 @@ export default function Settings() {
       coverPreviewUrlsRef.current = {}
     }
   }, [])
+
+  useEffect(() => {
+    if (!selectedDisciplineKidId && kidProfiles.length > 0) {
+      setSelectedDisciplineKidId(kidProfiles[0].id)
+      return
+    }
+
+    if (selectedDisciplineKidId && !kidProfiles.some((kid) => kid.id === selectedDisciplineKidId)) {
+      setSelectedDisciplineKidId(kidProfiles[0]?.id || '')
+    }
+  }, [kidProfiles, selectedDisciplineKidId])
+
+  const visibleDancerDisciplines = (dancerDisciplines || []).filter(
+    (disciplineItem) => disciplineItem.kidProfileId === selectedDisciplineKidId
+  )
+
+  const commitDisciplineName = async (discipline) => {
+    if (!discipline?.id) return
+    const hasDraft = Object.prototype.hasOwnProperty.call(disciplineNameDrafts, discipline.id)
+    const draftName = hasDraft ? disciplineNameDrafts[discipline.id] : discipline.name
+    const nextName = (draftName || '').trim()
+    const prevName = (discipline.name || '').trim()
+
+    if (!nextName || nextName === prevName) {
+      setDisciplineNameDrafts((prev) => {
+        const copy = { ...prev }
+        delete copy[discipline.id]
+        return copy
+      })
+      return
+    }
+
+    try {
+      await editDancerDiscipline(discipline.id, { name: nextName })
+      setDisciplineNameDrafts((prev) => {
+        const copy = { ...prev }
+        delete copy[discipline.id]
+        return copy
+      })
+    } catch (err) {
+      notify(err?.message || 'Could not save discipline name')
+    }
+  }
 
   useEffect(() => {
     if (!coverPickerRoutineId || coverMediaItems.length === 0) {
@@ -370,17 +416,31 @@ export default function Settings() {
   }
 
   // ---- Disciplines ----
-  const handleAddDiscipline = () => {
-    addDiscipline({
-      name: 'New Discipline',
-      icon: DISCIPLINE_ICONS[disciplines.length % DISCIPLINE_ICONS.length],
-      currentGrade: GRADE_LEVELS[0],
-    })
+  const handleAddDiscipline = async () => {
+    if (!selectedDisciplineKidId) {
+      notify('Add a dancer first so you can assign a discipline.')
+      return
+    }
+
+    try {
+      await addDancerDiscipline({
+        kidProfileId: selectedDisciplineKidId,
+        name: 'New Discipline',
+        icon: DISCIPLINE_ICONS[visibleDancerDisciplines.length % DISCIPLINE_ICONS.length],
+        currentGrade: GRADE_LEVELS[0],
+      })
+    } catch (err) {
+      notify(err?.message || 'Could not add discipline')
+    }
   }
 
-  const handleDeleteDiscipline = (id) => {
+  const handleDeleteDiscipline = async (id) => {
     if (!window.confirm('Delete this discipline and all its data?')) return
-    removeDiscipline(id)
+    try {
+      await removeDancerDiscipline(id)
+    } catch (err) {
+      notify(err?.message || 'Could not delete discipline')
+    }
   }
 
   // ---- Routines ----
@@ -1129,24 +1189,57 @@ export default function Settings() {
         <div className={styles['settings-section']}>
           <h3>Disciplines</h3>
           <div className={styles['setting-card']}>
-            {disciplines.map((disc) => (
+            {kidProfiles.length > 0 ? (
+              <div className={styles['item-row']} style={{ marginBottom: 8 }}>
+                <span style={{ fontSize: '0.8rem', color: '#6b7280' }}>Dancer:</span>
+                <select
+                  value={selectedDisciplineKidId}
+                  onChange={(e) => setSelectedDisciplineKidId(e.target.value)}
+                  style={{ fontSize: '0.82rem', padding: '6px 8px', borderRadius: 6, border: '1px solid #e5e5e5', minWidth: 180 }}
+                >
+                  {kidProfiles.map((kid) => (
+                    <option key={kid.id} value={kid.id}>
+                      {kid.avatar_emoji} {kid.display_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <p style={{ fontSize: '0.82rem', color: '#6b7280', marginBottom: 8 }}>
+                Add a dancer profile first.
+              </p>
+            )}
+
+            {visibleDancerDisciplines.map((disc) => (
               <div key={disc.id} className={styles['item-row']}>
                 <select
                   value={disc.icon}
-                  onChange={(e) => editDiscipline(disc.id, { icon: e.target.value })}
+                  onChange={(e) => editDancerDiscipline(disc.id, { icon: e.target.value })}
                   style={{ width: 50, fontSize: '1.2rem', textAlign: 'center', border: 'none', background: 'transparent' }}
                 >
                   {DISCIPLINE_ICONS.map((ic) => <option key={ic} value={ic}>{ic}</option>)}
                 </select>
                 <input
                   type="text"
-                  value={disc.name}
-                  onChange={(e) => editDiscipline(disc.id, { name: e.target.value })}
+                  value={Object.prototype.hasOwnProperty.call(disciplineNameDrafts, disc.id)
+                    ? disciplineNameDrafts[disc.id]
+                    : disc.name}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    setDisciplineNameDrafts((prev) => ({ ...prev, [disc.id]: value }))
+                  }}
+                  onBlur={() => commitDisciplineName(disc)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      e.currentTarget.blur()
+                    }
+                  }}
                   style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.9rem' }}
                 />
                 <select
                   value={disc.currentGrade}
-                  onChange={(e) => editDiscipline(disc.id, { currentGrade: e.target.value })}
+                  onChange={(e) => editDancerDiscipline(disc.id, { currentGrade: e.target.value })}
                   style={{ fontSize: '0.82rem', padding: '6px 8px', borderRadius: 6, border: '1px solid #e5e5e5' }}
                 >
                   {GRADE_LEVELS.map((g) => <option key={g} value={g}>{g}</option>)}
@@ -1154,6 +1247,13 @@ export default function Settings() {
                 <button onClick={() => handleDeleteDiscipline(disc.id)} title="Delete" style={{ background: '#fee2e2', color: '#dc2626', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem' }}>✕</button>
               </div>
             ))}
+
+            {selectedDisciplineKidId && visibleDancerDisciplines.length === 0 && (
+              <p style={{ fontSize: '0.82rem', color: '#6b7280', marginBottom: 8 }}>
+                No disciplines for this dancer yet.
+              </p>
+            )}
+
             <button className={styles['add-btn']} onClick={handleAddDiscipline}>+ Add Discipline</button>
           </div>
         </div>

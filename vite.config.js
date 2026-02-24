@@ -16,6 +16,7 @@ export default defineConfig({
         skipWaiting: true,
         cleanupOutdatedCaches: true,
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        importScripts: ['sw-custom.js'],
         globIgnores: ['**/*.wasm'],
       },
       manifest: {

@@ -75,6 +75,59 @@ const SESSION_ICONS = {
   'competition': '🏆',
 }
 
+const SESSION_TYPE_LABELS = {
+  'solo-practice': 'Solo Practice',
+  'private-lesson': 'Private Lesson',
+  class: 'Class',
+  show: 'Show',
+  exam: 'Exam',
+  practice: 'Practice',
+  lesson: 'Lesson',
+  competition: 'Competition',
+}
+
+function getStartOfLocalDayMs(dateStr) {
+  if (typeof dateStr !== 'string' || !dateStr.trim()) return null
+  const [yearRaw, monthRaw, dayRaw] = dateStr.split('-')
+  const year = Number.parseInt(yearRaw, 10)
+  const month = Number.parseInt(monthRaw, 10)
+  const day = Number.parseInt(dayRaw, 10)
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null
+  return new Date(year, month - 1, day, 0, 0, 0, 0).getTime()
+}
+
+function getSessionStartMs(dateStr, startTime = '') {
+  const startOfDayMs = getStartOfLocalDayMs(dateStr)
+  if (!Number.isFinite(startOfDayMs)) return null
+
+  if (typeof startTime !== 'string' || !startTime.trim()) return startOfDayMs
+
+  const [hourRaw, minuteRaw] = startTime.split(':')
+  const hours = Number.parseInt(hourRaw, 10)
+  const minutes = Number.parseInt(minuteRaw, 10)
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return startOfDayMs
+
+  const [yearRaw, monthRaw, dayRaw] = dateStr.split('-')
+  const year = Number.parseInt(yearRaw, 10)
+  const month = Number.parseInt(monthRaw, 10)
+  const day = Number.parseInt(dayRaw, 10)
+  return new Date(year, month - 1, day, hours, minutes, 0, 0).getTime()
+}
+
+function hasSessionStarted(session = {}, fallbackDate = '') {
+  const dateStr = getSessionDate(session) || fallbackDate
+  const startMs = getSessionStartMs(dateStr, session.startTime || session.time || '')
+  if (!Number.isFinite(startMs)) return false
+  return Date.now() >= startMs
+}
+
+const JOURNEY_EVENT_META = {
+  class: { icon: '🏫', label: 'Class' },
+  'private-lesson': { icon: '👩‍🏫', label: 'Private lesson' },
+  'exam-goal': { icon: '🎯', label: 'Exam goal' },
+  'exam-result': { icon: '🎓', label: 'Exam result' },
+}
+
 function getShareableVideoSrc(value) {
   if (typeof value !== 'string') return ''
   const src = value.trim()
@@ -169,7 +222,11 @@ export default function Timeline() {
   const { type, id } = useParams()
   const {
     disciplines, routines, sessions, events,
-    setSessionReflection, setElementStatus, scheduleRehearsal, addEventEntry, editEventEntry, addShow,
+    kidProfiles,
+    dancerDisciplines,
+    dancerJourneyEvents,
+    setSessionReflection, setElementStatus, scheduleRehearsal, editSession, removeSession, addEventEntry, editEventEntry, addShow,
+    addDancerDiscipline, addDancerJourneyEvent,
     editRoutine,
     isAdmin, isKidMode, isLoading,
     hasSupabaseAuth,
@@ -184,9 +241,19 @@ export default function Timeline() {
   const [reflectingSession, setReflectingSession] = useState(null)
   const [feeling, setFeeling] = useState('')
   const [note, setNote] = useState('')
+  const [editingSessionId, setEditingSessionId] = useState(null)
+  const [editSessionDate, setEditSessionDate] = useState('')
+  const [editSessionStartTime, setEditSessionStartTime] = useState('')
+  const [editSessionEndTime, setEditSessionEndTime] = useState('')
+  const [editSessionWith, setEditSessionWith] = useState('')
+  const [editSessionVersionId, setEditSessionVersionId] = useState('')
+  const [isSessionSaving, setIsSessionSaving] = useState(false)
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [addType, setAddType] = useState('practice')
   const [addDate, setAddDate] = useState(() => new Date(Date.now() + 86400000).toISOString().split('T')[0])
+  const [addPracticeStartTime, setAddPracticeStartTime] = useState('')
+  const [addPracticeEndTime, setAddPracticeEndTime] = useState('')
+  const [addPracticeWith, setAddPracticeWith] = useState('')
   const [addVersionId, setAddVersionId] = useState('')
   const [addShowName, setAddShowName] = useState('')
   const [addShowVenue, setAddShowVenue] = useState('')
@@ -194,6 +261,10 @@ export default function Timeline() {
   const [addEventId, setAddEventId] = useState('')
   const [addEntryDate, setAddEntryDate] = useState(() => new Date(Date.now() + 86400000).toISOString().split('T')[0])
   const [addEntryTime, setAddEntryTime] = useState('')
+  const [addJourneyDisciplineId, setAddJourneyDisciplineId] = useState('')
+  const [addJourneyDisciplineName, setAddJourneyDisciplineName] = useState('')
+  const [addJourneyTitle, setAddJourneyTitle] = useState('')
+  const [addJourneyDetails, setAddJourneyDetails] = useState('')
   const [lightbox, setLightbox] = useState(null) // { media: [...], index: N }
 
   // Share state
@@ -207,17 +278,39 @@ export default function Timeline() {
   // Determine what we're showing a timeline for
   const isDiscipline = type === 'discipline'
   const isRoutine = type === 'routine'
+  const isDancer = type === 'dancer'
 
   const discipline = isDiscipline ? disciplines.find(d => d.id === id) : null
   const routine = isRoutine ? routines.find(r => r.id === id) : null
+  const dancer = isDancer ? (kidProfiles || []).find((kid) => kid.id === id) : null
   const routineVersions = useMemo(
     () => routine?.choreographyVersions || [],
     [routine]
   )
 
+  const visibleDancerDisciplines = useMemo(() => {
+    if (!isDancer) return []
+    return (dancerDisciplines || []).filter((item) => item.kidProfileId === id)
+  }, [isDancer, dancerDisciplines, id])
+
+  const visibleDancerJourneyEvents = useMemo(() => {
+    if (!isDancer) return []
+    return (dancerJourneyEvents || []).filter((item) => item.kidProfileId === id)
+  }, [isDancer, dancerJourneyEvents, id])
+
+  const dancerDisciplineById = useMemo(() => {
+    const index = {}
+    visibleDancerDisciplines.forEach((item) => {
+      index[item.id] = item
+    })
+    return index
+  }, [visibleDancerDisciplines])
+
   const title = isDiscipline
     ? `${discipline?.icon || ''} ${discipline?.name || 'Discipline'}`
-    : `🎵 ${routine?.name || 'Routine'}`
+    : isRoutine
+      ? `🎵 ${routine?.name || 'Routine'}`
+      : `${dancer?.avatar_emoji || '🧒'} ${dancer?.display_name || 'Dancer'} Journey`
 
   // Filter sessions for this context
   const filteredSessions = useMemo(() => {
@@ -267,6 +360,10 @@ export default function Timeline() {
       const entry = (s.entries || []).find(e => e.routineId === id)
       const subEventDate = entry?.scheduledDate || s.startDate || s.date
       items.push({ type: 'show', date: subEventDate, data: s })
+    })
+
+    visibleDancerJourneyEvents.forEach((journeyEvent) => {
+      items.push({ type: 'journey', date: journeyEvent.eventDate, data: journeyEvent })
     })
 
     // Sort newest first
@@ -327,22 +424,42 @@ export default function Timeline() {
 
   const openAddDialog = () => {
     if (!isAdmin) return
-    if (!isRoutine || !routine) return
-    setAddType('practice')
+    if (!isRoutine && !isDancer) return
+    if (isRoutine && !routine) return
+    if (isDancer && !dancer) return
+    setAddType(isDancer ? (visibleDancerDisciplines.length > 0 ? 'class' : 'discipline') : 'practice')
     setAddDate(new Date(Date.now() + 86400000).toISOString().split('T')[0])
+    setAddPracticeStartTime('')
+    setAddPracticeEndTime('')
+    setAddPracticeWith('')
     setAddVersionId(routineVersions[routineVersions.length - 1]?.id || '')
-    setAddShowName(`${routine.name} show`)
+    setAddShowName(`${routine?.name || ''} show`)
     setAddShowVenue('')
     setAddShowPlace('')
     setAddEventId(availableEvents[0]?.id || '')
     setAddEntryDate(new Date(Date.now() + 86400000).toISOString().split('T')[0])
     setAddEntryTime('')
+    setAddJourneyDisciplineId(visibleDancerDisciplines[0]?.id || '')
+    setAddJourneyDisciplineName('')
+    setAddJourneyTitle('')
+    setAddJourneyDetails('')
     setShareMsg(null)
     setShareLink(null)
     setAddDialogOpen(true)
     // Load partner kids for accepted shares of this routine
-    loadPartnerKidsForRoutine()
+    if (isRoutine) loadPartnerKidsForRoutine()
   }
+
+  useEffect(() => {
+    if (!addDialogOpen || !isDancer || addType === 'discipline') return
+    if (!visibleDancerDisciplines.length) {
+      if (addJourneyDisciplineId) setAddJourneyDisciplineId('')
+      return
+    }
+    if (!addJourneyDisciplineId || !visibleDancerDisciplines.some((item) => item.id === addJourneyDisciplineId)) {
+      setAddJourneyDisciplineId(visibleDancerDisciplines[0].id)
+    }
+  }, [addDialogOpen, isDancer, addType, addJourneyDisciplineId, visibleDancerDisciplines])
 
   // Shares for THIS routine
   const routineShares = useMemo(() => {
@@ -500,10 +617,11 @@ export default function Timeline() {
   }
 
   const handleAddTimelineItem = async () => {
-    if (!isRoutine || !routine) return
+    if (!isRoutine && !isDancer) return
 
     try {
-      if (addType === 'practice') {
+      if (isRoutine && addType === 'practice') {
+        if (!routine) return
         if (!addDate) {
           notify('Please select a practice date.')
           return
@@ -512,13 +630,18 @@ export default function Timeline() {
         await scheduleRehearsal({
           date: addDate,
           scheduledAt: addDate,
-          title: `${routine.name} rehearsal`,
+          startTime: addPracticeStartTime,
+          endTime: addPracticeEndTime,
+          with: addPracticeWith.trim(),
+          title: addPracticeWith.trim() ? `Practice with ${addPracticeWith.trim()}` : `${routine.name} rehearsal`,
           routineId: routine.id,
           disciplineId: routine.disciplineId || null,
           choreographyVersionId: versionId,
           status: 'scheduled',
         })
       } else if (addType === 'event-entry') {
+      } else if (isRoutine && addType === 'event-entry') {
+        if (!routine) return
         if (!addEventId) {
           notify('Please select an event first.')
           return
@@ -549,6 +672,8 @@ export default function Timeline() {
           notes: '',
         })
       } else if (addType === 'show') {
+      } else if (isRoutine && addType === 'show') {
+        if (!routine) return
         if (!addDate) {
           notify('Please select a show date.')
           return
@@ -563,6 +688,44 @@ export default function Timeline() {
           routineIds: [routine.id],
           scrapbookEntries: [],
         })
+      } else if (isDancer && addType === 'discipline') {
+        if (!dancer?.id) return
+        const nextName = addJourneyDisciplineName.trim()
+        if (!nextName) {
+          notify('Please enter a discipline name.')
+          return
+        }
+        const created = await addDancerDiscipline({
+          kidProfileId: dancer.id,
+          name: nextName,
+          icon: '💃',
+        })
+        if (created?.id) {
+          setAddJourneyDisciplineId(created.id)
+        }
+      } else if (isDancer && JOURNEY_EVENT_META[addType]) {
+        if (!dancer?.id) return
+        if (!addDate) {
+          notify('Please select a date.')
+          return
+        }
+        if (!addJourneyDisciplineId) {
+          notify('Please select a discipline first.')
+          return
+        }
+        const nextTitle = addJourneyTitle.trim()
+        if (!nextTitle) {
+          notify('Please enter a title.')
+          return
+        }
+        await addDancerJourneyEvent({
+          kidProfileId: dancer.id,
+          disciplineId: addJourneyDisciplineId,
+          eventType: addType,
+          title: nextTitle,
+          details: addJourneyDetails.trim(),
+          eventDate: addDate,
+        })
       } else {
         return
       }
@@ -570,6 +733,63 @@ export default function Timeline() {
       setAddDialogOpen(false)
     } catch (err) {
       notify(err?.message || 'Could not save timeline item. Please try again.')
+    }
+  }
+
+  const openSessionEditor = (session) => {
+    if (!session?.id) return
+    const fallbackDate = typeof session.scheduledAt === 'string' ? session.scheduledAt.slice(0, 10) : ''
+    const fallbackVersionId = session.choreographyVersionId || routineVersions[routineVersions.length - 1]?.id || ''
+    setEditingSessionId(session.id)
+    setEditSessionDate(session.date || fallbackDate || '')
+    setEditSessionStartTime(session.startTime || session.time || '')
+    setEditSessionEndTime(session.endTime || '')
+    setEditSessionWith(session.with || '')
+    setEditSessionVersionId(fallbackVersionId)
+  }
+
+  const closeSessionEditor = () => {
+    setEditingSessionId(null)
+    setEditSessionDate('')
+    setEditSessionStartTime('')
+    setEditSessionEndTime('')
+    setEditSessionWith('')
+    setEditSessionVersionId('')
+    setIsSessionSaving(false)
+  }
+
+  const handleSaveSessionSchedule = async () => {
+    if (!editingSessionId) return
+    if (!editSessionDate) {
+      notify('Please select a practice date.')
+      return
+    }
+    setIsSessionSaving(true)
+    try {
+      await editSession(editingSessionId, {
+        scheduledAt: editSessionDate,
+        startTime: editSessionStartTime,
+        endTime: editSessionEndTime,
+        with: editSessionWith.trim(),
+        choreographyVersionId: editSessionVersionId || null,
+      })
+      closeSessionEditor()
+    } catch (err) {
+      notify(err?.message || 'Could not update session schedule.')
+    } finally {
+      setIsSessionSaving(false)
+    }
+  }
+
+  const handleDeleteSession = async (sessionId) => {
+    if (!sessionId) return
+    const confirmed = window.confirm('Delete this practice session? This cannot be undone.')
+    if (!confirmed) return
+    try {
+      await removeSession(sessionId)
+      if (editingSessionId === sessionId) closeSessionEditor()
+    } catch (err) {
+      notify(err?.message || 'Could not delete session.')
     }
   }
 
@@ -602,8 +822,11 @@ export default function Timeline() {
           {isRoutine && routine && (
             <p className={styles.subtitle}>{routine.formation} · {routine.type}</p>
           )}
+          {isDancer && dancer && (
+            <p className={styles.subtitle}>Personal journey timeline</p>
+          )}
         </div>
-        {isAdmin && isRoutine && routine && (
+        {isAdmin && ((isRoutine && routine) || (isDancer && dancer)) && (
           <button
             className={styles.addBtn}
             onClick={openAddDialog}
@@ -648,6 +871,87 @@ export default function Timeline() {
                 + Add {kid.display_name} to this dance
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {isAdmin && isRoutine && routine && editingSessionId && (
+        <div className={styles.addDialogBackdrop} onClick={closeSessionEditor}>
+          <div
+            className={styles.addDialog}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Edit practice session"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className={styles.addDialogHeader}>
+              <h3>Edit practice session</h3>
+              <button className={styles.addDialogClose} onClick={closeSessionEditor} disabled={isSessionSaving}>✕</button>
+            </div>
+
+            <div className={styles.addField}>
+              <label>Date</label>
+              <input
+                type="date"
+                value={editSessionDate}
+                onChange={(event) => setEditSessionDate(event.target.value)}
+              />
+            </div>
+            <div className={styles.addField}>
+              <label>Start time (optional)</label>
+              <input
+                type="time"
+                value={editSessionStartTime}
+                onChange={(event) => setEditSessionStartTime(event.target.value)}
+              />
+            </div>
+            <div className={styles.addField}>
+              <label>End time (optional)</label>
+              <input
+                type="time"
+                value={editSessionEndTime}
+                onChange={(event) => setEditSessionEndTime(event.target.value)}
+              />
+            </div>
+            <div className={styles.addField}>
+              <label>Who with? (optional)</label>
+              <input
+                type="text"
+                value={editSessionWith}
+                onChange={(event) => setEditSessionWith(event.target.value)}
+                placeholder="e.g. Miss Leanne"
+              />
+            </div>
+            <div className={styles.addField}>
+              <label>Choreography version</label>
+              <select
+                value={editSessionVersionId}
+                onChange={(event) => setEditSessionVersionId(event.target.value)}
+              >
+                {routineVersions.map((version, versionIndex) => (
+                  <option key={version.id} value={version.id}>
+                    v{versionIndex + 1}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className={styles.addDialogActions}>
+              <button
+                className={styles.addDialogCancel}
+                onClick={() => handleDeleteSession(editingSessionId)}
+                disabled={isSessionSaving}
+                style={{ marginRight: 'auto', borderColor: '#fecaca', color: '#b91c1c' }}
+              >
+                Delete
+              </button>
+              <button className={styles.addDialogCancel} onClick={closeSessionEditor} disabled={isSessionSaving}>
+                Cancel
+              </button>
+              <button className={styles.addDialogSave} onClick={handleSaveSessionSchedule} disabled={isSessionSaving}>
+                {isSessionSaving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -700,7 +1004,7 @@ export default function Timeline() {
         </div>
       )}
 
-      {isAdmin && addDialogOpen && isRoutine && routine && (
+      {isAdmin && addDialogOpen && ((isRoutine && routine) || (isDancer && dancer)) && (
         <div className={styles.addDialogBackdrop} onClick={() => setAddDialogOpen(false)}>
           <div
             className={styles.addDialog}
@@ -715,31 +1019,69 @@ export default function Timeline() {
             </div>
 
             <div className={styles.addTypeRow}>
-              <button
-                className={`${styles.addTypeBtn} ${addType === 'practice' ? styles.activeAddTypeBtn : ''}`}
-                onClick={() => setAddType('practice')}
-              >
-                Practice
-              </button>
-              <button
-                className={`${styles.addTypeBtn} ${addType === 'event-entry' ? styles.activeAddTypeBtn : ''}`}
-                onClick={() => setAddType('event-entry')}
-              >
-                Event entry
-              </button>
-              <button
-                className={`${styles.addTypeBtn} ${addType === 'show' ? styles.activeAddTypeBtn : ''}`}
-                onClick={() => setAddType('show')}
-              >
-                Quick show
-              </button>
-              {hasSupabaseAuth && (
-                <button
-                  className={`${styles.addTypeBtn} ${addType === 'share' ? styles.activeAddTypeBtn : ''}`}
-                  onClick={() => setAddType('share')}
-                >
-                  Share
-                </button>
+              {isRoutine && (
+                <>
+                  <button
+                    className={`${styles.addTypeBtn} ${addType === 'practice' ? styles.activeAddTypeBtn : ''}`}
+                    onClick={() => setAddType('practice')}
+                  >
+                    Practice
+                  </button>
+                  <button
+                    className={`${styles.addTypeBtn} ${addType === 'event-entry' ? styles.activeAddTypeBtn : ''}`}
+                    onClick={() => setAddType('event-entry')}
+                  >
+                    Event entry
+                  </button>
+                  <button
+                    className={`${styles.addTypeBtn} ${addType === 'show' ? styles.activeAddTypeBtn : ''}`}
+                    onClick={() => setAddType('show')}
+                  >
+                    Quick show
+                  </button>
+                  {hasSupabaseAuth && (
+                    <button
+                      className={`${styles.addTypeBtn} ${addType === 'share' ? styles.activeAddTypeBtn : ''}`}
+                      onClick={() => setAddType('share')}
+                    >
+                      Share
+                    </button>
+                  )}
+                </>
+              )}
+              {isDancer && (
+                <>
+                  <button
+                    className={`${styles.addTypeBtn} ${addType === 'discipline' ? styles.activeAddTypeBtn : ''}`}
+                    onClick={() => setAddType('discipline')}
+                  >
+                    Discipline
+                  </button>
+                  <button
+                    className={`${styles.addTypeBtn} ${addType === 'class' ? styles.activeAddTypeBtn : ''}`}
+                    onClick={() => setAddType('class')}
+                  >
+                    Class
+                  </button>
+                  <button
+                    className={`${styles.addTypeBtn} ${addType === 'private-lesson' ? styles.activeAddTypeBtn : ''}`}
+                    onClick={() => setAddType('private-lesson')}
+                  >
+                    Private lesson
+                  </button>
+                  <button
+                    className={`${styles.addTypeBtn} ${addType === 'exam-goal' ? styles.activeAddTypeBtn : ''}`}
+                    onClick={() => setAddType('exam-goal')}
+                  >
+                    Exam goal
+                  </button>
+                  <button
+                    className={`${styles.addTypeBtn} ${addType === 'exam-result' ? styles.activeAddTypeBtn : ''}`}
+                    onClick={() => setAddType('exam-result')}
+                  >
+                    Exam result
+                  </button>
+                </>
               )}
             </div>
 
@@ -751,6 +1093,31 @@ export default function Timeline() {
                     type="date"
                     value={addDate}
                     onChange={(event) => setAddDate(event.target.value)}
+                  />
+                </div>
+                <div className={styles.addField}>
+                  <label>Start time (optional)</label>
+                  <input
+                    type="time"
+                    value={addPracticeStartTime}
+                    onChange={(event) => setAddPracticeStartTime(event.target.value)}
+                  />
+                </div>
+                <div className={styles.addField}>
+                  <label>End time (optional)</label>
+                  <input
+                    type="time"
+                    value={addPracticeEndTime}
+                    onChange={(event) => setAddPracticeEndTime(event.target.value)}
+                  />
+                </div>
+                <div className={styles.addField}>
+                  <label>Who with? (optional)</label>
+                  <input
+                    type="text"
+                    value={addPracticeWith}
+                    onChange={(event) => setAddPracticeWith(event.target.value)}
+                    placeholder="e.g. Miss Leanne"
                   />
                 </div>
                 <div className={styles.addField}>
@@ -950,6 +1317,64 @@ export default function Timeline() {
                   </p>
                 )}
               </>
+            ) : addType === 'discipline' ? (
+              <>
+                <div className={styles.addField}>
+                  <label>Discipline name</label>
+                  <input
+                    type="text"
+                    value={addJourneyDisciplineName}
+                    onChange={(event) => setAddJourneyDisciplineName(event.target.value)}
+                    placeholder="e.g. Ballet"
+                  />
+                </div>
+              </>
+            ) : JOURNEY_EVENT_META[addType] ? (
+              <>
+                <div className={styles.addField}>
+                  <label>Discipline</label>
+                  {visibleDancerDisciplines.length === 0 ? (
+                    <p className={styles.addFieldHint}>Add a discipline first.</p>
+                  ) : (
+                    <select
+                      value={addJourneyDisciplineId}
+                      onChange={(event) => setAddJourneyDisciplineId(event.target.value)}
+                    >
+                      {visibleDancerDisciplines.map((disciplineItem) => (
+                        <option key={disciplineItem.id} value={disciplineItem.id}>
+                          {disciplineItem.icon} {disciplineItem.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+                <div className={styles.addField}>
+                  <label>Date</label>
+                  <input
+                    type="date"
+                    value={addDate}
+                    onChange={(event) => setAddDate(event.target.value)}
+                  />
+                </div>
+                <div className={styles.addField}>
+                  <label>Title</label>
+                  <input
+                    type="text"
+                    value={addJourneyTitle}
+                    onChange={(event) => setAddJourneyTitle(event.target.value)}
+                    placeholder={`e.g. ${JOURNEY_EVENT_META[addType].label}`}
+                  />
+                </div>
+                <div className={styles.addField}>
+                  <label>Details (optional)</label>
+                  <input
+                    type="text"
+                    value={addJourneyDetails}
+                    onChange={(event) => setAddJourneyDetails(event.target.value)}
+                    placeholder="Anything important to remember"
+                  />
+                </div>
+              </>
             ) : null}
 
             {addType !== 'share' && (
@@ -995,7 +1420,7 @@ export default function Timeline() {
       <div className={styles.timeline}>
         {timelineItems.length === 0 && (
           <div className={styles.empty}>
-            <p>No events yet — start practising! 💃</p>
+            <p>{isDancer ? 'No journey events yet — add the first milestone! ✨' : 'No events yet — start practising! 💃'}</p>
           </div>
         )}
 
@@ -1015,79 +1440,157 @@ export default function Timeline() {
               <div className={`${styles.timelineCard} ${isPast(item.date) ? styles.past : styles.future}`}>
                 <div className={styles.cardDate}>{formatDate(item.date)}</div>
 
-                {item.type === 'session' && (
-                  <div
-                    className={styles.sessionMediaCard}
-                    onClick={() => {
-                      if (item.data.routineId) {
-                        navigate(`/choreography/${item.data.routineId}?live=true&sessionId=${item.data.id}`)
-                      }
-                    }}
-                    style={item.data.routineId ? { cursor: 'pointer' } : undefined}
-                  >
-                    {item.data.rehearsalVideoKey ? (
-                      <>
-                        <SessionVideoPoster
-                          rehearsalVideoKey={item.data.rehearsalVideoKey}
-                          rehearsalVideoName={item.data.rehearsalVideoName}
-                          isLoading={isLoading}
-                          className={styles.sessionMediaPoster}
-                          fallback={(
-                            <div className={styles.sessionMediaFallback}>
-                              <span className={styles.sessionMediaFallbackIcon}>
-                                {SESSION_ICONS[item.data.type] || '📝'}
-                              </span>
+                {item.type === 'session' && (() => {
+                  const sessionStarted = hasSessionStarted(item.data, item.date)
+                  const sessionHasVideo = Boolean(item.data.rehearsalVideoKey)
+                  const timeRange = [item.data.startTime || item.data.time || '', item.data.endTime || ''].filter(Boolean).join(' - ')
+                  const sessionTitle = (item.data.title || '').trim() || formatRehearsalTitle(item.date)
+                  const sessionLink = item.data.routineId
+                    ? `/choreography/${item.data.routineId}?live=true&sessionId=${item.data.id}${sessionStarted && !sessionHasVideo ? '&openMedia=video' : ''}`
+                    : ''
+
+                  if (!sessionStarted) {
+                    return (
+                      <div
+                        className={styles.cardBody}
+                        onClick={() => {
+                          if (isAdmin) openSessionEditor(item.data)
+                        }}
+                        style={isAdmin ? { cursor: 'pointer' } : undefined}
+                      >
+                        <span className={styles.cardIcon}>{SESSION_ICONS[item.data.type] || '📝'}</span>
+                        <div className={styles.cardInfo}>
+                          <div className={styles.cardTitle}>
+                            {sessionTitle}
+                            <span className={styles.eventTypeTag}>
+                              {SESSION_TYPE_LABELS[item.data.type] || 'Practice'}
+                            </span>
+                          </div>
+                          <div className={styles.entryDetails}>
+                            <span>{timeRange ? `⏰ ${timeRange}` : '⏰ Session scheduled'}</span>
+                            {item.data.with && <span>👥 with {item.data.with}</span>}
+                          </div>
+                        </div>
+                        <span className={styles.cardArrow}>→</span>
+                      </div>
+                    )
+                  }
+
+                  return (
+                    <div
+                      className={styles.sessionMediaCard}
+                      onClick={() => {
+                        if (sessionLink) navigate(sessionLink)
+                      }}
+                      style={sessionLink ? { cursor: 'pointer' } : undefined}
+                    >
+                      {sessionHasVideo ? (
+                        <>
+                          <SessionVideoPoster
+                            rehearsalVideoKey={item.data.rehearsalVideoKey}
+                            rehearsalVideoName={item.data.rehearsalVideoName}
+                            isLoading={isLoading}
+                            className={styles.sessionMediaPoster}
+                            fallback={(
+                              <div className={styles.sessionMediaFallback}>
+                                <div className={styles.sessionMediaPrompt}>
+                                  <span className={styles.sessionMediaPromptTitle}>Add practice video</span>
+                                  <span className={styles.sessionMediaPromptText}>Open Live View to upload</span>
+                                </div>
+                              </div>
+                            )}
+                          />
+                          <div className={styles.sessionMediaPlayOverlay} aria-hidden="true">
+                            <span className={styles.sessionMediaPlayIcon}>▶</span>
+                          </div>
+                        </>
+                      ) : (
+                        <div className={styles.sessionMediaFallback}>
+                          <div className={styles.sessionMediaPrompt}>
+                            <span className={styles.sessionMediaPromptTitle}>Add practice video</span>
+                            <span className={styles.sessionMediaPromptText}>Open Live View to upload</span>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className={styles.sessionMediaOverlay}>
+                        <div className={styles.sessionMediaInfo}>
+                          <div className={styles.sessionMediaTitle}>{sessionTitle}</div>
+                          {(() => {
+                            const versionData = getSessionVersion(item.data)
+                            const practiceMeta = [
+                              timeRange ? `⏰ ${timeRange}` : '',
+                              item.data.with ? `with ${item.data.with}` : '',
+                            ].filter(Boolean).join(' · ')
+                            if (!versionData && !practiceMeta) return null
+                            return (
+                              <div className={styles.sessionMediaNote}>
+                                {versionData ? `Choreo: v${versionData.versionIndex + 1}` : ''}
+                                {versionData && practiceMeta ? ' · ' : ''}
+                                {practiceMeta}
+                              </div>
+                            )
+                          })()}
+                        </div>
+
+                        <div className={styles.sessionMediaActions}>
+                          {isAdmin && (
+                            <div className={styles.sessionQuickActions}>
+                              <button
+                                className={styles.sessionQuickBtn}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  openSessionEditor(item.data)
+                                }}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                className={`${styles.sessionQuickBtn} ${styles.sessionQuickDeleteBtn}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDeleteSession(item.data.id)
+                                }}
+                              >
+                                Delete
+                              </button>
                             </div>
                           )}
-                        />
-                        <div className={styles.sessionMediaPlayOverlay} aria-hidden="true">
-                          <span className={styles.sessionMediaPlayIcon}>▶</span>
+
+                          {!sessionHasVideo && sessionLink && (
+                            <button
+                              className={`${styles.reflectBtn} ${styles.reflectBtnOverlay}`}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                navigate(sessionLink)
+                              }}
+                            >
+                              Add practice video
+                            </button>
+                          )}
+
+                          {item.data.dancerReflection?.feeling && (
+                            <span className={styles.feelingBadge}>
+                              {item.data.dancerReflection.feeling}
+                            </span>
+                          )}
+
+                          {!item.data.dancerReflection?.feeling && isPast(item.date) && sessionHasVideo && (
+                            <button
+                              className={`${styles.reflectBtn} ${styles.reflectBtnOverlay}`}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setReflectingSession(item.data.id)
+                              }}
+                            >
+                              How was it?
+                            </button>
+                          )}
                         </div>
-                      </>
-                    ) : (
-                      <div className={styles.sessionMediaFallback}>
-                        <span className={styles.sessionMediaFallbackIcon}>
-                          {SESSION_ICONS[item.data.type] || '📝'}
-                        </span>
-                      </div>
-                    )}
-
-                    <div className={styles.sessionMediaOverlay}>
-                      <div className={styles.sessionMediaInfo}>
-                        <div className={styles.sessionMediaTitle}>{(item.data.title || '').trim() || formatRehearsalTitle(item.date)}</div>
-                        {(() => {
-                          const versionData = getSessionVersion(item.data)
-                          if (!versionData) return null
-                          return (
-                            <div className={styles.sessionMediaNote}>
-                              Choreo: v{versionData.versionIndex + 1}
-                            </div>
-                          )
-                        })()}
-                      </div>
-
-                      <div className={styles.sessionMediaActions}>
-                        {item.data.dancerReflection?.feeling && (
-                          <span className={styles.feelingBadge}>
-                            {item.data.dancerReflection.feeling}
-                          </span>
-                        )}
-
-                        {!item.data.dancerReflection?.feeling && isPast(item.date) && (
-                          <button
-                            className={`${styles.reflectBtn} ${styles.reflectBtnOverlay}`}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setReflectingSession(item.data.id)
-                            }}
-                          >
-                            How was it?
-                          </button>
-                        )}
                       </div>
                     </div>
-                  </div>
-                )}
+                  )
+                })()}
 
                 {item.type === 'video' && (
                   <div
@@ -1121,6 +1624,30 @@ export default function Timeline() {
                       )}
                       {item.data.dancerFeeling && (
                         <span className={styles.feelingBadge}>{item.data.dancerFeeling}</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {item.type === 'journey' && (
+                  <div className={styles.cardBody}>
+                    <span className={styles.cardIcon}>{JOURNEY_EVENT_META[item.data.eventType]?.icon || '📝'}</span>
+                    <div className={styles.cardInfo}>
+                      <div className={styles.cardTitle}>
+                        {item.data.title}
+                        <span className={styles.eventTypeTag}>
+                          {JOURNEY_EVENT_META[item.data.eventType]?.label || 'Journey'}
+                        </span>
+                      </div>
+                      {item.data.details && (
+                        <div className={styles.cardNote}>{item.data.details}</div>
+                      )}
+                      {dancerDisciplineById[item.data.disciplineId] && (
+                        <div className={styles.entryDetails}>
+                          <span>
+                            {dancerDisciplineById[item.data.disciplineId].icon} {dancerDisciplineById[item.data.disciplineId].name}
+                          </span>
+                        </div>
                       )}
                     </div>
                   </div>

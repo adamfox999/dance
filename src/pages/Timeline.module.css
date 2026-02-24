@@ -340,6 +340,26 @@
   text-shadow: 0 2px 8px rgba(0,0,0,0.35);
 }
 
+.sessionMediaPrompt {
+  display: grid;
+  gap: 0.18rem;
+  text-align: center;
+  color: #fff;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  padding: 0 0.8rem;
+}
+
+.sessionMediaPromptTitle {
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.sessionMediaPromptText {
+  font-size: 0.74rem;
+  opacity: 0.92;
+}
+
 .sessionMediaOverlay {
   position: absolute;
   left: 0;
@@ -381,6 +401,119 @@
   align-items: flex-end;
   gap: 0.4rem;
   flex-shrink: 0;
+}
+
+.sessionQuickActions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.sessionQuickBtn {
+  border: 1px solid rgba(255,255,255,0.4);
+  background: rgba(255,255,255,0.16);
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sessionQuickBtn:hover {
+  background: rgba(255,255,255,0.28);
+}
+
+.sessionQuickDeleteBtn {
+  border-color: rgba(248, 113, 113, 0.7);
+  background: rgba(248, 113, 113, 0.2);
+}
+
+.sessionQuickDeleteBtn:hover {
+  background: rgba(248, 113, 113, 0.32);
+}
+
+.sessionEditPanel {
+  background: #fff;
+  border-radius: 0.75rem;
+  border: 1px solid #f3e8ff;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+  box-shadow: 0 1px 8px rgba(0,0,0,0.08);
+}
+
+.sessionEditTitle {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #4c1d95;
+  margin-bottom: 0.55rem;
+}
+
+.sessionEditFields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+
+.sessionEditField {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.sessionEditField span {
+  font-size: 0.7rem;
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.sessionEditField input {
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.78rem;
+}
+
+.sessionEditActions {
+  margin-top: 0.65rem;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.sessionEditDeleteBtn,
+.sessionEditCancelBtn,
+.sessionEditSaveBtn {
+  border-radius: 0.5rem;
+  padding: 0.38rem 0.65rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.sessionEditDeleteBtn {
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  margin-right: auto;
+}
+
+.sessionEditCancelBtn {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #4b5563;
+}
+
+.sessionEditSaveBtn {
+  border: none;
+  background: #a855f7;
+  color: #fff;
+}
+
+.sessionEditSaveBtn:disabled,
+.sessionEditCancelBtn:disabled,
+.sessionEditDeleteBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .cardIcon {

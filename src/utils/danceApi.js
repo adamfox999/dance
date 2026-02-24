@@ -109,6 +109,16 @@ function mapPracticeVideo(r) {
 }
 
 function mapSession(r) {
+  const baseDateTime = r.scheduled_at || r.completed_at || ''
+  const derivedDate = typeof baseDateTime === 'string' && baseDateTime.length >= 10
+    ? baseDateTime.slice(0, 10)
+    : ''
+  const derivedStartTime = r.session_start_time
+    || r.session_time
+    || (typeof r.scheduled_at === 'string' && r.scheduled_at.includes('T') ? r.scheduled_at.slice(11, 16) : '')
+  const derivedEndTime = r.session_end_time || ''
+  const derivedTime = derivedStartTime
+
   return {
     id: r.id,
     type: r.session_type,
@@ -117,6 +127,12 @@ function mapSession(r) {
     disciplineId: r.discipline_id,
     choreographyVersionId: r.choreography_version_id,
     scheduledAt: r.scheduled_at,
+    date: derivedDate,
+    startTime: derivedStartTime,
+    endTime: derivedEndTime,
+    time: derivedTime,
+    with: r.session_with || '',
+    title: 'Practice',
     completedAt: r.completed_at,
     rehearsalVideoKey: r.rehearsal_video_key,
     rehearsalVideoName: r.rehearsal_video_name,
@@ -200,6 +216,33 @@ function mapGoal(r) {
     text: r.goal_text,
     createdDate: r.created_date,
     completedDate: r.completed_date,
+  }
+}
+
+function mapDancerDiscipline(r) {
+  return {
+    id: r.id,
+    kidProfileId: r.kid_profile_id,
+    name: r.discipline_name,
+    icon: r.discipline_icon || '💃',
+    currentGrade: r.current_grade || '',
+    startedOn: r.started_on || null,
+  }
+}
+
+function mapDancerJourneyEvent(r) {
+  return {
+    id: r.id,
+    kidProfileId: r.kid_profile_id,
+    disciplineId: r.dancer_discipline_id,
+    eventType: r.event_type,
+    title: r.title,
+    details: r.details || '',
+    eventDate: r.event_date,
+    examName: r.exam_name || '',
+    examGrade: r.exam_grade || '',
+    examResult: r.exam_result || '',
+    status: r.status || '',
   }
 }
 
@@ -365,7 +408,11 @@ async function migrateFromStateData(state, migrateOwnerId) {
       routine_id: s.routineId ? (idMap[s.routineId] || null) : null,
       discipline_id: s.disciplineId ? (idMap[s.disciplineId] || null) : null,
       choreography_version_id: s.choreographyVersionId ? (idMap[s.choreographyVersionId] || null) : null,
-      scheduled_at: s.scheduledAt || '',
+      scheduled_at: s.scheduledAt || s.date || '',
+      session_start_time: s.startTime || s.time || '',
+      session_end_time: s.endTime || '',
+      session_time: s.startTime || s.time || '',
+      session_with: s.with || '',
       completed_at: s.completedAt || null,
       rehearsal_video_key: s.rehearsalVideoKey || '',
       rehearsal_video_name: s.rehearsalVideoName || '',
@@ -759,6 +806,10 @@ export async function createSession(fields) {
     discipline_id: fields.disciplineId || null,
     choreography_version_id: fields.choreographyVersionId || null,
     scheduled_at: fields.scheduledAt || '',
+    session_start_time: fields.startTime || fields.time || '',
+    session_end_time: fields.endTime || '',
+    session_time: fields.startTime || fields.time || '',
+    session_with: fields.with || '',
     completed_at: fields.completedAt || null,
     rehearsal_video_key: fields.rehearsalVideoKey || '',
     rehearsal_video_name: fields.rehearsalVideoName || '',
@@ -782,6 +833,13 @@ export async function updateSession(id, updates) {
   if (updates.disciplineId !== undefined) payload.discipline_id = updates.disciplineId || null
   if (updates.choreographyVersionId !== undefined) payload.choreography_version_id = updates.choreographyVersionId || null
   if (updates.scheduledAt !== undefined) payload.scheduled_at = updates.scheduledAt
+  if (updates.startTime !== undefined || updates.time !== undefined) {
+    const nextStartTime = updates.startTime !== undefined ? updates.startTime : updates.time
+    payload.session_start_time = nextStartTime
+    payload.session_time = nextStartTime
+  }
+  if (updates.endTime !== undefined) payload.session_end_time = updates.endTime
+  if (updates.with !== undefined) payload.session_with = updates.with
   if (updates.completedAt !== undefined) payload.completed_at = updates.completedAt
   if (updates.rehearsalVideoKey !== undefined) payload.rehearsal_video_key = updates.rehearsalVideoKey
   if (updates.rehearsalVideoName !== undefined) payload.rehearsal_video_name = updates.rehearsalVideoName
@@ -1101,6 +1159,141 @@ export async function deleteDancerGoal(id) {
   const client = ensureClient()
   await requireUser()
   const { error } = await client.from('dancer_goal').delete().eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+// ================================================================
+// DANCER JOURNEY (per-kid discipline progression + timeline events)
+// ================================================================
+
+export async function fetchDancerDisciplines() {
+  const client = ensureClient()
+  await requireUser()
+  const { data, error } = await client
+    .from('dancer_discipline')
+    .select('*')
+    .eq('owner_id', ownerId())
+    .order('discipline_name')
+  if (error) throw new Error(error.message)
+  return (data || []).map(mapDancerDiscipline)
+}
+
+export async function createDancerDiscipline(fields) {
+  const client = ensureClient()
+  await requireUser()
+  const payload = {
+    owner_id: ownerId(),
+    kid_profile_id: fields.kidProfileId,
+    discipline_name: (fields.name || '').trim(),
+    discipline_icon: fields.icon || '💃',
+    current_grade: fields.currentGrade || '',
+    started_on: fields.startedOn || null,
+  }
+  const { data, error } = await client
+    .from('dancer_discipline')
+    .insert(payload)
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+  return mapDancerDiscipline(data)
+}
+
+export async function updateDancerDiscipline(id, updates) {
+  const client = ensureClient()
+  await requireUser()
+  const payload = {}
+  if (updates.name !== undefined) payload.discipline_name = updates.name
+  if (updates.icon !== undefined) payload.discipline_icon = updates.icon
+  if (updates.currentGrade !== undefined) payload.current_grade = updates.currentGrade
+  if (updates.startedOn !== undefined) payload.started_on = updates.startedOn
+  const { data, error } = await client
+    .from('dancer_discipline')
+    .update(payload)
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+  return mapDancerDiscipline(data)
+}
+
+export async function deleteDancerDiscipline(id) {
+  const client = ensureClient()
+  await requireUser()
+  const { error } = await client
+    .from('dancer_discipline')
+    .delete()
+    .eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+export async function fetchDancerJourneyEvents() {
+  const client = ensureClient()
+  await requireUser()
+  const { data, error } = await client
+    .from('dancer_journey_event')
+    .select('*')
+    .eq('owner_id', ownerId())
+    .order('event_date', { ascending: false })
+    .order('created_at', { ascending: false })
+  if (error) throw new Error(error.message)
+  return (data || []).map(mapDancerJourneyEvent)
+}
+
+export async function createDancerJourneyEvent(fields) {
+  const client = ensureClient()
+  await requireUser()
+  const payload = {
+    owner_id: ownerId(),
+    kid_profile_id: fields.kidProfileId,
+    dancer_discipline_id: fields.disciplineId || null,
+    event_type: fields.eventType || 'class',
+    title: fields.title || '',
+    details: fields.details || '',
+    event_date: fields.eventDate || new Date().toISOString().split('T')[0],
+    exam_name: fields.examName || null,
+    exam_grade: fields.examGrade || null,
+    exam_result: fields.examResult || null,
+    status: fields.status || null,
+  }
+  const { data, error } = await client
+    .from('dancer_journey_event')
+    .insert(payload)
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+  return mapDancerJourneyEvent(data)
+}
+
+export async function updateDancerJourneyEvent(id, updates) {
+  const client = ensureClient()
+  await requireUser()
+  const payload = {}
+  if (updates.disciplineId !== undefined) payload.dancer_discipline_id = updates.disciplineId || null
+  if (updates.eventType !== undefined) payload.event_type = updates.eventType
+  if (updates.title !== undefined) payload.title = updates.title
+  if (updates.details !== undefined) payload.details = updates.details
+  if (updates.eventDate !== undefined) payload.event_date = updates.eventDate
+  if (updates.examName !== undefined) payload.exam_name = updates.examName || null
+  if (updates.examGrade !== undefined) payload.exam_grade = updates.examGrade || null
+  if (updates.examResult !== undefined) payload.exam_result = updates.examResult || null
+  if (updates.status !== undefined) payload.status = updates.status || null
+  const { data, error } = await client
+    .from('dancer_journey_event')
+    .update(payload)
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+  return mapDancerJourneyEvent(data)
+}
+
+export async function deleteDancerJourneyEvent(id) {
+  const client = ensureClient()
+  await requireUser()
+  const { error } = await client
+    .from('dancer_journey_event')
+    .delete()
+    .eq('id', id)
   if (error) throw new Error(error.message)
 }
 
