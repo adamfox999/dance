@@ -5,7 +5,6 @@ import { setFileStorageUserScope } from '../utils/fileStorage'
 import { hasSupabaseConfig, supabase } from '../utils/supabaseClient'
 import { setDanceOwnerId as setBackendDanceOwnerId } from '../utils/backendApi'
 import { notify } from '../utils/notify'
-import { hashParentPin, verifyParentPin } from '../utils/parentPin'
 import {
   initializeDanceData,
   setDanceOwnerId as setDanceDataOwnerId,
@@ -105,10 +104,6 @@ const PARENT_PIN_STORAGE_PREFIX = 'dance-tracker:parent-pin:'
 const SESSION_UPLOAD_REMINDER_PREFIX = 'dance-tracker:session-upload-reminder:'
 const SESSION_UPLOAD_PERMISSION_ASKED_KEY = 'dance-tracker:session-upload-reminder-permission-asked'
 
-function getParentPinStorageKey(userId) {
-  return `${PARENT_PIN_STORAGE_PREFIX}${userId}`
-}
-
 function toSessionDateString(session = {}) {
   const directDate = typeof session.date === 'string' ? session.date.trim() : ''
   if (directDate) return directDate.slice(0, 10)
@@ -186,7 +181,6 @@ export function AppProvider({ children }) {
   const [authLoading, setAuthLoading] = useState(hasSupabaseConfig)
   const [authSession, setAuthSession] = useState(null)
   const [authUser, setAuthUser] = useState(null)
-  const [hasParentPin, setHasParentPin] = useState(false)
   const authUserIdRef = useRef(null)
 
   useEffect(() => {
@@ -194,25 +188,16 @@ export function AppProvider({ children }) {
   }, [authUser?.id])
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      setHasParentPin(false)
-      return
-    }
-    if (!authUser?.id) {
-      setHasParentPin(false)
-      return
-    }
-
+    if (typeof window === 'undefined') return
     try {
-      const raw = window.localStorage.getItem(getParentPinStorageKey(authUser.id))
-      if (!raw) {
-        setHasParentPin(false)
-        return
+      const keysToDelete = []
+      for (let i = 0; i < window.localStorage.length; i += 1) {
+        const key = window.localStorage.key(i)
+        if (key && key.startsWith(PARENT_PIN_STORAGE_PREFIX)) keysToDelete.push(key)
       }
-      const parsed = JSON.parse(raw)
-      setHasParentPin(Boolean(parsed?.salt && parsed?.hash))
+      keysToDelete.forEach((key) => window.localStorage.removeItem(key))
     } catch {
-      setHasParentPin(false)
+      // Ignore storage cleanup errors
     }
   }, [authUser?.id])
 
@@ -452,38 +437,40 @@ export function AppProvider({ children }) {
 
   // ============ PROFILE SWITCHING ============
   const switchToKidProfile = useCallback((kidId) => { setActiveProfile({ type: 'kid', kidId }) }, [])
-  const switchToAdultProfile = useCallback(async (pin) => {
-    if (!authUser?.id || typeof window === 'undefined') return false
-    let parsed
-    try {
-      const raw = window.localStorage.getItem(getParentPinStorageKey(authUser.id))
-      if (!raw) return false
-      parsed = JSON.parse(raw)
-    } catch {
-      return false
+
+  const switchToAdultProfileWithEmailCode = useCallback(async (email, token) => {
+    if (!authUser?.id) return false
+    if (!supabase) throw new Error('Supabase auth is not configured.')
+    const authEmail = String(authUser.email || '').trim().toLowerCase()
+    const providedEmail = String(email || '').trim().toLowerCase()
+    const trimmedToken = String(token || '').trim()
+    if (!authEmail || !providedEmail || authEmail !== providedEmail) {
+      throw new Error('Email does not match the signed-in parent account.')
+    }
+    if (!trimmedToken) {
+      throw new Error('Code is required.')
+    }
+    const otpTypesToTry = ['email', 'magiclink', 'recovery', 'signup']
+    let lastError = null
+    for (const otpType of otpTypesToTry) {
+      const { error } = await supabase.auth.verifyOtp({
+        email: authEmail,
+        token: trimmedToken,
+        type: otpType,
+      })
+      if (!error) {
+        setActiveProfile({ type: 'adult' })
+        return true
+      }
+      lastError = error
     }
 
-    const isValid = await verifyParentPin(pin, parsed)
-    if (!isValid) return false
-    setActiveProfile({ type: 'adult' })
-    return true
-  }, [authUser])
-
-  const setParentPin = useCallback(async (pin) => {
-    if (!authUser?.id || typeof window === 'undefined') {
-      throw new Error('Sign in to set a parent PIN.')
+    const message = String(lastError?.message || '').toLowerCase()
+    if (message.includes('expired') || message.includes('invalid')) {
+      throw new Error('Code is invalid or expired. Tap resend and enter the newest code.')
     }
-    const record = await hashParentPin(pin)
-    window.localStorage.setItem(getParentPinStorageKey(authUser.id), JSON.stringify(record))
-    setHasParentPin(true)
-    return true
-  }, [authUser])
-
-  const clearParentPin = useCallback(() => {
-    if (!authUser?.id || typeof window === 'undefined') return
-    window.localStorage.removeItem(getParentPinStorageKey(authUser.id))
-    setHasParentPin(false)
-  }, [authUser])
+    throw lastError || new Error('Could not verify re-authentication code.')
+  }, [authUser?.email, authUser?.id])
 
   // ============ PROFILE MANAGEMENT ============
   const loadProfiles = useCallback(async () => {
@@ -1260,6 +1247,21 @@ export function AppProvider({ children }) {
     return true
   }
 
+  const sendParentReauthCode = useCallback(async () => {
+    if (!supabase) throw new Error('Supabase auth is not configured.')
+    const email = String(authUser?.email || '').trim()
+    if (!email) throw new Error('No parent email is available for this account.')
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        shouldCreateUser: false,
+        emailRedirectTo: getMagicLinkRedirectUrl(),
+      },
+    })
+    if (error) throw error
+    return true
+  }, [authUser?.email])
+
   const verifyEmailOtp = async (email, token, otpType = 'email') => {
     if (!supabase) throw new Error('Supabase auth is not configured.')
     const trimmedEmail = String(email || '').trim()
@@ -1318,6 +1320,7 @@ export function AppProvider({ children }) {
       isAuthenticated: Boolean(authUser),
       hasSupabaseAuth: hasSupabaseConfig,
       signInWithMagicLink,
+      sendParentReauthCode,
       signUpWithMagicLink,
       verifyEmailOtp,
       checkUserExists,
@@ -1332,11 +1335,8 @@ export function AppProvider({ children }) {
       activeKidProfile,
       activeProfileName,
       activeProfileEmoji,
-      hasParentPin,
       switchToKidProfile,
-      switchToAdultProfile,
-      setParentPin,
-      clearParentPin,
+      switchToAdultProfileWithEmailCode,
       saveUserProfile,
       addKidProfile,
       editKidProfile,

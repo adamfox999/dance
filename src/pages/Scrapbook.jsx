@@ -8,7 +8,7 @@ import TextInputDialog from '../components/TextInputDialog'
 import styles from './Scrapbook.module.css'
 
 export default function Scrapbook() {
-  const { showId } = useParams()
+  const { showId, entryId } = useParams()
   const { events, routines, addScrapbookEntry, addScrapbookReaction, removeScrapbookEntry, addEventEntry, editEventEntry, removeEventEntry, isAdmin, isKidMode } = useApp()
   const navigate = useNavigate()
   const photoInputRef = useRef(null)
@@ -55,11 +55,34 @@ export default function Scrapbook() {
 
   const entries = show.scrapbookEntries || []
   const eventEntries = show.entries || []
+  const isEntryView = Boolean(entryId)
+  const selectedEntryFromRoute = entryId
+    ? eventEntries.find((entry) => entry.id === entryId)
+    : null
+
+  if (isEntryView && !selectedEntryFromRoute) {
+    return (
+      <div className={styles.scrapbook}>
+        <div className={styles.empty}>
+          <h2>Entry not found</h2>
+          <button onClick={() => navigate(`/show/${showId}`)}>← Back to Event</button>
+        </div>
+      </div>
+    )
+  }
+
   const effectiveMediaEntryId = (
-    selectedMediaEntryId && eventEntries.some((entry) => entry.id === selectedMediaEntryId)
-  ) ? selectedMediaEntryId : (eventEntries[0]?.id || '')
+    isEntryView
+      ? (selectedEntryFromRoute?.id || '')
+      : (selectedMediaEntryId && eventEntries.some((entry) => entry.id === selectedMediaEntryId)
+          ? selectedMediaEntryId
+          : (eventEntries[0]?.id || ''))
+  )
   const selectedMediaEntry = eventEntries.find((entry) => entry.id === effectiveMediaEntryId) || null
   const selectedMediaRoutine = routines.find((routine) => routine.id === selectedMediaEntry?.routineId) || null
+  const visibleEventEntries = isEntryView && selectedEntryFromRoute
+    ? [selectedEntryFromRoute]
+    : eventEntries
 
   const formatOrdinalPlace = (value) => {
     const n = Number(value)
@@ -103,6 +126,7 @@ export default function Scrapbook() {
       type: textDialog.type,
       content,
       author: textDialog.author,
+      eventEntryId: isEntryView ? effectiveMediaEntryId : null,
       date: new Date().toISOString().split('T')[0],
       emojiReactions: [],
     })
@@ -224,17 +248,19 @@ export default function Scrapbook() {
       {/* Event entries (routines entered) */}
       <div className={styles.entriesSection}>
         <div className={styles.entriesSectionHeader}>
-          <h3 className={styles.entriesSectionTitle}>Entries</h3>
-          <button
-            className={styles.addEntryBtn}
-            onClick={() => setShowAddEntry(!showAddEntry)}
-          >
-            {showAddEntry ? '✕' : '+ Add Entry'}
-          </button>
+          <h3 className={styles.entriesSectionTitle}>{isEntryView ? 'Entry' : 'Entries'}</h3>
+          {!isEntryView && (
+            <button
+              className={styles.addEntryBtn}
+              onClick={() => setShowAddEntry(!showAddEntry)}
+            >
+              {showAddEntry ? '✕' : '+ Add Entry'}
+            </button>
+          )}
         </div>
 
         {/* Add entry picker */}
-        {showAddEntry && (
+        {!isEntryView && showAddEntry && (
           <div className={styles.addEntryPicker}>
             {routines
               .filter(r => !(show.entries || []).some(e => e.routineId === r.id))
@@ -274,10 +300,10 @@ export default function Scrapbook() {
           </div>
         )}
 
-      {(show.entries || []).length > 0 && (
+      {visibleEventEntries.length > 0 && (
         <>
           <div className={styles.eventEntriesList}>
-            {(show.entries || []).map((entry) => {
+            {visibleEventEntries.map((entry) => {
               const r = routines.find((rt) => rt.id === entry.routineId)
               const hasDate = Boolean(entry.scheduledDate)
               const hasTime = Boolean(entry.scheduledTime)
@@ -287,14 +313,17 @@ export default function Scrapbook() {
               const qualifiedEvent = entry.qualifiedForEventId
                 ? (events || []).find((s) => s.id === entry.qualifiedForEventId)
                 : null
-              const isExpanded = expandedEntry === entry.id
+              const isExpanded = isEntryView || expandedEntry === entry.id
 
               return (
                 <div key={entry.id} className={styles.eventEntryBlock}>
                   <div
                     className={styles.eventEntryRow}
-                    onClick={() => setExpandedEntry(isExpanded ? null : entry.id)}
-                    style={{ cursor: 'pointer' }}
+                    onClick={() => {
+                      if (isEntryView) return
+                      setExpandedEntry(isExpanded ? null : entry.id)
+                    }}
+                    style={{ cursor: isEntryView ? 'default' : 'pointer' }}
                   >
                     <span className={styles.eventEntryName}>🎵 {r?.name || 'Unknown routine'}</span>
                     {(hasDate || hasTime) && (
@@ -468,8 +497,8 @@ export default function Scrapbook() {
       )}
       </div>
 
-      {/* Media carousel */}
-      {mediaEntries.length > 0 && (
+      {/* Media carousel (entry-focused) */}
+      {isEntryView && mediaEntries.length > 0 && (
         <div className={styles.mediaCarousel}>
           <h3 className={styles.entriesSectionTitle}>Media</h3>
           {selectedMediaRoutine && (
@@ -514,7 +543,13 @@ export default function Scrapbook() {
 
       {/* Scrapbook entries */}
       <div className={styles.entriesGrid}>
-        {entries.filter(entry => entry.type !== 'photo' && entry.type !== 'video').map(entry => (
+        {entries
+          .filter((entry) => entry.type !== 'photo' && entry.type !== 'video')
+          .filter((entry) => {
+            if (isEntryView) return entry.eventEntryId === effectiveMediaEntryId
+            return entry.type === 'note' && !entry.eventEntryId
+          })
+          .map(entry => (
           <div key={entry.id} className={`${styles.entryCard} ${styles[entry.type]}`}>
             {entry.type === 'note' && (
               <>
@@ -561,42 +596,29 @@ export default function Scrapbook() {
         ))}
       </div>
 
-      {/* Add note + photo + video buttons — always available to My Dancing */}
+      {/* Actions */}
       <div className={styles.dancerActions}>
-        {eventEntries.length > 0 && (
-          <select
-            className={styles.qualifiedForSelect}
-            value={effectiveMediaEntryId}
-            onChange={(e) => setSelectedMediaEntryId(e.target.value)}
-            disabled={uploading}
-          >
-            {eventEntries.map((entry) => {
-              const routine = routines.find((r) => r.id === entry.routineId)
-              return (
-                <option key={entry.id} value={entry.id}>
-                  🎵 {routine?.name || 'Unknown routine'}
-                </option>
-              )
-            })}
-          </select>
-        )}
         <button className={styles.addNoteBtn} onClick={handleAddNote}>
           ✏️ Add My Note
         </button>
-        <button
-          className={styles.addPhotoBtn}
-          onClick={() => photoInputRef.current?.click()}
-          disabled={uploading || !effectiveMediaEntryId}
-        >
-          {uploading ? '⏳ Uploading...' : '📸 Add Photos'}
-        </button>
-        <button
-          className={styles.addVideoBtn}
-          onClick={() => videoInputRef.current?.click()}
-          disabled={uploading || !effectiveMediaEntryId}
-        >
-          {uploading ? '⏳ Uploading...' : '📹 Add Videos'}
-        </button>
+        {isEntryView && (
+          <>
+            <button
+              className={styles.addPhotoBtn}
+              onClick={() => photoInputRef.current?.click()}
+              disabled={uploading || !effectiveMediaEntryId}
+            >
+              {uploading ? '⏳ Uploading...' : '📸 Add Photos'}
+            </button>
+            <button
+              className={styles.addVideoBtn}
+              onClick={() => videoInputRef.current?.click()}
+              disabled={uploading || !effectiveMediaEntryId}
+            >
+              {uploading ? '⏳ Uploading...' : '📹 Add Videos'}
+            </button>
+          </>
+        )}
         <input
           ref={photoInputRef}
           type="file"
@@ -624,7 +646,7 @@ export default function Scrapbook() {
       )}
 
       {/* Admin: add other entry types */}
-      {isAdmin && (
+      {isAdmin && isEntryView && (
         <div className={styles.adminSection}>
           <p className={styles.adminLabel}>Admin</p>
           <div className={styles.adminButtons}>

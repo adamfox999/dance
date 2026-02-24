@@ -46,6 +46,11 @@ export default function Dashboard() {
     .sort((a, b) => (a.startDate || a.date).localeCompare(b.startDate || b.date))
   const nextShow = upcomingShows[0]
 
+  const competitionTypes = new Set(['qualifier', 'regional-final', 'national-final', 'festival'])
+  const competitions = (events || [])
+    .filter((eventItem) => competitionTypes.has(eventItem.eventType))
+    .sort((a, b) => (a.startDate || a.date || '').localeCompare(b.startDate || b.date || ''))
+
   const visibleRoutineIds = new Set(
     (isKidMode && activeKidProfile
       ? routines.filter((routine) => {
@@ -378,6 +383,66 @@ export default function Dashboard() {
                   </div>
                   <div className={styles.progressText}>{eventCount} timeline events</div>
                 </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Competitions */}
+      {competitions.length > 0 && (
+        <section className={styles.section}>
+          <h2 className={styles.sectionTitle}>Competitions</h2>
+          <div className={styles.todayCard}>
+            {competitions.map((competition) => {
+              const competitionTypeLabel = toLabel(competition.eventType, 'Competition')
+              const shouldHighlightCompetitionType = ['qualifier', 'regional-final', 'national-final'].includes(competition.eventType)
+              const competitionEntries = (competition.entries || [])
+                .filter((entry) => !entry?.routineId || visibleRoutineIds.has(entry.routineId))
+                .map((entry) => {
+                  const routine = routines.find((routineItem) => routineItem.id === entry.routineId)
+                  return {
+                    id: entry.id,
+                    label: routine?.name || entry.title || 'Routine entry',
+                  }
+                })
+
+              return (
+                <button
+                  key={competition.id}
+                  type="button"
+                  className={styles.todayItem}
+                  onClick={() => {
+                    if (isKidMode) return
+                    navigate(`/show/${competition.id}`)
+                  }}
+                  style={{ cursor: isKidMode ? 'default' : 'pointer' }}
+                >
+                  <span className={styles.todayItemIcon}>{getEventTypeIcon(competition.eventType)}</span>
+                  <span className={styles.todayItemBody}>
+                    <span className={styles.todayItemTitle}>{competition.name}</span>
+                    <span className={styles.competitionMetaRow}>
+                      <span className={styles.todayItemMeta}>{(competition.startDate || competition.date) || 'Date not set'}</span>
+                      {shouldHighlightCompetitionType ? (
+                        <span className={styles.competitionTypeChip}>{competitionTypeLabel}</span>
+                      ) : (
+                        <span className={styles.todayItemMeta}>{competitionTypeLabel}</span>
+                      )}
+                    </span>
+                    {competitionEntries.length > 0 ? (
+                      <span className={styles.competitionEnteredRow}>
+                        {competitionEntries.slice(0, 3).map((entry) => (
+                          <span key={entry.id} className={styles.competitionEntryChip}>{entry.label}</span>
+                        ))}
+                        {competitionEntries.length > 3 && (
+                          <span className={styles.competitionEntryMore}>+{competitionEntries.length - 3} more</span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className={styles.competitionEnteredEmpty}>No dances entered</span>
+                    )}
+                  </span>
+                </button>
               )
             })}
           </div>

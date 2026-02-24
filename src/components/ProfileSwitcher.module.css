@@ -151,6 +151,91 @@
   background: #9333ea;
 }
 
+.emailReauthDivider {
+  margin: 10px 0;
+  text-align: center;
+  font-size: 0.78rem;
+  color: #9ca3af;
+}
+
+.emailReauthBtn {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #e9d5ff;
+  background: #faf5ff;
+  color: #7e22ce;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.emailReauthBtn:hover {
+  background: #f3e8ff;
+}
+
+.emailReauthBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.emailCodeRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.emailCodeLabel {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--gray-600);
+}
+
+.emailCodeInput {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  padding: 10px 12px;
+  border: 2px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  font-size: 1rem;
+  color: var(--text);
+  background: var(--gray-50);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  outline: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+.emailCodeInput:focus {
+  border-color: var(--purple-400);
+  box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.12);
+  background: #fff;
+}
+
+.emailCodeInput::placeholder {
+  color: var(--gray-400);
+}
+
+.emailMsg {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 0.78rem;
+}
+
+.emailMsgError {
+  color: #b91c1c;
+}
+
+.emailMsgSuccess {
+  color: #166534;
+}
+
 .closeBtn {
   display: block;
   margin: 14px auto 0;

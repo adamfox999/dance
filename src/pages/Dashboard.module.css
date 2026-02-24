@@ -193,6 +193,65 @@
   color: #6b7280;
 }
 
+.competitionMetaRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.competitionTypeChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: #f3e8ff;
+  color: #7e22ce;
+  border: 1px solid #d8b4fe;
+}
+
+.competitionEnteredRow {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-top: 0.25rem;
+}
+
+.competitionEnteredLabel {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #7e22ce;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.competitionEntryChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #5b21b6;
+  background: #ede9fe;
+  border: 1px solid #ddd6fe;
+}
+
+.competitionEntryMore {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #6d28d9;
+}
+
+.competitionEnteredEmpty {
+  margin-top: 0.2rem;
+  font-size: 0.72rem;
+  color: #8b5cf6;
+}
+
 /* Sections */
 .section {
   margin-bottom: 1.5rem;

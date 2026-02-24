@@ -4,7 +4,6 @@ import { useApp } from '../context/AppContext'
 import { fetchStateFromBackend, listMediaFromBackend, getFileFromBackend } from '../utils/backendApi'
 import { saveFile } from '../utils/fileStorage'
 import { notify } from '../utils/notify'
-import { validateParentPinFormat } from '../utils/parentPin'
 import MediaPickerDialog from '../components/MediaPickerDialog'
 import { GRADE_LEVELS } from '../data/defaultState'
 import { EVENT_TYPES } from '../data/aedEvents'
@@ -22,7 +21,6 @@ export default function Settings() {
     addShow, editShow, removeShow,
     resetState,
     isAdmin, hasSupabaseAuth, authUser, signOut,
-    setParentPin,
     // Profiles
     userProfile, kidProfiles, ownKidProfiles, familyUnits,
     saveUserProfile, addKidProfile, editKidProfile, removeKidProfile,
@@ -39,10 +37,6 @@ export default function Settings() {
   const promptLeadMs = Math.max(0, Math.min(600, Number(settings?.promptLeadMs ?? 0)))
   const importRef = useRef(null)
   const [authBusy, setAuthBusy] = useState(false)
-  const [parentPin, setParentPinInput] = useState('')
-  const [parentPinConfirmed, setParentPinConfirmed] = useState(false)
-  const [parentPinBusy, setParentPinBusy] = useState(false)
-  const [parentPinMsg, setParentPinMsg] = useState(null)
 
   // Profile editing state
   const [editingProfile, setEditingProfile] = useState(false)
@@ -211,32 +205,6 @@ export default function Settings() {
       notify(err?.message || 'Could not sign out')
     } finally {
       setAuthBusy(false)
-    }
-  }
-
-  const handleSaveParentPin = async () => {
-    setParentPinMsg(null)
-    const normalizedPin = String(parentPin || '').trim()
-    const formatError = validateParentPinFormat(normalizedPin)
-    if (formatError) {
-      setParentPinMsg({ type: 'error', text: formatError })
-      return
-    }
-    if (!parentPinConfirmed) {
-      setParentPinMsg({ type: 'error', text: 'Please confirm the PIN change.' })
-      return
-    }
-
-    setParentPinBusy(true)
-    try {
-      await setParentPin(normalizedPin)
-      setParentPinInput('')
-      setParentPinConfirmed(false)
-      setParentPinMsg({ type: 'success', text: 'Parent PIN saved securely on this device.' })
-    } catch (err) {
-      setParentPinMsg({ type: 'error', text: err?.message || 'Could not save parent PIN.' })
-    } finally {
-      setParentPinBusy(false)
     }
   }
 
@@ -731,49 +699,6 @@ export default function Settings() {
                 Sign out
               </button>
             </div>
-
-            {isAdmin && (
-              <>
-                <div className={styles['setting-row']}>
-                  <label>Parent PIN Lock</label>
-                  <input
-                    type="password"
-                    inputMode="numeric"
-                    maxLength={10}
-                    placeholder="Enter new PIN (4-10 digits)"
-                    value={parentPin}
-                    onChange={(e) => {
-                      setParentPinInput(e.target.value.replace(/\D/g, ''))
-                      setParentPinConfirmed(false)
-                    }}
-                  />
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.78rem', color: '#6b7280' }}>
-                    <input
-                      type="checkbox"
-                      checked={parentPinConfirmed}
-                      onChange={(e) => setParentPinConfirmed(e.target.checked)}
-                    />
-                    Confirm change parent PIN
-                  </label>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <button
-                      className={styles['data-btn']}
-                      style={{ background: '#ede9fe', color: '#7c3aed' }}
-                      onClick={handleSaveParentPin}
-                      disabled={parentPinBusy}
-                    >{parentPinBusy ? 'Saving…' : 'Change PIN'}</button>
-                  </div>
-                  <div style={{ fontSize: '0.74rem', color: '#6b7280' }}>
-                    PIN is stored as a one-way hash on this device and never saved in plaintext.
-                  </div>
-                  {parentPinMsg && (
-                    <div style={{ fontSize: '0.8rem', color: parentPinMsg.type === 'error' ? '#dc2626' : '#16a34a' }}>
-                      {parentPinMsg.text}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
           </div>
         </div>
       )}

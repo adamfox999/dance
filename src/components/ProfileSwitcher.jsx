@@ -6,7 +6,7 @@ import styles from './ProfileSwitcher.module.css'
 /**
  * ProfileSwitcher — modal to switch between adult + kid profiles.
  * - Switching to a kid: instant, no auth
- * - Switching back to adult: requires PIN re-auth
+ * - Switching back to adult: requires email re-auth
  */
 export default function ProfileSwitcher({ open, onClose }) {
   const {
@@ -15,15 +15,17 @@ export default function ProfileSwitcher({ open, onClose }) {
     activeProfile,
     isKidMode,
     isAdmin,
-    hasParentPin,
+    authUser,
+    sendParentReauthCode,
+    switchToAdultProfileWithEmailCode,
     switchToKidProfile,
-    switchToAdultProfile,
   } = useApp()
 
-  const [pin, setPin] = useState('')
-  const [pinError, setPinError] = useState(false)
-  const [pinBusy, setPinBusy] = useState(false)
   const [showPinEntry, setShowPinEntry] = useState(false)
+  const [emailCode, setEmailCode] = useState('')
+  const [emailBusy, setEmailBusy] = useState(false)
+  const [emailCodeSent, setEmailCodeSent] = useState(false)
+  const [emailMsg, setEmailMsg] = useState(null)
   const navigate = useNavigate()
 
   if (!open) return null
@@ -41,32 +43,58 @@ export default function ProfileSwitcher({ open, onClose }) {
       onClose()
       return
     }
-    // Need PIN to switch back
+    // Need email re-auth to switch back
     setShowPinEntry(true)
-    setPin('')
-    setPinError(false)
-  }
-
-  const handlePinSubmit = async (e) => {
-    e.preventDefault()
-    if (pinBusy) return
-    setPinBusy(true)
-    const ok = await switchToAdultProfile(pin)
-    setPinBusy(false)
-    if (ok) {
-      setShowPinEntry(false)
-      setPin('')
-      onClose()
-    } else {
-      setPinError(true)
-      setTimeout(() => setPinError(false), 1500)
-      setPin('')
-    }
+    setEmailCode('')
+    setEmailCodeSent(false)
+    setEmailMsg(null)
   }
 
   const handleOpenSettings = () => {
     onClose()
     navigate('/settings')
+  }
+
+  const handleSendEmailCode = async () => {
+    const email = String(authUser?.email || '').trim()
+    if (!email) {
+      setEmailMsg({ type: 'error', text: 'No parent email is available for this account.' })
+      return
+    }
+    setEmailBusy(true)
+    setEmailMsg(null)
+    try {
+      await sendParentReauthCode()
+      setEmailCode('')
+      setEmailCodeSent(true)
+      setEmailMsg({ type: 'success', text: `We sent a re-authentication code to ${email}.` })
+    } catch (err) {
+      setEmailMsg({ type: 'error', text: err?.message || 'Could not send email code.' })
+    } finally {
+      setEmailBusy(false)
+    }
+  }
+
+  const handleEmailUnlock = async (e) => {
+    e.preventDefault()
+    const normalizedCode = String(emailCode || '').replace(/\D/g, '').slice(0, 6)
+    if (normalizedCode.length !== 6) {
+      setEmailMsg({ type: 'error', text: 'Enter the 6-digit code from your email.' })
+      return
+    }
+    setEmailBusy(true)
+    setEmailMsg(null)
+    try {
+      await switchToAdultProfileWithEmailCode(authUser?.email, normalizedCode)
+      setShowPinEntry(false)
+      setEmailCode('')
+      setEmailCodeSent(false)
+      onClose()
+    } catch (err) {
+      setEmailMsg({ type: 'error', text: err?.message || 'Invalid code. Please try again.' })
+    } finally {
+      setEmailBusy(false)
+    }
   }
 
   const adultName = userProfile?.display_name || 'Parent'
@@ -110,30 +138,48 @@ export default function ProfileSwitcher({ open, onClose }) {
           ))}
         </div>
 
-        {/* PIN entry for switching back to adult */}
+        {/* Email re-auth entry for switching back to adult */}
         {showPinEntry && (
           <div className={styles.pinSection}>
-            <div className={styles.pinLabel}>
-              {hasParentPin
-                ? 'Enter PIN to switch to parent view'
-                : 'No parent PIN available. Change it in Settings from parent mode first.'}
-            </div>
-            <form className={styles.pinRow} onSubmit={handlePinSubmit}>
-              <input
-                type="password"
-                inputMode="numeric"
-                maxLength={10}
-                placeholder="PIN"
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
-                className={`${styles.pinInput} ${pinError ? styles.error : ''}`}
-                disabled={!hasParentPin || pinBusy}
-                autoFocus
-              />
-              <button type="submit" className={styles.pinSubmit} disabled={!hasParentPin || pinBusy}>
-                {pinBusy ? 'Checking…' : 'Unlock'}
-              </button>
-            </form>
+            <div className={styles.pinLabel}>Send a re-authentication code to unlock parent mode.</div>
+
+            <button
+              type="button"
+              className={styles.emailReauthBtn}
+              onClick={handleSendEmailCode}
+              disabled={emailBusy}
+            >
+              {emailBusy ? 'Sending…' : (emailCodeSent ? 'Resend email code' : 'Re-auth with email code')}
+            </button>
+
+            {emailCodeSent && (
+              <form className={styles.emailCodeRow} onSubmit={handleEmailUnlock}>
+                <label className={styles.emailCodeLabel}>
+                  6-digit code
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    placeholder="123456"
+                    value={emailCode}
+                    onChange={(e) => setEmailCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    className={styles.emailCodeInput}
+                    disabled={emailBusy}
+                    required
+                  />
+                </label>
+                <button type="submit" className={styles.pinSubmit} disabled={emailBusy}>
+                  {emailBusy ? 'Verifying…' : 'Unlock'}
+                </button>
+              </form>
+            )}
+
+            {emailMsg && (
+              <div className={`${styles.emailMsg} ${emailMsg.type === 'error' ? styles.emailMsgError : styles.emailMsgSuccess}`}>
+                {emailMsg.text}
+              </div>
+            )}
           </div>
         )}
 

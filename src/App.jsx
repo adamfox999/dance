@@ -55,6 +55,7 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/timeline/:type/:id" element={<Timeline />} />
             <Route path="/choreography/:routineId" element={<Choreography />} />
+            <Route path="/show/:showId/entry/:entryId" element={isKidMode ? <Navigate to="/" replace /> : <Scrapbook />} />
             <Route path="/show/:showId" element={isKidMode ? <Navigate to="/" replace /> : <Scrapbook />} />
             <Route path="/trophies" element={<TrophyShelf />} />
             <Route path="/settings" element={<Settings />} />

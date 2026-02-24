@@ -392,6 +392,13 @@ export default function Timeline() {
       .sort((a, b) => dateValueToMs(b.startDate || b.date) - dateValueToMs(a.startDate || a.date))
   }, [events, id, isRoutine])
 
+  const isRoutineQualified = useMemo(() => {
+    if (!isRoutine) return false
+    return (events || []).some((eventItem) =>
+      (eventItem.entries || []).some((entry) => entry.routineId === id && entry.qualified)
+    )
+  }, [events, id, isRoutine])
+
   // All events available to link an entry to (for the add dialog)
   const availableEvents = useMemo(() => {
     return (events || [])
@@ -873,7 +880,15 @@ export default function Timeline() {
             <p className={styles.subtitle}>{discipline.currentGrade}</p>
           )}
           {isRoutine && routine && (
-            <p className={styles.subtitle}>{routine.formation} · {routine.type}</p>
+            <p className={styles.subtitle}>
+              {routine.formation} · {routine.type}
+              {isRoutineQualified && (
+                <span className={styles.eventTypeTag}>
+                  <span className={styles.eventTypeQualifiedTick}>✓</span>
+                  AED Qualified
+                </span>
+              )}
+            </p>
           )}
           {isDancer && dancer && (
             <p className={styles.subtitle}>Personal journey timeline</p>
@@ -1486,7 +1501,7 @@ export default function Timeline() {
             <div key={`${item.type}-${item.data.id}`}>
               {isNowItem && index > 0 && (
                 <div ref={nowRef} className={styles.nowMarker}>
-                  <span className={styles.nowPill}>NOW</span>
+                  <span className={styles.nowDot} aria-label="Current moment marker" />
                 </div>
               )}
 
@@ -1717,6 +1732,11 @@ export default function Timeline() {
                     className={styles.cardBody}
                     onClick={() => {
                       if (isKidMode) return
+                      const currentEntry = (item.data.entries || []).find(e => e.routineId === id)
+                      if (currentEntry?.id) {
+                        navigate(`/show/${item.data.id}/entry/${currentEntry.id}`)
+                        return
+                      }
                       navigate(`/show/${item.data.id}`)
                     }}
                     style={{ cursor: isKidMode ? 'default' : 'pointer' }}
@@ -1726,18 +1746,19 @@ export default function Timeline() {
                       <div className={styles.cardTitle}>
                         {item.data.name}
                         {item.data.eventType && item.data.eventType !== 'show' && (
-                          <span className={styles.eventTypeTag}>
-                            {(() => {
+                          (() => {
                               const entry = (item.data.entries || []).find(e => e.routineId === id)
+                              const highlightEventTypes = ['qualifier', 'regional-final', 'national-final']
+                              const shouldHighlightType = highlightEventTypes.includes(item.data.eventType)
                               const isQualifiedQualifier = item.data.eventType === 'qualifier' && entry?.qualified
+                              const label = isQualifiedQualifier ? 'AED Qualified' : getEventTypeLabel(item.data.eventType)
                               return (
-                                <>
+                                <span className={shouldHighlightType ? styles.eventTypeTag : styles.eventTypeTagMuted}>
                                   {isQualifiedQualifier && <span className={styles.eventTypeQualifiedTick}>✓</span>}
-                                  {isQualifiedQualifier ? 'AED Qualified' : getEventTypeLabel(item.data.eventType)}
-                                </>
+                                  {label}
+                                </span>
                               )
-                            })()}
-                          </span>
+                          })()
                         )}
                       </div>
                       {(() => {
