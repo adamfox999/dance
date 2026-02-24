@@ -1,14 +1,22 @@
+import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import Layout from './components/Layout'
 import { useApp } from './context/AppContext'
-import Auth from './pages/Auth'
-import Dashboard from './pages/Dashboard'
-import Timeline from './pages/Timeline'
-import Choreography from './pages/Choreography'
-import Scrapbook from './pages/Scrapbook'
-import TrophyShelf from './pages/TrophyShelf'
-import Settings from './pages/Settings'
+
+const Auth = lazy(() => import('./pages/Auth'))
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Timeline = lazy(() => import('./pages/Timeline'))
+const Choreography = lazy(() => import('./pages/Choreography'))
+const Scrapbook = lazy(() => import('./pages/Scrapbook'))
+const TrophyShelf = lazy(() => import('./pages/TrophyShelf'))
+const Settings = lazy(() => import('./pages/Settings'))
+
+const fullscreenCenterStyle = { display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }
+
+function AppLoading({ text = 'Loading...' }) {
+  return <div style={fullscreenCenterStyle}>{text}</div>
+}
 
 export default function App() {
   const { isLoading, authLoading, isAuthenticated, hasSupabaseAuth, isKidMode } = useApp()
@@ -28,25 +36,31 @@ export default function App() {
 
   // If Supabase auth is configured but user isn't signed in, show auth page
   if (hasSupabaseAuth && !isAuthenticated) {
-    return <Auth />
+    return (
+      <Suspense fallback={<AppLoading />}>
+        <Auth />
+      </Suspense>
+    )
   }
 
   if (isLoading) {
-    return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Loading...</div>
+    return <AppLoading />
   }
 
   return (
     <>
       <Layout>
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/timeline/:type/:id" element={<Timeline />} />
-          <Route path="/choreography/:routineId" element={<Choreography />} />
-          <Route path="/show/:showId" element={isKidMode ? <Navigate to="/" replace /> : <Scrapbook />} />
-          <Route path="/trophies" element={<TrophyShelf />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <Suspense fallback={<AppLoading />}>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/timeline/:type/:id" element={<Timeline />} />
+            <Route path="/choreography/:routineId" element={<Choreography />} />
+            <Route path="/show/:showId" element={isKidMode ? <Navigate to="/" replace /> : <Scrapbook />} />
+            <Route path="/trophies" element={<TrophyShelf />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
       </Layout>
 
       {needRefresh && (

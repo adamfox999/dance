@@ -226,6 +226,11 @@ export function AppProvider({ children }) {
   const [outgoingShares, setOutgoingShares] = useState([])
   const [incomingShares, setIncomingShares] = useState([])
   const [sharedDances, setSharedDances] = useState([])
+  const incomingSharesRef = useRef([])
+
+  useEffect(() => {
+    incomingSharesRef.current = incomingShares
+  }, [incomingShares])
 
   // Guardian state
   const [outgoingGuardians, setOutgoingGuardians] = useState([])
@@ -521,12 +526,13 @@ export function AppProvider({ children }) {
   }, [activeProfile])
 
   // ============ SHARING MANAGEMENT ============
-  const loadShares = useCallback(async () => {
+  const loadShares = useCallback(async ({ skipIncoming = false } = {}) => {
     if (!hasSupabaseConfig || !authUser?.id) return
     try {
-      const [outgoing, incoming] = await Promise.all([fetchMyShares(), fetchIncomingShares()])
+      const outgoing = await fetchMyShares()
+      const incoming = skipIncoming ? incomingSharesRef.current : await fetchIncomingShares()
       setOutgoingShares(outgoing || [])
-      setIncomingShares(incoming || [])
+      if (!skipIncoming) setIncomingShares(incoming || [])
       const accepted = (incoming || []).filter(s => s.status === 'accepted')
       const dances = await Promise.all(accepted.map(async (share) => {
         try {
@@ -652,7 +658,7 @@ export function AppProvider({ children }) {
     if (authLoading || !authUser?.id) return
     setProfilesLoaded(false)
     Promise.all([loadProfiles(), loadGuardians()]).finally(() => setProfilesLoaded(true))
-    loadShares()
+    loadShares({ skipIncoming: true })
   }, [authLoading, authUser?.id, loadProfiles, loadShares, loadGuardians])
 
   // ============ INVITE TOKEN HANDLING ============
@@ -1102,6 +1108,12 @@ export function AppProvider({ children }) {
       if (!authUser?.id) { setIsLoading(false); return }
 
       setIsLoading(true)
+      setStickers([])
+      setPracticeLog([])
+      setDancerProfile({ name: 'My Dancing', currentFocus: null })
+      setDancerGoals([])
+      setDancerDisciplines([])
+      setDancerJourneyEvents([])
       try {
         const init = await initializeDanceData()
         if (cancelled) return
@@ -1109,21 +1121,17 @@ export function AppProvider({ children }) {
         setDanceDataOwnerId(init.ownerId)
         setBackendDanceOwnerId(init.ownerId)
 
-        const [disc, rout, sess, evts, stick, log, prof, goals, dancerDisc, dancerJourney, sett, incoming] = await Promise.all([
+        const [disc, rout, sess, evts, sett, incoming, guardianInvites] = await Promise.all([
           fetchDisciplinesWithChildren(),
           fetchRoutinesWithChildren(),
           apiFetchSessions(),
           fetchEventsWithChildren(),
-          apiFetchStickers(),
-          apiFetchPracticeLog(),
-          apiFetchDancerProfile(),
-          apiFetchDancerGoals(),
-          apiFetchDancerDisciplines(),
-          apiFetchDancerJourneyEvents(),
           apiFetchSettings(),
           fetchIncomingShares(),
+          fetchIncomingGuardianInvites().catch(() => []),
         ])
         if (cancelled) return
+        setIncomingShares(incoming || [])
 
         let nextDisc = disc
         let nextRout = rout
@@ -1138,7 +1146,7 @@ export function AppProvider({ children }) {
           acceptedForOwner.map((share) => share.routine_id).filter(Boolean)
         )
 
-        const hasAcceptedGuardianAccessForOwner = (incomingGuardians || []).some(
+        const hasAcceptedGuardianAccessForOwner = (guardianInvites || []).some(
           (guardian) => guardian.status === 'accepted' && guardian.owner_user_id === init.ownerId
         )
 
@@ -1175,22 +1183,37 @@ export function AppProvider({ children }) {
         setRoutines(nextRout)
         setSessions(nextSess)
         setEvents(nextEvts)
-        setStickers(stick)
-        setPracticeLog(log)
-        setDancerProfile(prof || { name: 'My Dancing', currentFocus: null })
-        setDancerGoals(goals)
-        setDancerDisciplines(dancerDisc)
-        setDancerJourneyEvents(dancerJourney)
         setSettingsState(sett)
+
+        if (!cancelled) setIsLoading(false)
+
+        Promise.all([
+          apiFetchStickers(),
+          apiFetchPracticeLog(),
+          apiFetchDancerProfile(),
+          apiFetchDancerGoals(),
+          apiFetchDancerDisciplines(),
+          apiFetchDancerJourneyEvents(),
+        ]).then(([stick, log, prof, goals, dancerDisc, dancerJourney]) => {
+          if (cancelled) return
+          setStickers(stick)
+          setPracticeLog(log)
+          setDancerProfile(prof || { name: 'My Dancing', currentFocus: null })
+          setDancerGoals(goals)
+          setDancerDisciplines(dancerDisc)
+          setDancerJourneyEvents(dancerJourney)
+        }).catch((err) => {
+          if (!cancelled) console.warn('Deferred hydration failed:', err)
+        })
       } catch (err) {
         console.warn('Hydration failed:', err)
+        if (!cancelled) setIsLoading(false)
       }
-      if (!cancelled) setIsLoading(false)
     }
 
     hydrateState()
     return () => { cancelled = true }
-  }, [authLoading, authUser?.id, incomingGuardians])
+  }, [authLoading, authUser?.id])
 
   // ================================================================
   // MILESTONE STICKER CHECK

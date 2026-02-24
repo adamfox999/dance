@@ -7,10 +7,6 @@ import { detectBeats, getCurrentBeatInfo } from '../utils/beatDetection'
 import { saveFile, saveLocalFile, loadFile, loadLocalFile } from '../utils/fileStorage'
 import { listMediaFromBackend } from '../utils/backendApi'
 import { notify } from '../utils/notify'
-import {
-  Input, Output, Conversion, ALL_FORMATS,
-  BlobSource, Mp4OutputFormat, BufferTarget, QUALITY_MEDIUM,
-} from 'mediabunny'
 import styles from './Choreography.module.css'
 import VideoAnnotationLayer from '../components/VideoAnnotationLayer'
 import annotationStyles from '../components/VideoAnnotationLayer.module.css'
@@ -90,6 +86,11 @@ async function compressVideoToMax720p(inputFile, options = {}) {
     throw new Error('Invalid video file.')
   }
   if (onProgress) onProgress({ stage: 'preparing', progress: 0 })
+
+  const {
+    Input, Output, Conversion, ALL_FORMATS,
+    BlobSource, Mp4OutputFormat, BufferTarget, QUALITY_MEDIUM,
+  } = await import('mediabunny')
 
   const startTime = Date.now()
   console.log('[Mediabunny] Starting 720p compression for', inputFile.name || 'blob', `(${(inputFile.size / 1024 / 1024).toFixed(1)} MB)`)
@@ -3022,6 +3023,7 @@ export default function Choreography() {
                     {summarySaving ? 'Saving…' : (sessionId ? '✨ Save & Take a Bow' : '🎭 Done')}
                   </button>
                 </div>
+
               </div>
 
               {/* Stage floor with footlights */}

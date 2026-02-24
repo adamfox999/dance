@@ -193,6 +193,7 @@ function mapScrapbookEntry(r) {
   return {
     id: r.id,
     eventId: r.event_id,
+    eventEntryId: r.event_entry_id || null,
     type: r.entry_type,
     content: r.content,
     mediaUrl: r.media_url,
@@ -517,6 +518,7 @@ async function migrateFromStateData(state, migrateOwnerId) {
     for (const sc of (ev.scrapbookEntries || [])) {
       await client.from('scrapbook_entry').insert({
         event_id: eventId, owner_id: migrateOwnerId,
+        event_entry_id: sc.eventEntryId ? (idMap[sc.eventEntryId] || sc.eventEntryId) : null,
         entry_type: sc.type || 'note',
         content: sc.content || sc.text || '',
         media_url: sc.mediaUrl || sc.url || '',
@@ -1277,6 +1279,7 @@ export async function createScrapbookEntry(eventId, fields) {
   await requireUser()
   const { data, error } = await client.from('scrapbook_entry').insert({
     event_id: eventId, owner_id: ownerId(),
+    event_entry_id: fields.eventEntryId || null,
     entry_type: fields.type || 'note',
     content: fields.content || '', media_url: fields.mediaUrl || '',
     author: fields.author || '',
@@ -1292,6 +1295,7 @@ export async function updateScrapbookEntry(id, updates) {
   const payload = {}
   if (updates.emojiReactions !== undefined) payload.emoji_reactions = updates.emojiReactions
   if (updates.content !== undefined) payload.content = updates.content
+  if (updates.eventEntryId !== undefined) payload.event_entry_id = updates.eventEntryId || null
   const { data, error } = await client.from('scrapbook_entry')
     .update(payload).eq('id', id).select().single()
   if (error) throw new Error(error.message)

@@ -17,6 +17,7 @@ const DB_NAME = 'dance-tracker-local-files'
 const STORE_NAME = 'files'
 const DB_VERSION = 1
 let currentUserScope = 'signed-out'
+const remoteFileTaskMap = new Map()
 
 function getLocalKey(key) {
   return `${currentUserScope}:${key}`
@@ -129,15 +130,40 @@ export async function saveLocalFile(key, blob, meta = {}) {
   return true
 }
 
-export async function loadFile(key) {
-  try {
-    const remoteFile = await getFileFromBackend(key)
-    if (remoteFile?.blob) return remoteFile
-  } catch {
-    // fall through to local storage
+function getRemoteFileTask(key) {
+  let task = remoteFileTaskMap.get(key)
+  if (!task) {
+    task = (async () => {
+      try {
+        const remoteFile = await getFileFromBackend(key)
+        if (!remoteFile?.blob) return null
+
+        saveFileToIndexedDb(key, remoteFile.blob, remoteFile.meta || {}).catch((err) => {
+          console.warn(`Fetched ${key} from backend, but local cache refresh failed:`, err)
+        })
+
+        return remoteFile
+      } catch {
+        return null
+      }
+    })().finally(() => {
+      remoteFileTaskMap.delete(key)
+    })
+
+    remoteFileTaskMap.set(key, task)
   }
 
-  return loadFileFromIndexedDb(key)
+  return task
+}
+
+export async function loadFile(key) {
+  const localFile = await loadFileFromIndexedDb(key)
+  if (localFile?.blob) {
+    getRemoteFileTask(key)
+    return localFile
+  }
+
+  return getRemoteFileTask(key)
 }
 
 export async function loadLocalFile(key) {

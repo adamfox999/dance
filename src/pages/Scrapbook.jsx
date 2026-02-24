@@ -18,6 +18,7 @@ export default function Scrapbook() {
   const [uploadProgress, setUploadProgress] = useState(null) // { stage, progress }
   const [expandedEntry, setExpandedEntry] = useState(null) // entry id for expanded result panel
   const [lightboxIndex, setLightboxIndex] = useState(null) // index into mediaEntries
+  const [selectedMediaEntryId, setSelectedMediaEntryId] = useState('')
   const [showAddEntry, setShowAddEntry] = useState(false)
   const [textDialog, setTextDialog] = useState({
     open: false,
@@ -53,6 +54,12 @@ export default function Scrapbook() {
   }
 
   const entries = show.scrapbookEntries || []
+  const eventEntries = show.entries || []
+  const effectiveMediaEntryId = (
+    selectedMediaEntryId && eventEntries.some((entry) => entry.id === selectedMediaEntryId)
+  ) ? selectedMediaEntryId : (eventEntries[0]?.id || '')
+  const selectedMediaEntry = eventEntries.find((entry) => entry.id === effectiveMediaEntryId) || null
+  const selectedMediaRoutine = routines.find((routine) => routine.id === selectedMediaEntry?.routineId) || null
 
   const formatOrdinalPlace = (value) => {
     const n = Number(value)
@@ -111,6 +118,11 @@ export default function Scrapbook() {
   const handlePhotoUpload = async (e) => {
     const files = Array.from(e.target.files || [])
     if (files.length === 0) return
+    if (!effectiveMediaEntryId) {
+      notify('Add a routine entry first so photos can be attached to it.')
+      e.target.value = ''
+      return
+    }
     setUploading(true)
     for (let i = 0; i < files.length; i++) {
       setUploadProgress({ stage: `Compressing photo ${i + 1}/${files.length}`, progress: Math.round((i / files.length) * 100) })
@@ -123,6 +135,7 @@ export default function Scrapbook() {
         })
         addScrapbookEntry(showId, {
           type: 'photo',
+          eventEntryId: effectiveMediaEntryId,
           content: dataUrl,
           author: 'dancer',
           date: new Date().toISOString().split('T')[0],
@@ -140,6 +153,11 @@ export default function Scrapbook() {
   const handleVideoUpload = async (e) => {
     const files = Array.from(e.target.files || [])
     if (files.length === 0) return
+    if (!effectiveMediaEntryId) {
+      notify('Add a routine entry first so videos can be attached to it.')
+      e.target.value = ''
+      return
+    }
     setUploading(true)
     for (let i = 0; i < files.length; i++) {
       setUploadProgress({ stage: `Processing video ${i + 1}/${files.length}`, progress: Math.round((i / files.length) * 100) })
@@ -154,6 +172,7 @@ export default function Scrapbook() {
         })
         addScrapbookEntry(showId, {
           type: 'video',
+          eventEntryId: effectiveMediaEntryId,
           content: dataUrl,
           author: 'dancer',
           date: new Date().toISOString().split('T')[0],
@@ -169,7 +188,11 @@ export default function Scrapbook() {
   }
 
   // Get all media scrapbook entries for the carousel
-  const mediaEntries = entries.filter((e) => e.type === 'photo' || e.type === 'video')
+  const mediaEntries = entries.filter((e) => (
+    (e.type === 'photo' || e.type === 'video')
+    && effectiveMediaEntryId
+    && e.eventEntryId === effectiveMediaEntryId
+  ))
 
   // Available competitions user can select as "qualified through to"
   const otherEvents = (events || []).filter(
@@ -449,6 +472,9 @@ export default function Scrapbook() {
       {mediaEntries.length > 0 && (
         <div className={styles.mediaCarousel}>
           <h3 className={styles.entriesSectionTitle}>Media</h3>
+          {selectedMediaRoutine && (
+            <p className={styles.entryAuthor}>Showing media for 🎵 {selectedMediaRoutine.name}</p>
+          )}
           <div className={styles.carouselWrap}>
               <button
                 className={`${styles.carouselArrow} ${styles.carouselArrowLeft}`}
@@ -537,20 +563,37 @@ export default function Scrapbook() {
 
       {/* Add note + photo + video buttons — always available to My Dancing */}
       <div className={styles.dancerActions}>
+        {eventEntries.length > 0 && (
+          <select
+            className={styles.qualifiedForSelect}
+            value={effectiveMediaEntryId}
+            onChange={(e) => setSelectedMediaEntryId(e.target.value)}
+            disabled={uploading}
+          >
+            {eventEntries.map((entry) => {
+              const routine = routines.find((r) => r.id === entry.routineId)
+              return (
+                <option key={entry.id} value={entry.id}>
+                  🎵 {routine?.name || 'Unknown routine'}
+                </option>
+              )
+            })}
+          </select>
+        )}
         <button className={styles.addNoteBtn} onClick={handleAddNote}>
           ✏️ Add My Note
         </button>
         <button
           className={styles.addPhotoBtn}
           onClick={() => photoInputRef.current?.click()}
-          disabled={uploading}
+          disabled={uploading || !effectiveMediaEntryId}
         >
           {uploading ? '⏳ Uploading...' : '📸 Add Photos'}
         </button>
         <button
           className={styles.addVideoBtn}
           onClick={() => videoInputRef.current?.click()}
-          disabled={uploading}
+          disabled={uploading || !effectiveMediaEntryId}
         >
           {uploading ? '⏳ Uploading...' : '📹 Add Videos'}
         </button>

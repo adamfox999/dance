@@ -2,13 +2,8 @@
  * Media compression utilities.
  *
  * Images: resizes longest side to max 1920px, outputs JPEG at 85% quality.
- * Videos: 720p max, 50 MB cap, via mediabunny (same pipeline as Choreography).
+ * Videos: 720p max, 50 MB cap, via mediabunny (loaded on demand).
  */
-
-import {
-  Input, Output, Conversion, ALL_FORMATS,
-  BlobSource, Mp4OutputFormat, BufferTarget, QUALITY_MEDIUM,
-} from 'mediabunny'
 
 // ─── IMAGE COMPRESSION ───────────────────────────────────────────────
 
@@ -81,6 +76,11 @@ export async function compressVideo(inputFile, options = {}) {
   }
 
   if (onProgress) onProgress({ stage: 'preparing', progress: 0 })
+
+  const {
+    Input, Output, Conversion, ALL_FORMATS,
+    BlobSource, Mp4OutputFormat, BufferTarget, QUALITY_MEDIUM,
+  } = await import('mediabunny')
 
   const startTime = Date.now()
 

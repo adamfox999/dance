@@ -128,6 +128,58 @@ const JOURNEY_EVENT_META = {
   'exam-result': { icon: '🎓', label: 'Exam result' },
 }
 
+const posterFileTaskByKey = new Map()
+const posterUrlByKey = new Map()
+const posterUrlRefCountByKey = new Map()
+
+function retainPosterUrl(key) {
+  if (!key) return
+  const currentCount = posterUrlRefCountByKey.get(key) || 0
+  posterUrlRefCountByKey.set(key, currentCount + 1)
+}
+
+function releasePosterUrl(key) {
+  if (!key) return
+  const currentCount = posterUrlRefCountByKey.get(key) || 0
+  if (currentCount <= 1) {
+    posterUrlRefCountByKey.delete(key)
+    const url = posterUrlByKey.get(key)
+    if (url) {
+      URL.revokeObjectURL(url)
+      posterUrlByKey.delete(key)
+    }
+    return
+  }
+
+  posterUrlRefCountByKey.set(key, currentCount - 1)
+}
+
+function getPosterFileTask(key) {
+  let task = posterFileTaskByKey.get(key)
+  if (!task) {
+    task = loadFile(key)
+      .catch(() => null)
+      .finally(() => {
+        posterFileTaskByKey.delete(key)
+      })
+    posterFileTaskByKey.set(key, task)
+  }
+  return task
+}
+
+async function getPosterUrlForKey(key) {
+  if (!key) return ''
+  const existingUrl = posterUrlByKey.get(key)
+  if (existingUrl) return existingUrl
+
+  const file = await getPosterFileTask(key)
+  if (!file?.blob) return ''
+
+  const objectUrl = URL.createObjectURL(file.blob)
+  posterUrlByKey.set(key, objectUrl)
+  return objectUrl
+}
+
 function getShareableVideoSrc(value) {
   if (typeof value !== 'string') return ''
   const src = value.trim()
@@ -149,7 +201,7 @@ function SessionVideoPoster({ rehearsalVideoKey, rehearsalVideoName, videoSrc, c
     // Wait for hydration so effectiveOwnerId returns the correct user (guardian fix)
     if (isLoading) return
     let mounted = true
-    let objectUrl = ''
+    let retainedPosterKey = ''
 
     const safeVideoSrc = allowProvidedSrc ? getShareableVideoSrc(videoSrc) : ''
 
@@ -165,14 +217,15 @@ function SessionVideoPoster({ rehearsalVideoKey, rehearsalVideoName, videoSrc, c
       }
 
       try {
-        const file = await loadFile(rehearsalVideoKey)
-        if (!mounted || !file?.blob) {
+        const cachedPosterUrl = await getPosterUrlForKey(rehearsalVideoKey)
+        if (!mounted || !cachedPosterUrl) {
           if (mounted) setVideoUrl('')
           return
         }
 
-        objectUrl = URL.createObjectURL(file.blob)
-        setVideoUrl(objectUrl)
+        retainPosterUrl(rehearsalVideoKey)
+        retainedPosterKey = rehearsalVideoKey
+        setVideoUrl(cachedPosterUrl)
       } catch {
         if (mounted) setVideoUrl('')
       }
@@ -182,7 +235,7 @@ function SessionVideoPoster({ rehearsalVideoKey, rehearsalVideoName, videoSrc, c
 
     return () => {
       mounted = false
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
+      if (retainedPosterKey) releasePosterUrl(retainedPosterKey)
     }
   }, [rehearsalVideoKey, videoSrc, isLoading, allowProvidedSrc])
 
@@ -202,7 +255,9 @@ function SessionVideoPoster({ rehearsalVideoKey, rehearsalVideoName, videoSrc, c
       onError={() => {
         if (rehearsalVideoKey && allowProvidedSrc) {
           setAllowProvidedSrc(false)
+          return
         }
+        setVideoUrl('')
       }}
       title={rehearsalVideoName || 'Practice video'}
     />
@@ -639,7 +694,6 @@ export default function Timeline() {
           choreographyVersionId: versionId,
           status: 'scheduled',
         })
-      } else if (addType === 'event-entry') {
       } else if (isRoutine && addType === 'event-entry') {
         if (!routine) return
         if (!addEventId) {
@@ -671,7 +725,6 @@ export default function Timeline() {
           qualifiedForEventId: '',
           notes: '',
         })
-      } else if (addType === 'show') {
       } else if (isRoutine && addType === 'show') {
         if (!routine) return
         if (!addDate) {
@@ -1720,8 +1773,12 @@ export default function Timeline() {
 
                 {/* Media carousel for show cards */}
                 {item.type === 'show' && (() => {
+                  const currentEntry = (item.data.entries || []).find(e => e.routineId === id)
+                  const currentEntryId = currentEntry?.id || null
                   const media = (item.data.scrapbookEntries || []).filter(
-                    e => e.type === 'photo' || e.type === 'video'
+                    e => (e.type === 'photo' || e.type === 'video')
+                      && currentEntryId
+                      && e.eventEntryId === currentEntryId
                   )
                   if (media.length === 0) return null
                   return (

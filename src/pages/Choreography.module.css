@@ -1490,7 +1490,7 @@
   justify-content: center;
   gap: clamp(14px, 2.4vh, 24px);
   width: 100%;
-  padding: clamp(44px, 6vh, 70px) clamp(80px, 14vw, 180px) clamp(140px, 22vh, 240px);
+  padding: clamp(52px, 8vh, 92px) clamp(80px, 14vw, 180px);
   overflow-y: auto;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
@@ -1674,8 +1674,18 @@
   align-items: center;
 }
 
+@media (max-width: 600px) {
+  .stage-goal-add-row {
+    grid-template-columns: 1fr;
+  }
+
+  .stage-form-add {
+    width: 100%;
+  }
+}
+
 .stage-form-add {
-  width: fit-content;
+  width: 100%;
   border-radius: var(--radius-full);
   border: 1px solid rgba(212, 175, 55, 0.25);
   background: rgba(255, 255, 255, 0.05);
@@ -1780,6 +1790,7 @@
   row-gap: 10px;
   flex-wrap: wrap;
   justify-content: center;
+  margin-top: clamp(18px, 3vh, 34px);
   pointer-events: auto;
   animation: formEnter 0.5s ease-out 1.1s both;
 }
@@ -1823,6 +1834,20 @@
   opacity: 0.5;
   cursor: default;
   transform: none;
+}
+
+@media (max-width: 600px) {
+  .stage-actions {
+    width: 100%;
+    max-width: 420px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .stage-btn-secondary,
+  .stage-btn-primary {
+    width: 100%;
+  }
 }
 
 /* ---- Footlights ---- */
