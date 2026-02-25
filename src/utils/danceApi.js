@@ -1189,7 +1189,8 @@ export async function fetchEvents() {
   const client = ensureClient()
   await requireUser()
   const { data, error } = await client.from('event').select('*')
-    .order('start_date', { ascending: false })
+    .order('start_date', { ascending: true })
+    .order('event_date', { ascending: true })
   if (error) throw new Error(error.message)
   return (data || []).map(mapEvent)
 }
@@ -1198,8 +1199,8 @@ export async function fetchEventsWithChildren() {
   const client = ensureClient()
   await requireUser()
   const [evRows, enRows, scRows] = await Promise.all([
-    client.from('event').select('*').order('start_date', { ascending: false }),
-    client.from('event_entry').select('*').order('created_at'),
+    client.from('event').select('*').order('start_date', { ascending: true }).order('event_date', { ascending: true }),
+    client.from('event_entry').select('*').order('scheduled_date', { ascending: true }).order('scheduled_time', { ascending: true }).order('created_at'),
     client.from('scrapbook_entry').select('*').order('created_at'),
   ])
   if (evRows.error) throw new Error(evRows.error.message)

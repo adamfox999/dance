@@ -40,12 +40,6 @@ export default function Dashboard() {
       ? dancerDisciplines.find(d => d.id === currentFocus.id)
       : null
 
-  // Find next upcoming show
-  const upcomingShows = (events || [])
-    .filter(s => (s.startDate || s.date) >= today)
-    .sort((a, b) => (a.startDate || a.date).localeCompare(b.startDate || b.date))
-  const nextShow = upcomingShows[0]
-
   const competitionTypes = new Set(['qualifier', 'regional-final', 'national-final', 'festival'])
   const competitions = (events || [])
     .filter((eventItem) => competitionTypes.has(eventItem.eventType))
@@ -60,6 +54,52 @@ export default function Dashboard() {
       : routines
     ).map((routine) => routine.id)
   )
+
+  const getEventUpcomingDate = (eventItem) => {
+    const visibleEntries = (eventItem.entries || []).filter((entry) => {
+      if (!entry?.routineId) return true
+      return visibleRoutineIds.has(entry.routineId)
+    })
+
+    const upcomingEntryDate = visibleEntries
+      .filter((entry) => entry?.place == null)
+      .map((entry) => entry?.scheduledDate || '')
+      .filter((dateValue) => dateValue && dateValue >= today)
+      .sort((left, right) => left.localeCompare(right))[0]
+
+    if (upcomingEntryDate) return upcomingEntryDate
+
+    const eventStartDate = eventItem.startDate || eventItem.date || ''
+    return eventStartDate >= today ? eventStartDate : ''
+  }
+
+  const compareEntrySchedule = (left, right) => {
+    const leftDate = left.scheduledDate || ''
+    const rightDate = right.scheduledDate || ''
+    if (leftDate && rightDate && leftDate !== rightDate) return leftDate.localeCompare(rightDate)
+    if (leftDate && !rightDate) return -1
+    if (!leftDate && rightDate) return 1
+
+    const leftTime = left.scheduledTime || ''
+    const rightTime = right.scheduledTime || ''
+    if (leftTime && rightTime) return leftTime.localeCompare(rightTime)
+    if (leftTime && !rightTime) return -1
+    if (!leftTime && rightTime) return 1
+    return 0
+  }
+
+  // Find next upcoming show (prefer nearest visible entry date)
+  const upcomingShows = (events || [])
+    .map((eventItem) => ({
+      eventItem,
+      upcomingDate: getEventUpcomingDate(eventItem),
+    }))
+    .filter((item) => Boolean(item.upcomingDate))
+    .sort((left, right) => left.upcomingDate.localeCompare(right.upcomingDate))
+
+  const nextShowItem = upcomingShows[0] || null
+  const nextShow = nextShowItem?.eventItem || null
+  const nextShowDate = nextShowItem?.upcomingDate || ''
 
   const todaysSessions = (sessions || [])
     .filter((session) => {
@@ -100,8 +140,8 @@ export default function Dashboard() {
   }
 
   // Days until next show
-  const daysUntilShow = nextShow
-    ? Math.ceil((new Date(nextShow.startDate || nextShow.date) - new Date(today)) / (1000 * 60 * 60 * 24))
+  const daysUntilShow = nextShowDate
+    ? Math.ceil((new Date(nextShowDate) - new Date(today)) / (1000 * 60 * 60 * 24))
     : null
 
   // Latest sticker
@@ -226,6 +266,24 @@ export default function Dashboard() {
 
       {/* Upcoming show */}
       {nextShow && (
+        (() => {
+          const upcomingEntries = (nextShow.entries || [])
+            .filter((entry) => !entry?.routineId || visibleRoutineIds.has(entry.routineId))
+            .filter((entry) => entry?.place == null)
+            .map((entry) => {
+              const routine = routines.find((routineItem) => routineItem.id === entry.routineId)
+              if (!routine) return null
+              return {
+                id: entry.id,
+                label: routine.name,
+                scheduledDate: entry.scheduledDate || '',
+                scheduledTime: entry.scheduledTime || '',
+              }
+            })
+            .filter(Boolean)
+            .sort(compareEntrySchedule)
+
+          return (
         <div
           className={styles.upcomingCard}
           onClick={() => {
@@ -240,20 +298,22 @@ export default function Dashboard() {
             <div className={styles.upcomingDate}>
               {daysUntilShow === 0 ? 'Today!' : daysUntilShow === 1 ? 'Tomorrow!' : `${daysUntilShow} days to go`}
             </div>
-            {(nextShow.entries || []).length > 0 && (
+            {upcomingEntries.length > 0 && (
               <div className={styles.upcomingEntries}>
-                {nextShow.entries.map((entry) => {
-                  const r = routines.find((rt) => rt.id === entry.routineId)
-                  return r ? (
-                    <span key={entry.id} className={styles.upcomingEntryChip}>
-                      🎵 {r.name}
+                {upcomingEntries.map((entry) => (
+                    <span
+                      key={entry.id}
+                      className={styles.upcomingEntryChip}
+                    >
+                      🎵 {entry.label}
                     </span>
-                  ) : null
-                })}
+                ))}
               </div>
             )}
           </div>
         </div>
+          )
+        })()
       )}
 
       {/* Happening today */}
@@ -404,6 +464,7 @@ export default function Dashboard() {
                   return {
                     id: entry.id,
                     label: routine?.name || entry.title || 'Routine entry',
+                    isDone: entry?.place != null,
                   }
                 })
 
@@ -422,7 +483,11 @@ export default function Dashboard() {
                   <span className={styles.todayItemBody}>
                     <span className={styles.todayItemTitle}>{competition.name}</span>
                     <span className={styles.competitionMetaRow}>
-                      <span className={styles.todayItemMeta}>{(competition.startDate || competition.date) || 'Date not set'}</span>
+                      <span className={styles.todayItemMeta}>
+                        {competition.startDate || competition.date
+                          ? formatDateWithWeekday(competition.startDate || competition.date)
+                          : 'Date not set'}
+                      </span>
                       {shouldHighlightCompetitionType ? (
                         <span className={styles.competitionTypeChip}>{competitionTypeLabel}</span>
                       ) : (
@@ -432,7 +497,12 @@ export default function Dashboard() {
                     {competitionEntries.length > 0 ? (
                       <span className={styles.competitionEnteredRow}>
                         {competitionEntries.slice(0, 3).map((entry) => (
-                          <span key={entry.id} className={styles.competitionEntryChip}>{entry.label}</span>
+                          <span
+                            key={entry.id}
+                            className={`${styles.competitionEntryChip} ${entry.isDone ? styles.competitionEntryChipDone : ''}`}
+                          >
+                            {entry.label}
+                          </span>
                         ))}
                         {competitionEntries.length > 3 && (
                           <span className={styles.competitionEntryMore}>+{competitionEntries.length - 3} more</span>

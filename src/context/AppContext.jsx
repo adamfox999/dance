@@ -160,6 +160,64 @@ function hasSessionCompletedWithoutVideo(session = {}) {
   return false
 }
 
+function normalizeIsoDate(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  return raw.length >= 10 ? raw.slice(0, 10) : raw
+}
+
+function compareIsoDateStrings(leftValue, rightValue) {
+  const left = normalizeIsoDate(leftValue)
+  const right = normalizeIsoDate(rightValue)
+  if (left && right) return left.localeCompare(right)
+  if (left && !right) return -1
+  if (!left && right) return 1
+  return 0
+}
+
+function compareEventEntriesChronological(left = {}, right = {}) {
+  const byDate = compareIsoDateStrings(left.scheduledDate, right.scheduledDate)
+  if (byDate !== 0) return byDate
+
+  const leftTime = String(left.scheduledTime || '').trim()
+  const rightTime = String(right.scheduledTime || '').trim()
+  if (leftTime && rightTime && leftTime !== rightTime) return leftTime.localeCompare(rightTime)
+  if (leftTime && !rightTime) return -1
+  if (!leftTime && rightTime) return 1
+
+  const leftId = String(left.id || '')
+  const rightId = String(right.id || '')
+  return leftId.localeCompare(rightId)
+}
+
+function sortEventEntriesChronological(entries = []) {
+  return [...entries].sort(compareEventEntriesChronological)
+}
+
+function normalizeEventChronological(event = {}) {
+  const sortedEntries = sortEventEntriesChronological(event.entries || [])
+  return {
+    ...event,
+    entries: sortedEntries,
+    routineIds: [...new Set(sortedEntries.map((entry) => entry.routineId).filter(Boolean))],
+  }
+}
+
+function compareEventsChronological(left = {}, right = {}) {
+  const byStartDate = compareIsoDateStrings(left.startDate || left.date, right.startDate || right.date)
+  if (byStartDate !== 0) return byStartDate
+
+  const leftName = String(left.name || '')
+  const rightName = String(right.name || '')
+  return leftName.localeCompare(rightName)
+}
+
+function sortEventsChronological(eventList = []) {
+  return [...eventList]
+    .map((eventItem) => normalizeEventChronological(eventItem))
+    .sort(compareEventsChronological)
+}
+
 function readStoredActiveProfile() {
   if (typeof window === 'undefined') return { type: 'adult' }
   try {
@@ -896,28 +954,28 @@ export function AppProvider({ children }) {
   // ---- Events (shows) ----
   const addShow = useCallback(async (payload) => {
     const created = await apiCreateEvent(payload)
-    setEvents(prev => [...prev, created])
+    setEvents(prev => sortEventsChronological([...prev, created]))
     return created
   }, [])
 
   const editShow = useCallback(async (id, updates) => {
     const updated = await apiUpdateEvent(id, updates)
-    setEvents(prev => prev.map(ev => ev.id === id ? { ...ev, ...updated } : ev))
+    setEvents(prev => sortEventsChronological(prev.map(ev => ev.id === id ? { ...ev, ...updated } : ev)))
     return updated
   }, [])
 
   const removeShow = useCallback(async (id) => {
-    setEvents(prev => prev.filter(ev => ev.id !== id))
+    setEvents(prev => sortEventsChronological(prev.filter(ev => ev.id !== id)))
     await apiDeleteEvent(id)
   }, [])
 
   // ---- Event entries ----
   const addEventEntry = useCallback(async (showId, entry) => {
     const created = await apiCreateEventEntry(showId, entry)
-    setEvents(prev => prev.map(ev =>
+    setEvents(prev => sortEventsChronological(prev.map(ev =>
       ev.id === showId
         ? (() => {
-            const nextEntries = [...(ev.entries || []), created]
+            const nextEntries = sortEventEntriesChronological([...(ev.entries || []), created])
             return {
               ...ev,
               entries: nextEntries,
@@ -925,16 +983,16 @@ export function AppProvider({ children }) {
             }
           })()
         : ev
-    ))
+    )))
     return created
   }, [])
 
   const editEventEntry = useCallback(async (showId, entryId, updates) => {
     const updated = await apiUpdateEventEntry(entryId, updates)
-    setEvents(prev => prev.map(ev =>
+    setEvents(prev => sortEventsChronological(prev.map(ev =>
       ev.id === showId
         ? (() => {
-            const nextEntries = (ev.entries || []).map((entry) => entry.id === entryId ? updated : entry)
+            const nextEntries = sortEventEntriesChronological((ev.entries || []).map((entry) => entry.id === entryId ? updated : entry))
             return {
               ...ev,
               entries: nextEntries,
@@ -942,15 +1000,15 @@ export function AppProvider({ children }) {
             }
           })()
         : ev
-    ))
+    )))
     return updated
   }, [])
 
   const removeEventEntry = useCallback(async (showId, entryId) => {
-    setEvents(prev => prev.map(ev =>
+    setEvents(prev => sortEventsChronological(prev.map(ev =>
       ev.id === showId
         ? (() => {
-            const nextEntries = (ev.entries || []).filter((entry) => entry.id !== entryId)
+            const nextEntries = sortEventEntriesChronological((ev.entries || []).filter((entry) => entry.id !== entryId))
             return {
               ...ev,
               entries: nextEntries,
@@ -958,16 +1016,16 @@ export function AppProvider({ children }) {
             }
           })()
         : ev
-    ))
+    )))
     await apiDeleteEventEntry(entryId)
   }, [])
 
   // ---- Scrapbook entries ----
   const addScrapbookEntry = useCallback(async (showId, entry) => {
     const created = await apiCreateScrapbookEntry(showId, entry)
-    setEvents(prev => prev.map(ev =>
+    setEvents(prev => sortEventsChronological(prev.map(ev =>
       ev.id === showId ? { ...ev, scrapbookEntries: [...(ev.scrapbookEntries || []), created] } : ev
-    ))
+    )))
     return created
   }, [])
 
@@ -976,20 +1034,20 @@ export function AppProvider({ children }) {
     const entry = ev?.scrapbookEntries?.find(e => e.id === entryId)
     if (!entry) return
     const updated = [...(entry.emojiReactions || []), emoji]
-    setEvents(prev => prev.map(e =>
+    setEvents(prev => sortEventsChronological(prev.map(e =>
       e.id === showId
         ? { ...e, scrapbookEntries: (e.scrapbookEntries || []).map(s => s.id === entryId ? { ...s, emojiReactions: updated } : s) }
         : e
-    ))
+    )))
     apiUpdateScrapbookEntry(entryId, { emojiReactions: updated }).catch(e => console.warn('Save scrapbook reaction:', e))
   }, [])
 
   const removeScrapbookEntry = useCallback(async (showId, entryId) => {
-    setEvents(prev => prev.map(ev =>
+    setEvents(prev => sortEventsChronological(prev.map(ev =>
       ev.id === showId
         ? { ...ev, scrapbookEntries: (ev.scrapbookEntries || []).filter((entry) => entry.id !== entryId) }
         : ev
-    ))
+    )))
     await apiDeleteScrapbookEntry(entryId)
   }, [])
 
@@ -1169,7 +1227,7 @@ export function AppProvider({ children }) {
         setDisciplines(shouldUseDefaultDisciplines ? defaultState.disciplines : nextDisc)
         setRoutines(nextRout)
         setSessions(nextSess)
-        setEvents(nextEvts)
+        setEvents(sortEventsChronological(nextEvts))
         setSettingsState(sett)
 
         if (!cancelled) setIsLoading(false)

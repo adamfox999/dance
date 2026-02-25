@@ -139,6 +139,12 @@
   background: rgba(255,255,255,0.25);
 }
 
+.upcomingEntryChipDone {
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+  opacity: 0.72;
+}
+
 .todayCard {
   background: #fff;
   border-radius: 1rem;
@@ -238,6 +244,12 @@
   color: #5b21b6;
   background: #ede9fe;
   border: 1px solid #ddd6fe;
+}
+
+.competitionEntryChipDone {
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+  opacity: 0.7;
 }
 
 .competitionEntryMore {

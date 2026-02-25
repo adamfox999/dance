@@ -21,6 +21,7 @@ export default function Scrapbook() {
   const [lightboxIndex, setLightboxIndex] = useState(null) // index into mediaEntries
   const [selectedMediaEntryId, setSelectedMediaEntryId] = useState('')
   const [showAddEntry, setShowAddEntry] = useState(false)
+  const [entryDateDrafts, setEntryDateDrafts] = useState({})
   const [textDialog, setTextDialog] = useState({
     open: false,
     title: '',
@@ -390,8 +391,27 @@ export default function Scrapbook() {
                           <input
                             type="date"
                             className={styles.qualifiedForSelect}
-                            value={entry.scheduledDate || ''}
-                            onChange={(e) => editEventEntry(showId, entry.id, { scheduledDate: e.target.value || '' })}
+                            value={entryDateDrafts[entry.id] ?? (entry.scheduledDate || '')}
+                            onChange={(e) => {
+                              const nextValue = e.target.value || ''
+                              setEntryDateDrafts((prev) => ({
+                                ...prev,
+                                [entry.id]: nextValue,
+                              }))
+                            }}
+                            onBlur={(e) => {
+                              const nextValue = e.target.value || ''
+                              const currentValue = entry.scheduledDate || ''
+                              if (nextValue !== currentValue) {
+                                editEventEntry(showId, entry.id, { scheduledDate: nextValue })
+                              }
+                              setEntryDateDrafts((prev) => {
+                                if (!(entry.id in prev)) return prev
+                                const nextDrafts = { ...prev }
+                                delete nextDrafts[entry.id]
+                                return nextDrafts
+                              })
+                            }}
                           />
                           <input
                             type="time"

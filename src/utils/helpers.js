@@ -1,30 +1,61 @@
 const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+]
 
 function parseDateValue(dateValue) {
   const date = new Date(dateValue)
   return Number.isNaN(date.getTime()) ? null : date
 }
 
-function formatTwoDigits(value) {
-  return String(value).padStart(2, "0")
+function formatOrdinalDay(day) {
+  const mod100 = day % 100
+  if (mod100 >= 11 && mod100 <= 13) return `${day}th`
+
+  const mod10 = day % 10
+  if (mod10 === 1) return `${day}st`
+  if (mod10 === 2) return `${day}nd`
+  if (mod10 === 3) return `${day}rd`
+  return `${day}th`
+}
+
+function formatDateLabel(date, includeWeekday = false) {
+  const ordinalDay = formatOrdinalDay(date.getDate())
+  const month = MONTH_NAMES[date.getMonth()]
+  const currentYear = new Date().getFullYear()
+  const yearSuffix = date.getFullYear() === currentYear ? "" : ` ${date.getFullYear()}`
+
+  if (includeWeekday) {
+    const weekday = WEEKDAY_NAMES[date.getDay()]
+    return `${weekday}, ${ordinalDay} ${month}${yearSuffix}`
+  }
+
+  return `${ordinalDay} ${month}${yearSuffix}`
 }
 
 export function formatDate(dateStr) {
   const date = parseDateValue(dateStr)
   if (!date) return "—"
 
-  const day = formatTwoDigits(date.getDate())
-  const month = formatTwoDigits(date.getMonth() + 1)
-  const year = formatTwoDigits(date.getFullYear() % 100)
-  return `${day}-${month}-${year}`
+  return formatDateLabel(date)
 }
 
 export function formatDateWithWeekday(dateStr) {
   const date = parseDateValue(dateStr)
   if (!date) return "—"
 
-  const weekday = WEEKDAY_NAMES[date.getDay()]
-  return `${weekday}, ${formatDate(dateStr)}`
+  return formatDateLabel(date, true)
 }
 
 export function formatDateLong(dateStr) {

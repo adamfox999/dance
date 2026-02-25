@@ -1752,7 +1752,7 @@ export default function Timeline() {
                         const hasDate = Boolean(entry.scheduledDate)
                         const hasTime = Boolean(entry.scheduledTime)
                         const dateLabel = hasDate
-                          ? formatDate(entry.scheduledDate)
+                          ? formatDateWithWeekday(entry.scheduledDate)
                           : ''
                         return (
                           <div className={styles.entryDetails}>
