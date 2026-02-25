@@ -2,15 +2,14 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { loadFile } from '../utils/fileStorage'
+import { formatDate as formatUiDate, formatDateWithWeekday } from '../utils/helpers'
 import { getEventTypeIcon, getEventTypeLabel } from '../data/aedEvents'
 import { fetchStateFromBackend } from '../utils/backendApi'
 import { notify } from '../utils/notify'
 import styles from './Timeline.module.css'
 
 function formatDate(dateStr) {
-  const date = new Date(dateStr)
-  if (Number.isNaN(date.getTime())) return '—'
-  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  return formatUiDate(dateStr)
 }
 
 function dateValueToMs(value) {
@@ -27,23 +26,9 @@ function getPracticeVideoDate(video = {}) {
 }
 
 function formatRehearsalTitle(dateStr) {
-  const date = new Date(dateStr)
-  if (Number.isNaN(date.getTime())) return 'Rehearsal'
-
-  const day = date.getDate()
-  const month = date.toLocaleDateString('en-GB', { month: 'long' })
-  const mod100 = day % 100
-  const suffix = (mod100 >= 11 && mod100 <= 13)
-    ? 'th'
-    : day % 10 === 1
-      ? 'st'
-      : day % 10 === 2
-        ? 'nd'
-        : day % 10 === 3
-          ? 'rd'
-          : 'th'
-
-  return `${day}${suffix} ${month} rehearsal`
+  const label = formatDateWithWeekday(dateStr)
+  if (label === '—') return 'Rehearsal'
+  return `${label} rehearsal`
 }
 
 function formatOrdinalPlace(value) {
@@ -1767,7 +1752,7 @@ export default function Timeline() {
                         const hasDate = Boolean(entry.scheduledDate)
                         const hasTime = Boolean(entry.scheduledTime)
                         const dateLabel = hasDate
-                          ? new Date(entry.scheduledDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+                          ? formatDate(entry.scheduledDate)
                           : ''
                         return (
                           <div className={styles.entryDetails}>

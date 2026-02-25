@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { getEventTypeIcon } from '../data/aedEvents'
-import { getSessionIcon } from '../utils/helpers'
+import { getSessionIcon, formatDateWithWeekday } from '../utils/helpers'
 import { notify } from '../utils/notify'
 import styles from './Dashboard.module.css'
 
@@ -150,7 +150,7 @@ export default function Dashboard() {
       {/* Greeting */}
       <div className={styles.greeting}>
         <h1>Hey {isKidMode ? (activeKidProfile?.display_name || 'Dancer') : (userProfile?.display_name || dancerProfile?.name || 'there')}! 👋</h1>
-        <p className={styles.date}>{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+        <p className={styles.date}>{formatDateWithWeekday(new Date())}</p>
       </div>
 
       {/* Kid setup prompt for new users */}

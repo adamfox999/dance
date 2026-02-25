@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { getEventTypeIcon, getEventTypeLabel } from '../data/aedEvents'
+import { formatDate, formatDateWithWeekday } from '../utils/helpers'
 import { compressImage, compressVideo } from '../utils/mediaCompress'
 import { notify } from '../utils/notify'
 import TextInputDialog from '../components/TextInputDialog'
@@ -233,9 +234,9 @@ export default function Scrapbook() {
             {getEventTypeIcon(show.eventType)} {show.name}
           </h1>
           <p className={styles.showMeta}>
-            📅 {new Date(show.startDate || show.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+            📅 {formatDateWithWeekday(show.startDate || show.date)}
             {show.endDate && show.endDate !== (show.startDate || show.date) && (
-              <> – {new Date(show.endDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })}</>
+              <> – {formatDate(show.endDate)}</>
             )}
             {show.venue && ` · 📍 ${show.venue}`}
           </p>
@@ -308,7 +309,7 @@ export default function Scrapbook() {
               const hasDate = Boolean(entry.scheduledDate)
               const hasTime = Boolean(entry.scheduledTime)
               const dateLabel = hasDate
-                ? new Date(entry.scheduledDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+                ? formatDate(entry.scheduledDate)
                 : ''
               const qualifiedEvent = entry.qualifiedForEventId
                 ? (events || []).find((s) => s.id === entry.qualifiedForEventId)

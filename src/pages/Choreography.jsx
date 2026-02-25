@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate, useSearchParams, useParams } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
-import { generateId } from '../utils/helpers'
+import { generateId, formatDate } from '../utils/helpers'
 import { decodeAudioFile, extractWaveform, crossCorrelateSync, formatTimestamp } from '../utils/audioSync'
 import { detectBeats, getCurrentBeatInfo } from '../utils/beatDetection'
 import { saveFile, saveLocalFile, loadFile, loadLocalFile } from '../utils/fileStorage'
@@ -2419,7 +2419,7 @@ export default function Choreography() {
                   >
                     {versions.map((v, i) => (
                       <option key={v.id} value={v.id}>
-                        v{i + 1} {v.createdAt ? `(${new Date(v.createdAt).toLocaleDateString()})` : ''}
+                        v{i + 1} {v.createdAt ? `(${formatDate(v.createdAt)})` : ''}
                       </option>
                     ))}
                   </select>

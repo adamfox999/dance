@@ -1,11 +1,34 @@
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+
+function parseDateValue(dateValue) {
+  const date = new Date(dateValue)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function formatTwoDigits(value) {
+  return String(value).padStart(2, "0")
+}
+
 export function formatDate(dateStr) {
-  const d = new Date(dateStr)
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })
+  const date = parseDateValue(dateStr)
+  if (!date) return "—"
+
+  const day = formatTwoDigits(date.getDate())
+  const month = formatTwoDigits(date.getMonth() + 1)
+  const year = formatTwoDigits(date.getFullYear() % 100)
+  return `${day}-${month}-${year}`
+}
+
+export function formatDateWithWeekday(dateStr) {
+  const date = parseDateValue(dateStr)
+  if (!date) return "—"
+
+  const weekday = WEEKDAY_NAMES[date.getDay()]
+  return `${weekday}, ${formatDate(dateStr)}`
 }
 
 export function formatDateLong(dateStr) {
-  const d = new Date(dateStr)
-  return d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
+  return formatDateWithWeekday(dateStr)
 }
 
 export function daysUntil(dateStr) {
