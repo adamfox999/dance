@@ -700,36 +700,29 @@ export default function Settings() {
         <div className={styles['settings-section']}>
           <h3>Account</h3>
           <div className={styles['setting-card']}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '1.2rem' }}>✅</span>
-              <span style={{ fontWeight: 600, color: '#166534' }}>
-                Signed in as {authUser.email || 'user'}
-              </span>
-              <button
-                className={styles['data-btn']}
-                style={{ marginLeft: 'auto', background: '#fee2e2', color: '#dc2626' }}
-                onClick={handleSignOut}
-                disabled={authBusy}
-              >
-                Sign out
-              </button>
-            </div>
-          </div>
-
-          <div className={styles['setting-card']} style={{ marginTop: 12 }}>
             <div className={styles['item-row']}>
               <div>
-                <div style={{ fontWeight: 600 }}>Other devices</div>
+                <div style={{ fontWeight: 600 }}>{authUser.email || 'user'}</div>
                 <div style={{ fontSize: '0.78rem', color: '#6b7280' }}>
                   Stays signed in on each device until you sign out.
                 </div>
               </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
               <button
                 className={styles['data-btn']}
                 onClick={handleSignOutOtherDevices}
                 disabled={otherSessionsBusy}
               >
                 {otherSessionsBusy ? 'Signing out…' : 'Sign out other devices'}
+              </button>
+              <button
+                className={styles['data-btn']}
+                style={{ background: '#fee2e2', color: '#dc2626' }}
+                onClick={handleSignOut}
+                disabled={authBusy}
+              >
+                Sign out
               </button>
             </div>
           </div>
