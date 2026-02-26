@@ -311,6 +311,7 @@ export default function Timeline() {
   const [shareBusy, setShareBusy] = useState(false)
   const [shareMsg, setShareMsg] = useState(null)
   const [shareLink, setShareLink] = useState(null)
+  const [noVideoTakenSessionIds, setNoVideoTakenSessionIds] = useState([])
   const [partnerKidsMap, setPartnerKidsMap] = useState({}) // { shareId: [kid, ...] }
   const [tagBusy, setTagBusy] = useState(false)
   const [sharedOwnerKids, setSharedOwnerKids] = useState([])
@@ -1496,37 +1497,45 @@ export default function Timeline() {
                 {item.type === 'session' && (() => {
                   const sessionStarted = hasSessionStarted(item.data, item.date)
                   const sessionHasVideo = Boolean(item.data.rehearsalVideoKey)
+                  const sessionMarkedNoVideo = noVideoTakenSessionIds.includes(item.data.id)
                   const timeRange = [item.data.startTime || item.data.time || '', item.data.endTime || ''].filter(Boolean).join(' - ')
                   const sessionTitle = (item.data.title || '').trim() || formatRehearsalTitle(item.date)
                   const sessionLink = item.data.routineId
                     ? `/choreography/${item.data.routineId}?live=true&sessionId=${item.data.id}${sessionStarted && !sessionHasVideo ? '&openMedia=video' : ''}`
                     : ''
 
-                  if (!sessionStarted) {
-                    return (
-                      <div
-                        className={styles.cardBody}
-                        onClick={() => {
-                          if (isAdmin) openSessionEditor(item.data)
-                        }}
-                        style={isAdmin ? { cursor: 'pointer' } : undefined}
-                      >
-                        <span className={styles.cardIcon}>{SESSION_ICONS[item.data.type] || '📝'}</span>
-                        <div className={styles.cardInfo}>
-                          <div className={styles.cardTitle}>
-                            {sessionTitle}
-                            <span className={styles.eventTypeTag}>
-                              {SESSION_TYPE_LABELS[item.data.type] || 'Practice'}
-                            </span>
-                          </div>
-                          <div className={styles.entryDetails}>
-                            <span>{timeRange ? `⏰ ${timeRange}` : '⏰ Session scheduled'}</span>
-                            {item.data.with && <span>👥 with {item.data.with}</span>}
-                          </div>
+                  const renderOriginalSessionCard = (detailsSuffix = '') => (
+                    <div
+                      className={styles.cardBody}
+                      onClick={() => {
+                        if (isAdmin) openSessionEditor(item.data)
+                      }}
+                      style={isAdmin ? { cursor: 'pointer' } : undefined}
+                    >
+                      <span className={styles.cardIcon}>{SESSION_ICONS[item.data.type] || '📝'}</span>
+                      <div className={styles.cardInfo}>
+                        <div className={styles.cardTitle}>
+                          {sessionTitle}
+                          <span className={styles.eventTypeTag}>
+                            {SESSION_TYPE_LABELS[item.data.type] || 'Practice'}
+                          </span>
                         </div>
-                        <span className={styles.cardArrow}>→</span>
+                        <div className={styles.entryDetails}>
+                          <span>{timeRange ? `⏰ ${timeRange}` : '⏰ Session scheduled'}</span>
+                          {item.data.with && <span>👥 with {item.data.with}</span>}
+                          {detailsSuffix && <span>{detailsSuffix}</span>}
+                        </div>
                       </div>
-                    )
+                      <span className={styles.cardArrow}>→</span>
+                    </div>
+                  )
+
+                  if (!sessionStarted) {
+                    return renderOriginalSessionCard()
+                  }
+
+                  if (!sessionHasVideo && sessionMarkedNoVideo) {
+                    return renderOriginalSessionCard('🎞️ No video taken')
                   }
 
                   return (
@@ -1602,6 +1611,34 @@ export default function Timeline() {
                               </div>
                             )
                           })()}
+
+                          {!sessionHasVideo && (
+                            <div className={styles.sessionMediaChoiceRow}>
+                              {sessionLink && (
+                                <button
+                                  className={styles.sessionMediaChoiceBtn}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    navigate(sessionLink)
+                                  }}
+                                >
+                                  Add video
+                                </button>
+                              )}
+                              <button
+                                className={`${styles.sessionMediaChoiceBtn} ${styles.sessionMediaChoiceBtnSecondary}`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setNoVideoTakenSessionIds((prev) => {
+                                    if (prev.includes(item.data.id)) return prev
+                                    return [...prev, item.data.id]
+                                  })
+                                }}
+                              >
+                                No video taken
+                              </button>
+                            </div>
+                          )}
                         </div>
 
                         <div className={styles.sessionMediaActions}>

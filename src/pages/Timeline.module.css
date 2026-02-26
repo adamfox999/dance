@@ -396,6 +396,33 @@
   text-overflow: ellipsis;
 }
 
+.sessionMediaChoiceRow {
+  margin-top: 0.38rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.sessionMediaChoiceBtn {
+  border: 1px solid rgba(255,255,255,0.52);
+  background: rgba(255,255,255,0.16);
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.2rem 0.52rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sessionMediaChoiceBtn:hover {
+  background: rgba(255,255,255,0.28);
+}
+
+.sessionMediaChoiceBtnSecondary {
+  border-color: rgba(209, 213, 219, 0.74);
+  color: rgba(255,255,255,0.92);
+}
+
 .sessionMediaActions {
   display: flex;
   align-items: flex-end;
