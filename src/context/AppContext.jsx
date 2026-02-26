@@ -259,6 +259,13 @@ export function AppProvider({ children }) {
     }
   }, [authUser?.id])
 
+  const signOutOtherDevices = useCallback(async () => {
+    if (!hasSupabaseConfig || !supabase || !authUser?.id) return 0
+    const { error } = await supabase.auth.signOut({ scope: 'others' })
+    if (error) throw error
+    return 0
+  }, [authUser?.id])
+
   // Profile state
   const [userProfile, setUserProfile] = useState(null)
   const [kidProfiles, setKidProfiles] = useState([])
@@ -1346,11 +1353,19 @@ export function AppProvider({ children }) {
     return true
   }
 
-  const signOut = async () => {
+  const signOut = async (scope = 'local') => {
     if (!supabase) return
     setDanceDataOwnerId(null)
     setBackendDanceOwnerId(null)
-    await supabase.auth.signOut()
+
+    if (scope === 'others') {
+      const { error } = await supabase.auth.signOut({ scope: 'others' })
+      if (error) throw error
+      return
+    }
+
+    const { error } = await supabase.auth.signOut(scope ? { scope } : undefined)
+    if (error) throw error
   }
 
   return (
@@ -1383,6 +1398,7 @@ export function AppProvider({ children }) {
       verifyEmailOtp,
       checkUserExists,
       signOut,
+      signOutOtherDevices,
 
       // Profiles
       userProfile,

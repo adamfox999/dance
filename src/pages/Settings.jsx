@@ -21,6 +21,7 @@ export default function Settings() {
     addShow, editShow, removeShow,
     resetState,
     isAdmin, hasSupabaseAuth, authUser, signOut,
+    signOutOtherDevices,
     // Profiles
     userProfile, kidProfiles, ownKidProfiles, familyUnits,
     saveUserProfile, addKidProfile, editKidProfile, removeKidProfile,
@@ -37,6 +38,7 @@ export default function Settings() {
   const promptLeadMs = Math.max(0, Math.min(600, Number(settings?.promptLeadMs ?? 0)))
   const importRef = useRef(null)
   const [authBusy, setAuthBusy] = useState(false)
+  const [otherSessionsBusy, setOtherSessionsBusy] = useState(false)
 
   // Profile editing state
   const [editingProfile, setEditingProfile] = useState(false)
@@ -205,6 +207,19 @@ export default function Settings() {
       notify(err?.message || 'Could not sign out')
     } finally {
       setAuthBusy(false)
+    }
+  }
+
+  const handleSignOutOtherDevices = async () => {
+    if (!window.confirm('Sign out every other device?')) return
+    setOtherSessionsBusy(true)
+    try {
+      await signOutOtherDevices()
+      notify('Signed out other devices')
+    } catch (err) {
+      notify(err?.message || 'Could not sign out other devices')
+    } finally {
+      setOtherSessionsBusy(false)
     }
   }
 
@@ -697,6 +712,24 @@ export default function Settings() {
                 disabled={authBusy}
               >
                 Sign out
+              </button>
+            </div>
+          </div>
+
+          <div className={styles['setting-card']} style={{ marginTop: 12 }}>
+            <div className={styles['item-row']}>
+              <div>
+                <div style={{ fontWeight: 600 }}>Other devices</div>
+                <div style={{ fontSize: '0.78rem', color: '#6b7280' }}>
+                  Stays signed in on each device until you sign out.
+                </div>
+              </div>
+              <button
+                className={styles['data-btn']}
+                onClick={handleSignOutOtherDevices}
+                disabled={otherSessionsBusy}
+              >
+                {otherSessionsBusy ? 'Signing out…' : 'Sign out other devices'}
               </button>
             </div>
           </div>
