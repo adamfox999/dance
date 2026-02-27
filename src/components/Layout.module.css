@@ -54,6 +54,10 @@
   overflow-x: hidden;
 }
 
+.main-content-no-scroll {
+  overflow: hidden;
+}
+
 /* ===== BOTTOM NAV ===== */
 .bottom-nav {
   display: flex;

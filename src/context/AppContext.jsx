@@ -139,6 +139,7 @@ function toLocalDateTimeMs(dateStr, timeStr = '') {
 
 function hasSessionCompletedWithoutVideo(session = {}) {
   if (!session?.id || session?.rehearsalVideoKey) return false
+  if (session?.noVideoTaken) return false
   const now = Date.now()
   if (session.status === 'completed' || session.completedAt) return true
 
@@ -812,6 +813,8 @@ export function AppProvider({ children }) {
   const attachRehearsalVideo = useCallback(async (sessionId, videoKey, videoName) => {
     const updated = await apiUpdateSession(sessionId, {
       rehearsalVideoKey: videoKey || '', rehearsalVideoName: videoName || '',
+      noVideoTaken: false,
+      noVideoTakenAt: null,
       status: 'completed', completedAt: new Date().toISOString(),
     })
     setSessions(prev => prev.map(s => s.id === sessionId ? updated : s))

@@ -278,6 +278,8 @@ export default function Timeline() {
   } = useApp()
   const navigate = useNavigate()
   const nowRef = useRef(null)
+  const timelineScrollRef = useRef(null)
+  const timelineFocusRef = useRef(null)
   const [reflectingSession, setReflectingSession] = useState(null)
   const [feeling, setFeeling] = useState('')
   const [note, setNote] = useState('')
@@ -311,7 +313,7 @@ export default function Timeline() {
   const [shareBusy, setShareBusy] = useState(false)
   const [shareMsg, setShareMsg] = useState(null)
   const [shareLink, setShareLink] = useState(null)
-  const [noVideoTakenSessionIds, setNoVideoTakenSessionIds] = useState([])
+  const [noVideoSavingSessionId, setNoVideoSavingSessionId] = useState(null)
   const [partnerKidsMap, setPartnerKidsMap] = useState({}) // { shareId: [kid, ...] }
   const [tagBusy, setTagBusy] = useState(false)
   const [sharedOwnerKids, setSharedOwnerKids] = useState([])
@@ -393,6 +395,9 @@ export default function Timeline() {
   }, [events])
 
   // Merge all events into a single timeline
+  const today = new Date().toISOString().split('T')[0]
+  const todayMs = dateValueToMs(today)
+
   const timelineItems = (() => {
     const items = []
 
@@ -419,15 +424,52 @@ export default function Timeline() {
     return items
   })()
 
+  const timelineFocusIndex = useMemo(() => {
+    if (!timelineItems.length) return -1
+
+    let nearestUpcomingIndex = -1
+    let nearestUpcomingMs = Number.POSITIVE_INFINITY
+    let latestTodayIndex = -1
+    let latestTodayMs = Number.NEGATIVE_INFINITY
+
+    timelineItems.forEach((item, index) => {
+      const itemMs = dateValueToMs(item.date)
+      if (!Number.isFinite(itemMs)) return
+
+      if (itemMs > todayMs && itemMs < nearestUpcomingMs) {
+        nearestUpcomingMs = itemMs
+        nearestUpcomingIndex = index
+      }
+
+      if (item.date === today && itemMs >= latestTodayMs) {
+        latestTodayMs = itemMs
+        latestTodayIndex = index
+      }
+    })
+
+    if (latestTodayIndex >= 0) return latestTodayIndex
+    if (nearestUpcomingIndex >= 0) return nearestUpcomingIndex
+
+    const firstPastIndex = timelineItems.findIndex((item) => dateValueToMs(item.date) <= todayMs)
+    return firstPastIndex >= 0 ? firstPastIndex : 0
+  }, [timelineItems, today, todayMs])
+
   // Discipline elements (for discipline view)
   const elements = isDiscipline ? (discipline?.elements || []) : []
 
-  // Scroll to NOW on mount
+  // Anchor nearest current/next item at top inside timeline scroller only
   useEffect(() => {
-    if (nowRef.current) {
-      nowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
-  }, [])
+    const timelineScroller = timelineScrollRef.current
+    const focusItem = timelineFocusRef.current
+    if (!timelineScroller || !focusItem) return
+
+    const scrollerRect = timelineScroller.getBoundingClientRect()
+    const focusRect = focusItem.getBoundingClientRect()
+    const topOffsetWithinScroller = focusRect.top - scrollerRect.top
+    const targetScrollTop = Math.max(0, timelineScroller.scrollTop + topOffsetWithinScroller)
+
+    timelineScroller.scrollTo({ top: targetScrollTop, behavior: 'smooth' })
+  }, [timelineFocusIndex, timelineItems.length])
 
   useEffect(() => {
     if (!isRoutine) return
@@ -852,7 +894,6 @@ export default function Timeline() {
     }
   }
 
-  const today = new Date().toISOString().split('T')[0]
   let nowInserted = false
 
   return (
@@ -892,42 +933,7 @@ export default function Timeline() {
         )}
       </div>
 
-      {isAdmin && isRoutine && routine && !isSharedRecipientRoutine && (ownKidProfiles || []).length > 0 && (
-        <div style={{ marginTop: 4, marginBottom: 12 }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {ownAssignedKids.map((kid) => (
-              <button
-                key={kid.id}
-                type="button"
-                disabled={tagBusy}
-                onClick={() => toggleOwnKidOnRoutineTop(kid.id)}
-                style={{
-                  padding: '2px 8px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700,
-                  border: '1px solid #a78bfa', background: '#ede9fe', color: '#6d28d9',
-                  cursor: tagBusy ? 'wait' : 'pointer',
-                }}
-              >
-                {kid.avatar_emoji} {kid.display_name}
-              </button>
-            ))}
-            {ownUnassignedKids.map((kid) => (
-              <button
-                key={`add-own-kid-${kid.id}`}
-                type="button"
-                disabled={tagBusy}
-                onClick={() => toggleOwnKidOnRoutineTop(kid.id)}
-                style={{
-                  padding: '2px 8px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700,
-                  border: '1px dashed #9ca3af', background: '#fff', color: '#374151',
-                  cursor: tagBusy ? 'wait' : 'pointer',
-                }}
-              >
-                + Add {kid.display_name} to this dance
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      <div ref={timelineScrollRef} className={styles.timelineScroll}>
 
       {isAdmin && isRoutine && routine && editingSessionId && (
         <div className={styles.addDialogBackdrop} onClick={closeSessionEditor}>
@@ -1010,54 +1016,6 @@ export default function Timeline() {
         </div>
       )}
 
-      {isAdmin && isRoutine && routine && isSharedRecipientRoutine && (ownKidProfiles || []).length > 0 && (
-        <div style={{ marginTop: 4, marginBottom: 12 }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {ownerRoutineTaggedKids.map((kid) => (
-              <span
-                key={`owner-tagged-${kid.id}`}
-                style={{
-                  padding: '2px 8px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700,
-                  border: '1px solid #a78bfa', background: '#ede9fe', color: '#6d28d9',
-                }}
-              >
-                {kid.avatar_emoji} {kid.display_name}
-              </span>
-            ))}
-            {recipientTaggedProfiles.map((kid) => (
-              <button
-                key={kid.id}
-                type="button"
-                disabled={tagBusy}
-                onClick={() => toggleRecipientKidTagTop(kid.id)}
-                style={{
-                  padding: '2px 8px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700,
-                  border: '1px solid #60a5fa', background: '#dbeafe', color: '#1e40af',
-                  cursor: tagBusy ? 'wait' : 'pointer',
-                }}
-              >
-                {kid.avatar_emoji} {kid.display_name}
-              </button>
-            ))}
-            {recipientUntaggedKids.map((kid) => (
-              <button
-                key={`add-recipient-kid-${kid.id}`}
-                type="button"
-                disabled={tagBusy}
-                onClick={() => toggleRecipientKidTagTop(kid.id)}
-                style={{
-                  padding: '2px 8px', borderRadius: 999, fontSize: '0.72rem', fontWeight: 700,
-                  border: '1px dashed #60a5fa', background: '#eff6ff', color: '#1d4ed8',
-                  cursor: tagBusy ? 'wait' : 'pointer',
-                }}
-              >
-                + Add {kid.display_name} to this dance
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       {isAdmin && addDialogOpen && ((isRoutine && routine) || (isDancer && dancer)) && (
         <div className={styles.addDialogBackdrop} onClick={() => setAddDialogOpen(false)}>
           <div
@@ -1092,6 +1050,12 @@ export default function Timeline() {
                     onClick={() => setAddType('show')}
                   >
                     Quick show
+                  </button>
+                  <button
+                    className={`${styles.addTypeBtn} ${addType === 'dancers' ? styles.activeAddTypeBtn : ''}`}
+                    onClick={() => setAddType('dancers')}
+                  >
+                    Dancers
                   </button>
                   {hasSupabaseAuth && (
                     <button
@@ -1265,6 +1229,93 @@ export default function Timeline() {
                   />
                 </div>
               </>
+            ) : addType === 'dancers' ? (
+              <>
+                {!isSharedRecipientRoutine ? (
+                  <>
+                    <div className={styles.addField}>
+                      <label>Current dancers in this dance</label>
+                      <div className={styles.dialogChipRow}>
+                        {ownAssignedKids.length === 0 && <p className={styles.addFieldHint}>No dancers assigned yet.</p>}
+                        {ownAssignedKids.map((kid) => (
+                          <button
+                            key={kid.id}
+                            type="button"
+                            disabled={tagBusy}
+                            onClick={() => toggleOwnKidOnRoutineTop(kid.id)}
+                            className={styles.dialogChipAssigned}
+                          >
+                            {kid.avatar_emoji} {kid.display_name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className={styles.addField}>
+                      <label>Add another dancer</label>
+                      <div className={styles.dialogChipRow}>
+                        {ownUnassignedKids.length === 0 && <p className={styles.addFieldHint}>All your dancers are already in this dance.</p>}
+                        {ownUnassignedKids.map((kid) => (
+                          <button
+                            key={`add-own-kid-${kid.id}`}
+                            type="button"
+                            disabled={tagBusy}
+                            onClick={() => toggleOwnKidOnRoutineTop(kid.id)}
+                            className={styles.dialogChipAdd}
+                          >
+                            + Add {kid.display_name} to this dance
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className={styles.addField}>
+                      <label>Dance owner's dancers</label>
+                      <div className={styles.dialogChipRow}>
+                        {ownerRoutineTaggedKids.length === 0 && <p className={styles.addFieldHint}>No dancers shared on this dance yet.</p>}
+                        {ownerRoutineTaggedKids.map((kid) => (
+                          <span key={`owner-tagged-${kid.id}`} className={styles.dialogChipAssigned}>
+                            {kid.avatar_emoji} {kid.display_name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className={styles.addField}>
+                      <label>Your dancers in this dance</label>
+                      <div className={styles.dialogChipRow}>
+                        {recipientTaggedProfiles.map((kid) => (
+                          <button
+                            key={kid.id}
+                            type="button"
+                            disabled={tagBusy}
+                            onClick={() => toggleRecipientKidTagTop(kid.id)}
+                            className={styles.dialogChipRecipient}
+                          >
+                            {kid.avatar_emoji} {kid.display_name}
+                          </button>
+                        ))}
+                        {recipientUntaggedKids.map((kid) => (
+                          <button
+                            key={`add-recipient-kid-${kid.id}`}
+                            type="button"
+                            disabled={tagBusy}
+                            onClick={() => toggleRecipientKidTagTop(kid.id)}
+                            className={`${styles.dialogChipAdd} ${styles.dialogChipAddRecipient}`}
+                          >
+                            + Add {kid.display_name} to this dance
+                          </button>
+                        ))}
+                        {recipientTaggedProfiles.length === 0 && recipientUntaggedKids.length === 0 && (
+                          <p className={styles.addFieldHint}>No dancers available on your account.</p>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </>
             ) : addType === 'share' ? (
               <>
                 {/* Invite form */}
@@ -1431,7 +1482,7 @@ export default function Timeline() {
               </>
             ) : null}
 
-            {addType !== 'share' && (
+            {addType !== 'share' && addType !== 'dancers' && (
             <div className={styles.addDialogActions}>
               <button className={styles.addDialogCancel} onClick={() => setAddDialogOpen(false)}>
                 Cancel
@@ -1484,7 +1535,10 @@ export default function Timeline() {
           if (isNowItem) nowInserted = true
 
           return (
-            <div key={`${item.type}-${item.data.id}`}>
+            <div
+              key={`${item.type}-${item.data.id}`}
+              ref={index === timelineFocusIndex ? timelineFocusRef : null}
+            >
               {isNowItem && index > 0 && (
                 <div ref={nowRef} className={styles.nowMarker}>
                   <span className={styles.nowDot} aria-label="Current moment marker" />
@@ -1497,20 +1551,24 @@ export default function Timeline() {
                 {item.type === 'session' && (() => {
                   const sessionStarted = hasSessionStarted(item.data, item.date)
                   const sessionHasVideo = Boolean(item.data.rehearsalVideoKey)
-                  const sessionMarkedNoVideo = noVideoTakenSessionIds.includes(item.data.id)
+                  const sessionMarkedNoVideo = Boolean(item.data.noVideoTaken)
                   const timeRange = [item.data.startTime || item.data.time || '', item.data.endTime || ''].filter(Boolean).join(' - ')
                   const sessionTitle = (item.data.title || '').trim() || formatRehearsalTitle(item.date)
                   const sessionLink = item.data.routineId
                     ? `/choreography/${item.data.routineId}?live=true&sessionId=${item.data.id}${sessionStarted && !sessionHasVideo ? '&openMedia=video' : ''}`
                     : ''
 
-                  const renderOriginalSessionCard = (detailsSuffix = '') => (
+                  const renderOriginalSessionCard = (detailsSuffix = '', onOpen = null) => (
                     <div
                       className={styles.cardBody}
                       onClick={() => {
+                        if (onOpen) {
+                          onOpen()
+                          return
+                        }
                         if (isAdmin) openSessionEditor(item.data)
                       }}
-                      style={isAdmin ? { cursor: 'pointer' } : undefined}
+                      style={(isAdmin || onOpen) ? { cursor: 'pointer' } : undefined}
                     >
                       <span className={styles.cardIcon}>{SESSION_ICONS[item.data.type] || '📝'}</span>
                       <div className={styles.cardInfo}>
@@ -1535,7 +1593,16 @@ export default function Timeline() {
                   }
 
                   if (!sessionHasVideo && sessionMarkedNoVideo) {
-                    return renderOriginalSessionCard('🎞️ No video taken')
+                    return renderOriginalSessionCard(
+                      '🎞️ No video taken · Tap to add video later',
+                      () => {
+                        if (sessionLink) {
+                          navigate(sessionLink)
+                          return
+                        }
+                        if (isAdmin) openSessionEditor(item.data)
+                      }
+                    )
                   }
 
                   return (
@@ -1556,8 +1623,8 @@ export default function Timeline() {
                             fallback={(
                               <div className={styles.sessionMediaFallback}>
                                 <div className={styles.sessionMediaPrompt}>
-                                  <span className={styles.sessionMediaPromptTitle}>Add practice video</span>
-                                  <span className={styles.sessionMediaPromptText}>Open Live View to upload</span>
+                                  <span className={styles.sessionMediaPromptTitle}>Practice complete</span>
+                                  <span className={styles.sessionMediaPromptText}>Add video or choose “No video taken”.</span>
                                 </div>
                               </div>
                             )}
@@ -1566,13 +1633,47 @@ export default function Timeline() {
                       ) : (
                         <div className={styles.sessionMediaFallback}>
                           <div className={styles.sessionMediaPrompt}>
-                            <span className={styles.sessionMediaPromptTitle}>Add practice video</span>
-                            <span className={styles.sessionMediaPromptText}>Open Live View to upload</span>
+                            <span className={styles.sessionMediaPromptTitle}>Practice complete</span>
+                            <span className={styles.sessionMediaPromptText}>Add video or choose “No video taken”.</span>
+                            <div className={`${styles.sessionMediaChoiceRow} ${styles.sessionMediaChoiceRowCenter}`}>
+                              {sessionLink && (
+                                <button
+                                  className={styles.sessionMediaChoiceBtn}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    navigate(sessionLink)
+                                  }}
+                                >
+                                  Add video
+                                </button>
+                              )}
+                              <button
+                                className={`${styles.sessionMediaChoiceBtn} ${styles.sessionMediaChoiceBtnSecondary}`}
+                                disabled={noVideoSavingSessionId === item.data.id}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  if (noVideoSavingSessionId === item.data.id) return
+                                  setNoVideoSavingSessionId(item.data.id)
+                                  editSession(item.data.id, {
+                                    noVideoTaken: true,
+                                    noVideoTakenAt: new Date().toISOString(),
+                                  })
+                                    .catch((err) => {
+                                      notify(err?.message || 'Could not save no-video status.')
+                                    })
+                                    .finally(() => {
+                                      setNoVideoSavingSessionId((prev) => (prev === item.data.id ? null : prev))
+                                    })
+                                }}
+                              >
+                                {noVideoSavingSessionId === item.data.id ? 'Saving…' : 'No video taken'}
+                              </button>
+                            </div>
                           </div>
                         </div>
                       )}
 
-                      {sessionLink && (
+                      {sessionHasVideo && sessionLink && (
                         <div className={styles.sessionMediaCenterAlert}>
                           <button
                             className={styles.sessionMediaCenterAlertBtn}
@@ -1580,14 +1681,14 @@ export default function Timeline() {
                               e.stopPropagation()
                               navigate(sessionLink)
                             }}
-                            aria-label={sessionHasVideo ? 'Play video' : 'Add video'}
-                            title={sessionHasVideo ? 'Play video' : 'Add video'}
+                            aria-label="Play video"
+                            title="Play video"
                           >
                             <span
-                              className={sessionHasVideo ? styles.sessionMediaCenterAlertIconPlay : styles.sessionMediaCenterAlertIconAdd}
+                              className={styles.sessionMediaCenterAlertIconPlay}
                               aria-hidden="true"
                             >
-                              {sessionHasVideo ? '▶' : '📹'}
+                              ▶
                             </span>
                           </button>
                         </div>
@@ -1612,33 +1713,6 @@ export default function Timeline() {
                             )
                           })()}
 
-                          {!sessionHasVideo && (
-                            <div className={styles.sessionMediaChoiceRow}>
-                              {sessionLink && (
-                                <button
-                                  className={styles.sessionMediaChoiceBtn}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    navigate(sessionLink)
-                                  }}
-                                >
-                                  Add video
-                                </button>
-                              )}
-                              <button
-                                className={`${styles.sessionMediaChoiceBtn} ${styles.sessionMediaChoiceBtnSecondary}`}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setNoVideoTakenSessionIds((prev) => {
-                                    if (prev.includes(item.data.id)) return prev
-                                    return [...prev, item.data.id]
-                                  })
-                                }}
-                              >
-                                No video taken
-                              </button>
-                            </div>
-                          )}
                         </div>
 
                         <div className={styles.sessionMediaActions}>
@@ -1913,6 +1987,7 @@ export default function Timeline() {
             </div>
           )
         })}
+      </div>
       </div>
 
       {/* Lightbox overlay */}

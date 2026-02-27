@@ -10,6 +10,7 @@ export default function Layout({ children }) {
   const location = useLocation()
   const streak = getCurrentStreak(practiceLog)
   const isLiveView = location.pathname.startsWith('/choreography/') && new URLSearchParams(location.search).get('live') === 'true'
+  const isTimelineView = location.pathname.startsWith('/timeline/')
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const showProfiles = hasSupabaseAuth && isAuthenticated
 
@@ -41,7 +42,7 @@ export default function Layout({ children }) {
       )}
 
       {/* Page content */}
-      <main className={styles['main-content']}>
+      <main className={`${styles['main-content']} ${isTimelineView ? styles['main-content-no-scroll'] : ''}`}>
         {children}
       </main>
 

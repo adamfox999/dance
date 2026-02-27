@@ -136,6 +136,8 @@ function mapSession(r) {
     completedAt: r.completed_at,
     rehearsalVideoKey: r.rehearsal_video_key,
     rehearsalVideoName: r.rehearsal_video_name,
+    noVideoTaken: Boolean(r.no_video_taken),
+    noVideoTakenAt: r.no_video_taken_at || null,
     liveSyncOffsetMs: r.live_sync_offset_ms || 0,
     liveSyncConfidence: r.live_sync_confidence,
     dancerReflection: r.dancer_reflection || { feeling: '', note: '', goals: [] },
@@ -470,6 +472,8 @@ async function migrateFromStateData(state, migrateOwnerId) {
       completed_at: s.completedAt || null,
       rehearsal_video_key: s.rehearsalVideoKey || '',
       rehearsal_video_name: s.rehearsalVideoName || '',
+      no_video_taken: Boolean(s.noVideoTaken),
+      no_video_taken_at: s.noVideoTakenAt || null,
       live_sync_offset_ms: s.liveSyncOffsetMs || s.videoSyncOffset || 0,
       live_sync_confidence: Number.isFinite(s.liveSyncConfidence)
         ? s.liveSyncConfidence
@@ -868,6 +872,8 @@ export async function createSession(fields) {
     completed_at: fields.completedAt || null,
     rehearsal_video_key: fields.rehearsalVideoKey || '',
     rehearsal_video_name: fields.rehearsalVideoName || '',
+    no_video_taken: Boolean(fields.noVideoTaken),
+    no_video_taken_at: fields.noVideoTakenAt || null,
     live_sync_offset_ms: fields.liveSyncOffsetMs || 0,
     live_sync_confidence: Number.isFinite(fields.liveSyncConfidence) ? fields.liveSyncConfidence : null,
     dancer_reflection: fields.dancerReflection || { feeling: '', note: '', goals: [] },
@@ -898,6 +904,8 @@ export async function updateSession(id, updates) {
   if (updates.completedAt !== undefined) payload.completed_at = updates.completedAt
   if (updates.rehearsalVideoKey !== undefined) payload.rehearsal_video_key = updates.rehearsalVideoKey
   if (updates.rehearsalVideoName !== undefined) payload.rehearsal_video_name = updates.rehearsalVideoName
+  if (updates.noVideoTaken !== undefined) payload.no_video_taken = Boolean(updates.noVideoTaken)
+  if (updates.noVideoTakenAt !== undefined) payload.no_video_taken_at = updates.noVideoTakenAt || null
   if (updates.liveSyncOffsetMs !== undefined) payload.live_sync_offset_ms = updates.liveSyncOffsetMs || 0
   if (updates.liveSyncConfidence !== undefined)
     payload.live_sync_confidence = Number.isFinite(updates.liveSyncConfidence)
