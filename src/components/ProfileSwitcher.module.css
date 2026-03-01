@@ -293,6 +293,48 @@
   font-size: 1.15rem;
 }
 
+.chipEmojiWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chipSyncBadge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+  border: 2px solid var(--card-bg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.chipSyncBadgeOnline {
+  background: var(--green-500);
+}
+
+.chipSyncBadgeOffline {
+  background: var(--gray-400);
+}
+
+.chipSyncBadgeSyncing {
+  background: var(--blue-500);
+  color: var(--card-bg);
+  animation: chipSpin 0.9s linear infinite;
+}
+
+@keyframes chipSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .chipTextWrap {
   display: flex;
   flex-direction: column;

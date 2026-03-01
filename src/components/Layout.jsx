@@ -6,7 +6,7 @@ import ProfileSwitcher, { ProfileChip } from './ProfileSwitcher'
 import styles from './Layout.module.css'
 
 export default function Layout({ children }) {
-  const { practiceLog, settings, isKidMode, hasSupabaseAuth, isAuthenticated, activeProfileName } = useApp()
+  const { practiceLog, settings, hasSupabaseAuth, isAuthenticated, isOnline, isUsingCachedData, lastSyncedAt } = useApp()
   const location = useLocation()
   const streak = getCurrentStreak(practiceLog)
   const isLiveView = location.pathname.startsWith('/choreography/') && new URLSearchParams(location.search).get('live') === 'true'
@@ -18,6 +18,15 @@ export default function Layout({ children }) {
   const headerTitle = showProfiles
     ? `My Dancing 💃`
     : `${settings?.dancerName || 'My Dancing'} · My Dancing 💃`
+
+  const syncState = !isOnline
+    ? 'offline'
+    : (isUsingCachedData ? 'syncing' : 'online')
+  const syncTitle = !isOnline
+    ? 'Offline · showing cached data'
+    : (isUsingCachedData
+      ? `Syncing latest data${lastSyncedAt ? ` · Last sync ${new Date(lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}`
+      : 'Online · all synced')
 
   return (
     <div className={styles.layout}>
@@ -35,7 +44,7 @@ export default function Layout({ children }) {
               </div>
             )}
             {showProfiles && (
-              <ProfileChip onClick={() => setSwitcherOpen(true)} />
+              <ProfileChip onClick={() => setSwitcherOpen(true)} syncState={syncState} syncTitle={syncTitle} />
             )}
           </div>
         </header>

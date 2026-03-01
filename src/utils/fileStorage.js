@@ -159,11 +159,57 @@ function getRemoteFileTask(key) {
 export async function loadFile(key) {
   const localFile = await loadFileFromIndexedDb(key)
   if (localFile?.blob) {
-    getRemoteFileTask(key)
     return localFile
   }
 
   return getRemoteFileTask(key)
+}
+
+export async function getLocalFileStorageUsage() {
+  try {
+    const db = await openDb()
+    try {
+      const tx = db.transaction(STORE_NAME, 'readonly')
+      const store = tx.objectStore(STORE_NAME)
+      const scopePrefix = `${currentUserScope}:`
+
+      const totals = await new Promise((resolve, reject) => {
+        const cursorRequest = store.openCursor()
+        let bytes = 0
+        let fileCount = 0
+
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result
+          if (!cursor) {
+            resolve({ bytes, fileCount })
+            return
+          }
+
+          const record = cursor.value
+          const id = String(record?.id || '')
+          if (id.startsWith(scopePrefix) && record?.blob) {
+            bytes += Number(record.blob.size || 0)
+            fileCount += 1
+          }
+          cursor.continue()
+        }
+
+        cursorRequest.onerror = () => reject(cursorRequest.error)
+      })
+
+      await new Promise((resolve, reject) => {
+        tx.oncomplete = resolve
+        tx.onerror = () => reject(tx.error)
+        tx.onabort = () => reject(tx.error)
+      })
+
+      return totals
+    } finally {
+      db.close()
+    }
+  } catch {
+    return { bytes: 0, fileCount: 0 }
+  }
 }
 
 export async function loadLocalFile(key) {

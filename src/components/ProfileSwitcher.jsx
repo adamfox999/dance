@@ -200,7 +200,7 @@ export default function ProfileSwitcher({ open, onClose }) {
 /**
  * Small chip shown in the header to indicate & switch profiles.
  */
-export function ProfileChip({ onClick }) {
+export function ProfileChip({ onClick, syncState = 'online', syncTitle = 'Online · all synced' }) {
   const { userProfile, activeProfile, isKidMode, activeKidProfile } = useApp()
 
   const displayName = isKidMode
@@ -211,8 +211,20 @@ export function ProfileChip({ onClick }) {
     : (userProfile?.avatar_emoji || '👤')
 
   return (
-    <button className={styles.profileChip} onClick={onClick} title="Switch profile">
-      <span className={styles.chipEmoji}>{emoji}</span>
+    <button className={styles.profileChip} onClick={onClick} title={`Switch profile · ${syncTitle}`}>
+      <span className={styles.chipEmojiWrap}>
+        <span className={styles.chipEmoji}>{emoji}</span>
+        <span
+          className={`${styles.chipSyncBadge} ${
+            syncState === 'syncing'
+              ? styles.chipSyncBadgeSyncing
+              : (syncState === 'offline' ? styles.chipSyncBadgeOffline : styles.chipSyncBadgeOnline)
+          }`}
+          aria-hidden="true"
+        >
+          {syncState === 'syncing' ? '↻' : ''}
+        </span>
+      </span>
       <span className={styles.chipTextWrap}>
         <span className={styles.chipName}>{displayName}</span>
         {!isKidMode && <span className={styles.chipSubtext}>Parent / Guardian</span>}

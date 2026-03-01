@@ -234,6 +234,38 @@
   gap: 10px;
 }
 
+.local-cache-usage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--gray-50);
+  font-size: 0.8rem;
+  color: var(--gray-700);
+}
+
+.refresh-usage-btn {
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--gray-300);
+  background: white;
+  color: var(--purple-600);
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+
+.refresh-usage-btn:hover {
+  border-color: var(--purple-300);
+  background: var(--purple-50);
+}
+
+.refresh-usage-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .data-btn {
   padding: 10px 18px;
   border-radius: var(--radius-sm);

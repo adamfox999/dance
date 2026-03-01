@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { fetchStateFromBackend, listMediaFromBackend, getFileFromBackend } from '../utils/backendApi'
-import { saveFile } from '../utils/fileStorage'
+import { saveFile, getLocalFileStorageUsage } from '../utils/fileStorage'
 import { notify } from '../utils/notify'
 import MediaPickerDialog from '../components/MediaPickerDialog'
 import { GRADE_LEVELS } from '../data/defaultState'
@@ -92,6 +92,31 @@ export default function Settings() {
   const [coverPreviewUrls, setCoverPreviewUrls] = useState({})
   const coverPreviewUrlsRef = useRef({})
   const coverAutoCloseTimerRef = useRef(null)
+  const [localCacheUsage, setLocalCacheUsage] = useState({ bytes: 0, fileCount: 0, loading: true })
+
+  const formatBytes = (value) => {
+    const bytes = Number(value || 0)
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+    const units = ['B', 'KB', 'MB', 'GB', 'TB']
+    const unitIndex = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)))
+    const size = bytes / (1024 ** unitIndex)
+    const precision = unitIndex === 0 ? 0 : (size >= 10 ? 1 : 2)
+    return `${size.toFixed(precision)} ${units[unitIndex]}`
+  }
+
+  const refreshLocalStorageUsage = useCallback(async () => {
+    setLocalCacheUsage((prev) => ({ ...prev, loading: true }))
+    try {
+      const usage = await getLocalFileStorageUsage()
+      setLocalCacheUsage({
+        bytes: Number(usage?.bytes || 0),
+        fileCount: Number(usage?.fileCount || 0),
+        loading: false,
+      })
+    } catch {
+      setLocalCacheUsage((prev) => ({ ...prev, loading: false }))
+    }
+  }, [])
 
   const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -135,6 +160,18 @@ export default function Settings() {
       setSelectedDisciplineKidId(kidProfiles[0]?.id || '')
     }
   }, [kidProfiles, selectedDisciplineKidId])
+
+  useEffect(() => {
+    refreshLocalStorageUsage()
+  }, [refreshLocalStorageUsage])
+
+  useEffect(() => {
+    const onFocus = () => {
+      refreshLocalStorageUsage()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [refreshLocalStorageUsage])
 
   const visibleDancerDisciplines = (dancerDisciplines || []).filter(
     (disciplineItem) => disciplineItem.kidProfileId === selectedDisciplineKidId
@@ -1658,6 +1695,22 @@ export default function Settings() {
       <div className={styles['settings-section']}>
         <h3>Data</h3>
         <div className={styles['setting-card']}>
+          <div className={styles['local-cache-usage-row']}>
+            <div>
+              <strong>Local media cache:</strong>{' '}
+              {localCacheUsage.loading
+                ? 'Calculating…'
+                : `${formatBytes(localCacheUsage.bytes)} across ${localCacheUsage.fileCount} file${localCacheUsage.fileCount === 1 ? '' : 's'}`}
+            </div>
+            <button
+              type="button"
+              className={styles['refresh-usage-btn']}
+              onClick={refreshLocalStorageUsage}
+              disabled={localCacheUsage.loading}
+            >
+              {localCacheUsage.loading ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
           <div className={styles['data-actions']}>
             <button
               className={`${styles['data-btn']} ${styles['export-btn']}`}

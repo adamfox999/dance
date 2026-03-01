@@ -103,6 +103,39 @@ const ACTIVE_PROFILE_STORAGE_KEY = 'dance-tracker:active-profile'
 const PARENT_PIN_STORAGE_PREFIX = 'dance-tracker:parent-pin:'
 const SESSION_UPLOAD_REMINDER_PREFIX = 'dance-tracker:session-upload-reminder:'
 const SESSION_UPLOAD_PERMISSION_ASKED_KEY = 'dance-tracker:session-upload-reminder-permission-asked'
+const APP_SNAPSHOT_STORAGE_PREFIX = 'dance-tracker:app-snapshot:v1:'
+
+function getAppSnapshotStorageKey(userId) {
+  if (!userId) return ''
+  return `${APP_SNAPSHOT_STORAGE_PREFIX}${userId}`
+}
+
+function readAppSnapshot(userId) {
+  if (!userId || typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(getAppSnapshotStorageKey(userId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return null
+    if (!parsed.data || typeof parsed.data !== 'object') return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function writeAppSnapshot(userId, data) {
+  if (!userId || typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(getAppSnapshotStorageKey(userId), JSON.stringify({
+      version: 1,
+      savedAt: new Date().toISOString(),
+      data,
+    }))
+  } catch {
+    // Ignore storage failures
+  }
+}
 
 function toSessionDateString(session = {}) {
   const directDate = typeof session.date === 'string' ? session.date.trim() : ''
@@ -237,10 +270,45 @@ function readStoredActiveProfile() {
 // ============ PROVIDER ============
 export function AppProvider({ children }) {
   const [isLoading, setIsLoading] = useState(true)
+  const [isOnline, setIsOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine))
+  const [isUsingCachedData, setIsUsingCachedData] = useState(false)
+  const [lastSyncedAt, setLastSyncedAt] = useState(null)
   const [authLoading, setAuthLoading] = useState(hasSupabaseConfig)
   const [authSession, setAuthSession] = useState(null)
   const [authUser, setAuthUser] = useState(null)
   const authUserIdRef = useRef(null)
+  const lastOfflineNoticeAtRef = useRef(0)
+  const connectivityToastReadyRef = useRef(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+
+  const blockOfflineMutation = useCallback((actionLabel = 'make changes') => {
+    if (isOnline) return false
+    const now = Date.now()
+    if ((now - lastOfflineNoticeAtRef.current) > 2000) {
+      notify(`You're offline. Reconnect to ${actionLabel}.`)
+      lastOfflineNoticeAtRef.current = now
+    }
+    return true
+  }, [isOnline])
+
+  useEffect(() => {
+    if (!connectivityToastReadyRef.current) {
+      connectivityToastReadyRef.current = true
+      return
+    }
+    notify(isOnline ? 'Back online. Syncing latest data…' : 'You are offline. Showing cached data.')
+  }, [isOnline])
 
   useEffect(() => {
     authUserIdRef.current = authUser?.id || null
@@ -821,20 +889,22 @@ export function AppProvider({ children }) {
   }, [])
 
   const setSessionReflection = useCallback(async (sessionId, reflection) => {
+    if (blockOfflineMutation('save reflections')) return
     const session = sessionsRef.current.find(s => s.id === sessionId)
     if (!session) return
     const merged = { ...session.dancerReflection, ...reflection }
     setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, dancerReflection: merged } : s))
     apiUpdateSession(sessionId, { dancerReflection: merged }).catch(e => console.warn('Save reflection:', e))
-  }, [])
+  }, [blockOfflineMutation])
 
   const addEmojiReaction = useCallback(async (sessionId, emoji) => {
+    if (blockOfflineMutation('add reactions')) return
     const session = sessionsRef.current.find(s => s.id === sessionId)
     if (!session) return
     const updated = [...(session.emojiReactions || []), emoji]
     setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, emojiReactions: updated } : s))
     apiUpdateSession(sessionId, { emojiReactions: updated }).catch(e => console.warn('Save reaction:', e))
-  }, [])
+  }, [blockOfflineMutation])
 
   const fetchSessionPracticeReflection = useCallback(async (sessionId, kidProfileId = null) => {
     if (!sessionId) return null
@@ -1040,6 +1110,7 @@ export function AppProvider({ children }) {
   }, [])
 
   const addScrapbookReaction = useCallback(async (showId, entryId, emoji) => {
+    if (blockOfflineMutation('add scrapbook reactions')) return
     const ev = eventsRef.current.find(e => e.id === showId)
     const entry = ev?.scrapbookEntries?.find(e => e.id === entryId)
     if (!entry) return
@@ -1050,7 +1121,7 @@ export function AppProvider({ children }) {
         : e
     )))
     apiUpdateScrapbookEntry(entryId, { emojiReactions: updated }).catch(e => console.warn('Save scrapbook reaction:', e))
-  }, [])
+  }, [blockOfflineMutation])
 
   const removeScrapbookEntry = useCallback(async (showId, entryId) => {
     setEvents(prev => sortEventsChronological(prev.map(ev =>
@@ -1151,6 +1222,32 @@ export function AppProvider({ children }) {
     setDancerGoals([]); setDancerDisciplines([]); setDancerJourneyEvents([]); setSettingsState({ dancerName: 'My Dancing', themeColor: '#a855f7', promptLeadMs: 0 })
   }, [])
 
+  const applySnapshotData = useCallback((snapshotData = {}) => {
+    const nextDisciplines = Array.isArray(snapshotData.disciplines) ? snapshotData.disciplines : defaultState.disciplines
+    const nextRoutines = Array.isArray(snapshotData.routines) ? snapshotData.routines : []
+    const nextSessions = Array.isArray(snapshotData.sessions) ? snapshotData.sessions : []
+    const nextEvents = Array.isArray(snapshotData.events) ? sortEventsChronological(snapshotData.events) : []
+    const nextSettings = snapshotData.settings || { dancerName: 'My Dancing', themeColor: '#a855f7', promptLeadMs: 0 }
+    setDisciplines(nextDisciplines.length ? nextDisciplines : defaultState.disciplines)
+    setRoutines(nextRoutines)
+    setSessions(nextSessions)
+    setEvents(nextEvents)
+    setSettingsState(nextSettings)
+    setStickers(Array.isArray(snapshotData.stickers) ? snapshotData.stickers : [])
+    setPracticeLog(Array.isArray(snapshotData.practiceLog) ? snapshotData.practiceLog : [])
+    setDancerProfile(snapshotData.dancerProfile || { name: 'My Dancing', currentFocus: null })
+    setDancerGoals(Array.isArray(snapshotData.dancerGoals) ? snapshotData.dancerGoals : [])
+    setDancerDisciplines(Array.isArray(snapshotData.dancerDisciplines) ? snapshotData.dancerDisciplines : [])
+    setDancerJourneyEvents(Array.isArray(snapshotData.dancerJourneyEvents) ? snapshotData.dancerJourneyEvents : [])
+    setIncomingShares(Array.isArray(snapshotData.incomingShares) ? snapshotData.incomingShares : [])
+    setOutgoingShares(Array.isArray(snapshotData.outgoingShares) ? snapshotData.outgoingShares : [])
+    setIncomingGuardians(Array.isArray(snapshotData.incomingGuardians) ? snapshotData.incomingGuardians : [])
+    setOutgoingGuardians(Array.isArray(snapshotData.outgoingGuardians) ? snapshotData.outgoingGuardians : [])
+    setUserProfile(snapshotData.userProfile || null)
+    setKidProfiles(Array.isArray(snapshotData.kidProfiles) ? snapshotData.kidProfiles : [])
+    setLastSyncedAt(snapshotData.lastSyncedAt || null)
+  }, [])
+
   // ================================================================
   // HYDRATION — load from normalized tables
   // ================================================================
@@ -1162,13 +1259,27 @@ export function AppProvider({ children }) {
       if (hasSupabaseConfig && !authUser?.id) { setIsLoading(false); return }
       if (!authUser?.id) { setIsLoading(false); return }
 
-      setIsLoading(true)
-      setStickers([])
-      setPracticeLog([])
-      setDancerProfile({ name: 'My Dancing', currentFocus: null })
-      setDancerGoals([])
-      setDancerDisciplines([])
-      setDancerJourneyEvents([])
+      const cachedSnapshot = readAppSnapshot(authUser.id)
+      const hasCachedSnapshot = Boolean(cachedSnapshot?.data)
+      if (cachedSnapshot?.data) {
+        applySnapshotData(cachedSnapshot.data)
+        setIsUsingCachedData(true)
+        setIsLoading(false)
+      } else {
+        setIsUsingCachedData(false)
+      }
+
+      if (!isOnline && hasCachedSnapshot) return
+
+      if (!hasCachedSnapshot) {
+        setIsLoading(true)
+        setStickers([])
+        setPracticeLog([])
+        setDancerProfile({ name: 'My Dancing', currentFocus: null })
+        setDancerGoals([])
+        setDancerDisciplines([])
+        setDancerJourneyEvents([])
+      }
       try {
         const init = await initializeDanceData()
         if (cancelled) return
@@ -1239,6 +1350,8 @@ export function AppProvider({ children }) {
         setSessions(nextSess)
         setEvents(sortEventsChronological(nextEvts))
         setSettingsState(sett)
+        setIsUsingCachedData(false)
+        setLastSyncedAt(new Date().toISOString())
 
         if (!cancelled) setIsLoading(false)
 
@@ -1268,7 +1381,53 @@ export function AppProvider({ children }) {
 
     hydrateState()
     return () => { cancelled = true }
-  }, [authLoading, authUser?.id])
+  }, [authLoading, authUser?.id, applySnapshotData, isOnline])
+
+  useEffect(() => {
+    if (!authUser?.id) return
+    if (isLoading) return
+    writeAppSnapshot(authUser.id, {
+      disciplines,
+      routines,
+      sessions,
+      events,
+      settings,
+      stickers,
+      practiceLog,
+      dancerProfile,
+      dancerGoals,
+      dancerDisciplines,
+      dancerJourneyEvents,
+      incomingShares,
+      outgoingShares,
+      incomingGuardians,
+      outgoingGuardians,
+      userProfile,
+      kidProfiles,
+      lastSyncedAt,
+    })
+  }, [
+    authUser?.id,
+    isLoading,
+    disciplines,
+    routines,
+    sessions,
+    events,
+    settings,
+    stickers,
+    practiceLog,
+    dancerProfile,
+    dancerGoals,
+    dancerDisciplines,
+    dancerJourneyEvents,
+    incomingShares,
+    outgoingShares,
+    incomingGuardians,
+    outgoingGuardians,
+    userProfile,
+    kidProfiles,
+    lastSyncedAt,
+  ])
 
   // ================================================================
   // MILESTONE STICKER CHECK
@@ -1371,6 +1530,13 @@ export function AppProvider({ children }) {
     if (error) throw error
   }
 
+  const guardMutation = useCallback((fn, actionLabel = 'make changes') => {
+    return async (...args) => {
+      if (blockOfflineMutation(actionLabel)) return null
+      return fn(...args)
+    }
+  }, [blockOfflineMutation])
+
   return (
     <AppContext.Provider value={{
       // Dance data (individual state)
@@ -1386,6 +1552,9 @@ export function AppProvider({ children }) {
       dancerJourneyEvents,
       settings,
       isLoading,
+      isOnline,
+      isUsingCachedData,
+      lastSyncedAt,
       isAdmin,
       unlockAdmin,
       lockAdmin,
@@ -1424,16 +1593,19 @@ export function AppProvider({ children }) {
 
       // Family unit CRUD
       createFamilyUnit: async ({ name, kidProfileIds }) => {
+        if (blockOfflineMutation('create a family unit')) return null
         const unit = await apiCreateFamilyUnit({ name, kidProfileIds })
         setMyFamilyUnitsDB(prev => [...prev, unit])
         return unit
       },
       updateFamilyUnit: async (unitId, updates) => {
+        if (blockOfflineMutation('update a family unit')) return null
         const unit = await apiUpdateFamilyUnit(unitId, updates)
         setMyFamilyUnitsDB(prev => prev.map(u => u.id === unitId ? unit : u))
         return unit
       },
       deleteFamilyUnit: async (unitId) => {
+        if (blockOfflineMutation('delete a family unit')) return null
         await apiDeleteFamilyUnit(unitId)
         setMyFamilyUnitsDB(prev => prev.filter(u => u.id !== unitId))
       },
@@ -1464,56 +1636,56 @@ export function AppProvider({ children }) {
       loadGuardians,
 
       // Direct mutation functions
-      addSession,
-      scheduleRehearsal,
-      editSession,
+      addSession: guardMutation(addSession),
+      scheduleRehearsal: guardMutation(scheduleRehearsal),
+      editSession: guardMutation(editSession),
       fetchSessionFeedback,
-      saveSessionFeedback,
-      removeSession,
-      setRehearsalVersion,
-      completeRehearsal,
-      attachRehearsalVideo,
+      saveSessionFeedback: guardMutation(saveSessionFeedback),
+      removeSession: guardMutation(removeSession),
+      setRehearsalVersion: guardMutation(setRehearsalVersion),
+      completeRehearsal: guardMutation(completeRehearsal),
+      attachRehearsalVideo: guardMutation(attachRehearsalVideo),
       setSessionReflection,
       addEmojiReaction,
       fetchSessionPracticeReflection,
       fetchRoutineLivingGoals,
-      saveSessionPracticeReflection,
-      saveSessionGoalCheckins,
-      addDiscipline,
-      editDiscipline,
-      removeDiscipline,
-      addElement,
-      setElementStatus,
-      removeElement,
-      addRoutine,
-      editRoutine,
-      removeRoutine,
-      addChoreographyVersion,
-      editChoreographyVersion,
-      addPracticeVideo,
-      addShow,
-      editShow,
-      removeShow,
-      addEventEntry,
-      editEventEntry,
-      removeEventEntry,
-      addScrapbookEntry,
+      saveSessionPracticeReflection: guardMutation(saveSessionPracticeReflection),
+      saveSessionGoalCheckins: guardMutation(saveSessionGoalCheckins),
+      addDiscipline: guardMutation(addDiscipline),
+      editDiscipline: guardMutation(editDiscipline),
+      removeDiscipline: guardMutation(removeDiscipline),
+      addElement: guardMutation(addElement),
+      setElementStatus: guardMutation(setElementStatus),
+      removeElement: guardMutation(removeElement),
+      addRoutine: guardMutation(addRoutine),
+      editRoutine: guardMutation(editRoutine),
+      removeRoutine: guardMutation(removeRoutine),
+      addChoreographyVersion: guardMutation(addChoreographyVersion),
+      editChoreographyVersion: guardMutation(editChoreographyVersion),
+      addPracticeVideo: guardMutation(addPracticeVideo),
+      addShow: guardMutation(addShow),
+      editShow: guardMutation(editShow),
+      removeShow: guardMutation(removeShow),
+      addEventEntry: guardMutation(addEventEntry),
+      editEventEntry: guardMutation(editEventEntry),
+      removeEventEntry: guardMutation(removeEventEntry),
+      addScrapbookEntry: guardMutation(addScrapbookEntry),
       addScrapbookReaction,
-      removeScrapbookEntry,
-      addStickers,
-      addCustomSticker,
-      logPracticeDay,
-      updateDancerProfile: updateDancerProfileFn,
-      addGoal,
-      completeGoal,
-      setCurrentFocus,
-      addDancerDiscipline,
-      editDancerDiscipline,
-      removeDancerDiscipline,
-      addDancerJourneyEvent,
-      editDancerJourneyEvent,
-      removeDancerJourneyEvent,
-      updateSettings: updateSettingsFn,
+      removeScrapbookEntry: guardMutation(removeScrapbookEntry),
+      addStickers: guardMutation(addStickers),
+      addCustomSticker: guardMutation(addCustomSticker),
+      logPracticeDay: guardMutation(logPracticeDay),
+      updateDancerProfile: guardMutation(updateDancerProfileFn),
+      addGoal: guardMutation(addGoal),
+      completeGoal: guardMutation(completeGoal),
+      setCurrentFocus: guardMutation(setCurrentFocus),
+      addDancerDiscipline: guardMutation(addDancerDiscipline),
+      editDancerDiscipline: guardMutation(editDancerDiscipline),
+      removeDancerDiscipline: guardMutation(removeDancerDiscipline),
+      addDancerJourneyEvent: guardMutation(addDancerJourneyEvent),
+      editDancerJourneyEvent: guardMutation(editDancerJourneyEvent),
+      removeDancerJourneyEvent: guardMutation(removeDancerJourneyEvent),
+      updateSettings: guardMutation(updateSettingsFn),
       resetState,
     }}>
       {children}
