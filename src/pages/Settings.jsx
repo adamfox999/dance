@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { fetchStateFromBackend, listMediaFromBackend, getFileFromBackend } from '../utils/backendApi'
@@ -46,9 +46,14 @@ export default function Settings() {
   const [profileEmoji, setProfileEmoji] = useState(userProfile?.avatar_emoji || '👤')
   const [selectedDisciplineKidId, setSelectedDisciplineKidId] = useState('')
   const [disciplineNameDrafts, setDisciplineNameDrafts] = useState({})
+  const [routineNameDrafts, setRoutineNameDrafts] = useState({})
+  const [showNameDrafts, setShowNameDrafts] = useState({})
+  const [showVenueDrafts, setShowVenueDrafts] = useState({})
   const [newKidName, setNewKidName] = useState('')
   const [newKidEmoji, setNewKidEmoji] = useState('💃')
   const [profileBusy, setProfileBusy] = useState(false)
+  const textSaveTimersRef = useRef({})
+  const textSaveSeqRef = useRef({})
 
   // Share invite state
   const [shareRoutineId, setShareRoutineId] = useState('')
@@ -134,6 +139,121 @@ export default function Settings() {
   const visibleDancerDisciplines = (dancerDisciplines || []).filter(
     (disciplineItem) => disciplineItem.kidProfileId === selectedDisciplineKidId
   )
+
+  const clearTextSaveTimer = useCallback((saveKey) => {
+    const timer = textSaveTimersRef.current[saveKey]
+    if (timer) {
+      window.clearTimeout(timer)
+      delete textSaveTimersRef.current[saveKey]
+    }
+  }, [])
+
+  useEffect(() => () => {
+    Object.values(textSaveTimersRef.current).forEach((timer) => window.clearTimeout(timer))
+    textSaveTimersRef.current = {}
+  }, [])
+
+  const scheduleRoutineNameSave = useCallback((routineId, nextName, options = {}) => {
+    const { immediate = false } = options
+    const saveKey = `routine-name:${routineId}`
+    const nextSeq = (textSaveSeqRef.current[saveKey] || 0) + 1
+    textSaveSeqRef.current[saveKey] = nextSeq
+    clearTextSaveTimer(saveKey)
+
+    const persist = async () => {
+      try {
+        await editRoutine(routineId, { name: nextName })
+        if (textSaveSeqRef.current[saveKey] === nextSeq) {
+          setRoutineNameDrafts((prev) => {
+            if (prev[routineId] !== nextName) return prev
+            const copy = { ...prev }
+            delete copy[routineId]
+            return copy
+          })
+        }
+      } catch (error) {
+        console.warn('Save routine name:', error)
+      }
+    }
+
+    if (immediate) {
+      persist()
+      return
+    }
+
+    textSaveTimersRef.current[saveKey] = window.setTimeout(() => {
+      delete textSaveTimersRef.current[saveKey]
+      persist()
+    }, 450)
+  }, [clearTextSaveTimer, editRoutine])
+
+  const scheduleShowNameSave = useCallback((showId, nextName, options = {}) => {
+    const { immediate = false } = options
+    const saveKey = `show-name:${showId}`
+    const nextSeq = (textSaveSeqRef.current[saveKey] || 0) + 1
+    textSaveSeqRef.current[saveKey] = nextSeq
+    clearTextSaveTimer(saveKey)
+
+    const persist = async () => {
+      try {
+        await editShow(showId, { name: nextName })
+        if (textSaveSeqRef.current[saveKey] === nextSeq) {
+          setShowNameDrafts((prev) => {
+            if (prev[showId] !== nextName) return prev
+            const copy = { ...prev }
+            delete copy[showId]
+            return copy
+          })
+        }
+      } catch (error) {
+        console.warn('Save show name:', error)
+      }
+    }
+
+    if (immediate) {
+      persist()
+      return
+    }
+
+    textSaveTimersRef.current[saveKey] = window.setTimeout(() => {
+      delete textSaveTimersRef.current[saveKey]
+      persist()
+    }, 450)
+  }, [clearTextSaveTimer, editShow])
+
+  const scheduleShowVenueSave = useCallback((showId, nextVenue, options = {}) => {
+    const { immediate = false } = options
+    const saveKey = `show-venue:${showId}`
+    const nextSeq = (textSaveSeqRef.current[saveKey] || 0) + 1
+    textSaveSeqRef.current[saveKey] = nextSeq
+    clearTextSaveTimer(saveKey)
+
+    const persist = async () => {
+      try {
+        await editShow(showId, { venue: nextVenue })
+        if (textSaveSeqRef.current[saveKey] === nextSeq) {
+          setShowVenueDrafts((prev) => {
+            if (prev[showId] !== nextVenue) return prev
+            const copy = { ...prev }
+            delete copy[showId]
+            return copy
+          })
+        }
+      } catch (error) {
+        console.warn('Save show venue:', error)
+      }
+    }
+
+    if (immediate) {
+      persist()
+      return
+    }
+
+    textSaveTimersRef.current[saveKey] = window.setTimeout(() => {
+      delete textSaveTimersRef.current[saveKey]
+      persist()
+    }, 450)
+  }, [clearTextSaveTimer, editShow])
 
   const commitDisciplineName = async (discipline) => {
     if (!discipline?.id) return
@@ -1324,8 +1444,17 @@ export default function Settings() {
                 )}
                 <input
                   type="text"
-                  value={rtn.name}
-                  onChange={(e) => editRoutine(rtn.id, { name: e.target.value })}
+                  value={Object.prototype.hasOwnProperty.call(routineNameDrafts, rtn.id) ? routineNameDrafts[rtn.id] : rtn.name}
+                  onChange={(e) => {
+                    const nextName = e.target.value
+                    setRoutineNameDrafts((prev) => ({ ...prev, [rtn.id]: nextName }))
+                    scheduleRoutineNameSave(rtn.id, nextName)
+                  }}
+                  onBlur={(e) => {
+                    const nextName = e.target.value
+                    setRoutineNameDrafts((prev) => ({ ...prev, [rtn.id]: nextName }))
+                    scheduleRoutineNameSave(rtn.id, nextName, { immediate: true })
+                  }}
                   style={{ flex: 1, minWidth: 120, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.9rem' }}
                 />
                 <select
@@ -1469,8 +1598,17 @@ export default function Settings() {
                 </select>
                 <input
                   type="text"
-                  value={show.name}
-                  onChange={(e) => editShow(show.id, { name: e.target.value })}
+                  value={Object.prototype.hasOwnProperty.call(showNameDrafts, show.id) ? showNameDrafts[show.id] : show.name}
+                  onChange={(e) => {
+                    const nextName = e.target.value
+                    setShowNameDrafts((prev) => ({ ...prev, [show.id]: nextName }))
+                    scheduleShowNameSave(show.id, nextName)
+                  }}
+                  onBlur={(e) => {
+                    const nextName = e.target.value
+                    setShowNameDrafts((prev) => ({ ...prev, [show.id]: nextName }))
+                    scheduleShowNameSave(show.id, nextName, { immediate: true })
+                  }}
                   style={{ flex: '2 1 260px', minWidth: 180, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.9rem' }}
                 />
                 <div style={{ display: 'flex', gap: 8, flex: '1 1 280px', minWidth: 220 }}>
@@ -1489,9 +1627,18 @@ export default function Settings() {
                 </div>
                 <input
                   type="text"
-                  value={show.venue || ''}
+                  value={Object.prototype.hasOwnProperty.call(showVenueDrafts, show.id) ? showVenueDrafts[show.id] : (show.venue || '')}
                   placeholder="Venue"
-                  onChange={(e) => editShow(show.id, { venue: e.target.value })}
+                  onChange={(e) => {
+                    const nextVenue = e.target.value
+                    setShowVenueDrafts((prev) => ({ ...prev, [show.id]: nextVenue }))
+                    scheduleShowVenueSave(show.id, nextVenue)
+                  }}
+                  onBlur={(e) => {
+                    const nextVenue = e.target.value
+                    setShowVenueDrafts((prev) => ({ ...prev, [show.id]: nextVenue }))
+                    scheduleShowVenueSave(show.id, nextVenue, { immediate: true })
+                  }}
                   style={{ flex: '2 1 320px', minWidth: 200, padding: '6px 10px', borderRadius: 6, border: '1px solid #e5e5e5', fontSize: '0.82rem' }}
                 />
                 <button onClick={() => handleDeleteShow(show.id)} title="Delete" style={{ marginLeft: 'auto', background: '#fee2e2', color: '#dc2626', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem' }}>✕</button>

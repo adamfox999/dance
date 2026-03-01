@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { getEventTypeIcon, getEventTypeLabel } from '../data/aedEvents'
@@ -22,6 +22,7 @@ export default function Scrapbook() {
   const [selectedMediaEntryId, setSelectedMediaEntryId] = useState('')
   const [showAddEntry, setShowAddEntry] = useState(false)
   const [entryDateDrafts, setEntryDateDrafts] = useState({})
+  const [entryNoteDrafts, setEntryNoteDrafts] = useState({})
   const [textDialog, setTextDialog] = useState({
     open: false,
     title: '',
@@ -30,6 +31,59 @@ export default function Scrapbook() {
     type: 'note',
     author: 'dancer',
   })
+  const noteSaveTimersRef = useRef({})
+  const noteSaveSeqRef = useRef({})
+
+  const clearNoteSaveTimer = useCallback((targetEntryId) => {
+    const timer = noteSaveTimersRef.current[targetEntryId]
+    if (timer) {
+      window.clearTimeout(timer)
+      delete noteSaveTimersRef.current[targetEntryId]
+    }
+  }, [])
+
+  const persistEntryNote = useCallback(async (targetEntryId, nextNote, seq) => {
+    try {
+      await editEventEntry(showId, targetEntryId, { notes: nextNote })
+      if (noteSaveSeqRef.current[targetEntryId] === seq) {
+        setEntryNoteDrafts((prev) => {
+          if (prev[targetEntryId] !== nextNote) return prev
+          const rest = { ...prev }
+          delete rest[targetEntryId]
+          return rest
+        })
+      }
+    } catch (error) {
+      console.warn('Save entry note:', error)
+    }
+  }, [editEventEntry, showId])
+
+  const scheduleEntryNoteSave = useCallback((targetEntryId, nextNote, options = {}) => {
+    const { immediate = false } = options
+    const nextSeq = (noteSaveSeqRef.current[targetEntryId] || 0) + 1
+    noteSaveSeqRef.current[targetEntryId] = nextSeq
+    clearNoteSaveTimer(targetEntryId)
+    if (immediate) {
+      persistEntryNote(targetEntryId, nextNote, nextSeq)
+      return
+    }
+    noteSaveTimersRef.current[targetEntryId] = window.setTimeout(() => {
+      delete noteSaveTimersRef.current[targetEntryId]
+      persistEntryNote(targetEntryId, nextNote, nextSeq)
+    }, 450)
+  }, [clearNoteSaveTimer, persistEntryNote])
+
+  useEffect(() => () => {
+    Object.values(noteSaveTimersRef.current).forEach((timer) => window.clearTimeout(timer))
+    noteSaveTimersRef.current = {}
+  }, [])
+
+  useEffect(() => {
+    setEntryNoteDrafts({})
+    noteSaveSeqRef.current = {}
+    Object.values(noteSaveTimersRef.current).forEach((timer) => window.clearTimeout(timer))
+    noteSaveTimersRef.current = {}
+  }, [showId])
 
   if (isKidMode) {
     return (
@@ -489,8 +543,17 @@ export default function Scrapbook() {
                           className={styles.resultNotes}
                           rows={2}
                           placeholder="Any notes about this entry…"
-                          value={entry.notes || ''}
-                          onChange={(e) => editEventEntry(showId, entry.id, { notes: e.target.value })}
+                          value={Object.prototype.hasOwnProperty.call(entryNoteDrafts, entry.id) ? entryNoteDrafts[entry.id] : (entry.notes || '')}
+                          onChange={(e) => {
+                            const nextNote = e.target.value
+                            setEntryNoteDrafts((prev) => ({ ...prev, [entry.id]: nextNote }))
+                            scheduleEntryNoteSave(entry.id, nextNote)
+                          }}
+                          onBlur={(e) => {
+                            const nextNote = e.target.value
+                            setEntryNoteDrafts((prev) => ({ ...prev, [entry.id]: nextNote }))
+                            scheduleEntryNoteSave(entry.id, nextNote, { immediate: true })
+                          }}
                         />
                       </div>
 
