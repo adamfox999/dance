@@ -218,10 +218,13 @@ const BEAT_SLOTS = [1, 2, 3, 4, 5, 6, 7, 8]
 export default function Choreography() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { routineId } = useParams()
+  const { routineId: routeRoutineId, sessionId: routeSessionId, journeyEventId: routeJourneyEventId } = useParams()
   const {
+    disciplines,
     routines,
     sessions,
+    dancerDisciplines,
+    dancerJourneyEvents,
     ownKidProfiles,
     settings,
     isAdmin,
@@ -233,6 +236,7 @@ export default function Choreography() {
     attachRehearsalVideo,
     addChoreographyVersion,
     editSession,
+    editDancerJourneyEvent,
     fetchSessionFeedback,
     saveSessionFeedback,
     fetchSessionPracticeReflection,
@@ -240,6 +244,42 @@ export default function Choreography() {
     saveSessionPracticeReflection,
     saveSessionGoalCheckins,
   } = useApp()
+
+  const sessionId = routeSessionId || searchParams.get('sessionId')
+  const activeSession = sessionId ? (sessions || []).find((session) => session.id === sessionId) : null
+  const activeJourneyEvent = routeJourneyEventId
+    ? (dancerJourneyEvents || []).find((journeyEvent) => journeyEvent.id === routeJourneyEventId)
+    : null
+  const activeJourneyDiscipline = activeJourneyEvent?.disciplineId
+    ? (dancerDisciplines || []).find((disciplineItem) => disciplineItem.id === activeJourneyEvent.disciplineId)
+    : null
+  const resolvedJourneyRoutineId = useMemo(() => {
+    if (!activeJourneyEvent) return null
+    if (activeJourneyEvent.routineId) return activeJourneyEvent.routineId
+
+    const journeyDisciplineName = String(activeJourneyDiscipline?.name || '').trim().toLowerCase()
+    const candidateRoutines = (routines || []).filter((routineItem) => {
+      const kidIds = Array.isArray(routineItem.kidProfileIds) ? routineItem.kidProfileIds : []
+      return !activeJourneyEvent.kidProfileId || !kidIds.length || kidIds.includes(activeJourneyEvent.kidProfileId)
+    })
+
+    if (!journeyDisciplineName) {
+      return candidateRoutines.length === 1 ? candidateRoutines[0].id : null
+    }
+
+    const disciplineMatchedRoutines = candidateRoutines.filter((routineItem) => {
+      const routineDisciplineName = String((disciplines || []).find((disciplineItem) => disciplineItem.id === routineItem.disciplineId)?.name || '').trim().toLowerCase()
+      return routineDisciplineName === journeyDisciplineName
+    })
+
+    const resolvedCandidates = disciplineMatchedRoutines.length ? disciplineMatchedRoutines : candidateRoutines
+    return resolvedCandidates.length === 1 ? resolvedCandidates[0].id : null
+  }, [activeJourneyEvent, activeJourneyDiscipline?.name, routines, disciplines])
+  const isJourneySessionRoute = Boolean(routeJourneyEventId)
+  const hasReviewContext = Boolean(sessionId || routeJourneyEventId)
+  const activeReviewEntry = activeJourneyEvent || activeSession
+  const routineId = routeRoutineId || activeSession?.routineId || resolvedJourneyRoutineId || null
+  const isSessionOnlyRoute = Boolean(routeSessionId && !routeRoutineId)
 
   // Find the routine from the new data model
   const routine = routines?.find(r => r.id === routineId)
@@ -254,9 +294,9 @@ export default function Choreography() {
   const isKidLiveView = requestedView === 'kid'
   const isLiveOnly = searchParams.get('live') === 'true'
   const openMediaType = searchParams.get('openMedia')
-  const sessionId = searchParams.get('sessionId')
-  const activeSession = sessionId ? (sessions || []).find((session) => session.id === sessionId) : null
-  const sessionSyncBackupKey = sessionId ? `live-sync:${sessionId}` : null
+  const sessionSyncBackupKey = sessionId
+    ? `live-sync:${sessionId}`
+    : (routeJourneyEventId ? `live-sync:journey:${routeJourneyEventId}` : null)
   const readSessionSyncBackup = useCallback(() => {
     if (!sessionSyncBackupKey) return null
     try {
@@ -291,11 +331,15 @@ export default function Choreography() {
     }
   }, [sessionSyncBackupKey])
   const localSessionSyncBackup = readSessionSyncBackup()
-  const routineMusicStorageKey = routineId ? `choreo-music-${routineId}` : 'choreo-music'
+  const routineMusicStorageKey = routineId
+    ? `choreo-music-${routineId}`
+    : (sessionId ? `session-music-${sessionId}` : (routeJourneyEventId ? `journey-session-music-${routeJourneyEventId}` : 'choreo-music'))
   const routineVideoStorageKey = routineId ? `choreo-video-${routineId}` : 'choreo-video'
   const liveVideoStorageKey = sessionId
     ? (activeSession?.rehearsalVideoKey || `rehearsal-video-${sessionId}`)
-    : routineVideoStorageKey
+    : (routeJourneyEventId
+      ? (activeJourneyEvent?.rehearsalVideoKey || `rehearsal-video-journey-${routeJourneyEventId}`)
+      : routineVideoStorageKey)
 
   const routineFeedbackKids = useMemo(() => {
     const routineKidIds = Array.isArray(routine?.kidProfileIds) ? routine.kidProfileIds : []
@@ -335,9 +379,10 @@ export default function Choreography() {
     if (isKidMode && activeKidProfile?.id) return activeKidProfile.id
     return selectedFeedbackKidId || routineFeedbackKids[0]?.id || null
   }, [sessionId, isKidMode, activeKidProfile?.id, selectedFeedbackKidId, routineFeedbackKids])
+  const hasScopedFeedback = Boolean(sessionId && feedbackKidProfileId)
 
   // Modes: 'edit' | 'live'
-  const [mode, setMode] = useState((isKidLiveView || isLiveOnly) ? 'live' : 'edit')
+  const [mode, setMode] = useState((isKidLiveView || isLiveOnly || isSessionOnlyRoute) ? 'live' : 'edit')
 
   // Keep selectedVersionId in sync when versions change
   useEffect(() => {
@@ -352,11 +397,11 @@ export default function Choreography() {
   }, [versions, selectedVersionId, activeSession?.choreographyVersionId])
 
   useEffect(() => {
-    if (isKidLiveView || isLiveOnly) {
+    if (isKidLiveView || isLiveOnly || isSessionOnlyRoute) {
       setMode('live')
       setLiveEditOpen(false)
     }
-  }, [isKidLiveView, isLiveOnly])
+  }, [isKidLiveView, isLiveOnly, isSessionOnlyRoute])
 
   useEffect(() => {
     if (!sessionId || !selectedVersionId) return
@@ -364,13 +409,20 @@ export default function Choreography() {
     setRehearsalVersion(sessionId, selectedVersionId)
   }, [sessionId, selectedVersionId, activeSession?.choreographyVersionId])
 
-  // Guard: if routine not found, redirect home
+  // Guard: if requested route data is missing, redirect home
   useEffect(() => {
-    if (!routine && routines?.length >= 0) {
-      // Routine was deleted or ID is invalid
-      if (routineId) navigate('/', { replace: true })
+    if (routeRoutineId && !routine && routines?.length >= 0) {
+      navigate('/', { replace: true })
+      return
     }
-  }, [routine, routineId, navigate, routines])
+    if (routeSessionId && !activeSession && sessions?.length >= 0) {
+      navigate('/', { replace: true })
+      return
+    }
+    if (routeJourneyEventId && !activeJourneyEvent && dancerJourneyEvents?.length >= 0) {
+      navigate('/', { replace: true })
+    }
+  }, [routeRoutineId, routeSessionId, routeJourneyEventId, routine, activeSession, activeJourneyEvent, navigate, routines, sessions, dancerJourneyEvents])
 
   // Audio state
   const audioRef = useRef(null)
@@ -429,25 +481,25 @@ export default function Choreography() {
   const liveScreenRef = useRef(null)
   const liveVideoRef = useRef(null)
   const currentFeedbackVideoKey = useMemo(() => {
-    if (sessionId) {
-      return activeSession?.rehearsalVideoKey || liveVideoStorageKey || null
+    if (hasReviewContext) {
+      return activeReviewEntry?.rehearsalVideoKey || liveVideoStorageKey || null
     }
     if (routineId) {
       return `${routineId}:${selectedVersion?.id || 'latest'}:${videoFileName || ''}`
     }
     return videoFileName || null
-  }, [sessionId, activeSession?.rehearsalVideoKey, liveVideoStorageKey, routineId, selectedVersion?.id, videoFileName])
+  }, [hasReviewContext, activeReviewEntry?.rehearsalVideoKey, liveVideoStorageKey, routineId, selectedVersion?.id, videoFileName])
   const [liveIsPlaying, setLiveIsPlaying] = useState(false)
   const [liveTime, setLiveTime] = useState(0)
   const [liveDuration, setLiveDuration] = useState(0)
-  const storedSyncOffsetMs = sessionId
-    ? (Number.isFinite(activeSession?.liveSyncOffsetMs)
-      ? activeSession.liveSyncOffsetMs
+  const storedSyncOffsetMs = hasReviewContext
+    ? (Number.isFinite(activeReviewEntry?.liveSyncOffsetMs)
+      ? activeReviewEntry.liveSyncOffsetMs
       : (localSessionSyncBackup?.offsetMs || 0))
     : (choreography.videoSyncOffset || 0)
-  const storedSyncConfidence = sessionId
-    ? (Number.isFinite(activeSession?.liveSyncConfidence)
-      ? activeSession.liveSyncConfidence
+  const storedSyncConfidence = hasReviewContext
+    ? (Number.isFinite(activeReviewEntry?.liveSyncConfidence)
+      ? activeReviewEntry.liveSyncConfidence
       : localSessionSyncBackup?.confidence)
     : choreography.videoSyncConfidence
   const effectiveSyncOffsetMs = Number.isFinite(syncResult?.offsetMs)
@@ -508,7 +560,9 @@ export default function Choreography() {
 
   const stageRecap = useMemo(() => {
     const feedbackAnnotations = sessionId
-      ? (sessionFeedback.videoAnnotations || activeSession?.videoAnnotations || [])
+      ? (hasScopedFeedback
+        ? (sessionFeedback.videoAnnotations || activeSession?.videoAnnotations || [])
+        : (activeSession?.videoAnnotations || []))
       : (choreography.videoAnnotations || [])
 
     const emojiCountMap = new Map()
@@ -522,7 +576,7 @@ export default function Choreography() {
       emojiPills: Array.from(emojiCountMap.entries()).map(([emoji, count]) => ({ emoji, count })),
       feedbackPreview: truncatePreviewText(reflectionNote, 140),
     }
-  }, [sessionId, sessionFeedback.videoAnnotations, activeSession?.videoAnnotations, choreography.videoAnnotations, reflectionNote])
+  }, [sessionId, hasScopedFeedback, sessionFeedback.videoAnnotations, activeSession?.videoAnnotations, choreography.videoAnnotations, reflectionNote])
 
   useEffect(() => {
     let cancelled = false
@@ -569,16 +623,33 @@ export default function Choreography() {
       setSummaryError('')
     }
 
-    if (!sessionId || !routineId) {
+    if (!hasReviewContext) {
       resetReflectionUi()
+      return () => { cancelled = true }
+    }
+
+    if (routeJourneyEventId) {
+      setReflectionNote(activeJourneyEvent?.dancerReflection?.note || '')
+      setLivingGoals(
+        (activeJourneyEvent?.dancerReflection?.goals || []).map((goalText) => ({
+          id: generateId('journey-goal'),
+          text: goalText,
+          isNew: true,
+          isPersisted: true,
+        }))
+      )
+      setRemovedCurrentVideoGoalIds([])
+      setGoalReactions({})
+      setNewGoalText('')
+      setSummaryError('')
       return () => { cancelled = true }
     }
 
     const loadReflectionContext = async () => {
       try {
         const [currentReflection, activeGoals] = await Promise.all([
-          fetchSessionPracticeReflection(sessionId, feedbackKidProfileId),
-          fetchRoutineLivingGoals(routineId, feedbackKidProfileId),
+          feedbackKidProfileId ? fetchSessionPracticeReflection(sessionId, feedbackKidProfileId) : Promise.resolve(null),
+          routineId ? fetchRoutineLivingGoals(routineId, feedbackKidProfileId) : Promise.resolve([]),
         ])
         if (cancelled) return
 
@@ -609,11 +680,15 @@ export default function Choreography() {
     loadReflectionContext()
     return () => { cancelled = true }
   }, [
+    hasReviewContext,
     sessionId,
+    routeJourneyEventId,
     routineId,
     feedbackKidProfileId,
     sessionFeedback?.dancerReflection?.note,
     activeSession?.dancerReflection?.note,
+    activeJourneyEvent?.dancerReflection?.note,
+    activeJourneyEvent?.dancerReflection?.goals,
     fetchSessionPracticeReflection,
     fetchRoutineLivingGoals,
   ])
@@ -632,6 +707,8 @@ export default function Choreography() {
     setIsPlaying(false)
     if (routineId) {
       navigate(`/timeline/routine/${routineId}`)
+    } else if (isJourneySessionRoute && activeJourneyEvent?.kidProfileId) {
+      navigate(`/timeline/dancer/${activeJourneyEvent.kidProfileId}`)
     } else if (activeSession?.disciplineId) {
       navigate(`/timeline/discipline/${activeSession.disciplineId}`)
     } else if (isLiveOnly) {
@@ -639,7 +716,7 @@ export default function Choreography() {
     } else {
       setMode('edit')
     }
-  }, [activeSession?.disciplineId, isLiveOnly, navigate, routineId])
+  }, [activeSession?.disciplineId, activeJourneyEvent?.kidProfileId, isJourneySessionRoute, isLiveOnly, navigate, routineId])
 
   const closeStageThen = useCallback((callback) => {
     setSummaryClosing(true)
@@ -651,9 +728,36 @@ export default function Choreography() {
   }, [])
 
   // Video annotations — per-session when practicing, per-choreography when editing
-  const videoAnnotations = sessionId
-    ? (sessionFeedback.videoAnnotations || activeSession?.videoAnnotations || [])
-    : (choreography.videoAnnotations || [])
+  const videoAnnotations = isJourneySessionRoute
+    ? (activeJourneyEvent?.videoAnnotations || [])
+    : (sessionId
+      ? (hasScopedFeedback
+        ? (sessionFeedback.videoAnnotations || activeSession?.videoAnnotations || [])
+        : (activeSession?.videoAnnotations || []))
+      : (choreography.videoAnnotations || []))
+
+  const persistSessionVideoAnnotations = useCallback((updated) => {
+    if (routeJourneyEventId) {
+      editDancerJourneyEvent(routeJourneyEventId, { videoAnnotations: updated }).catch((e) => {
+        console.warn('Save journey annotation:', e)
+      })
+      return
+    }
+
+    if (!sessionId) return
+
+    if (feedbackKidProfileId) {
+      setSessionFeedback((prev) => ({ ...prev, videoAnnotations: updated }))
+      saveSessionFeedback(sessionId, feedbackKidProfileId, { videoAnnotations: updated })
+        .then((saved) => { if (saved) setSessionFeedback(saved) })
+        .catch((e) => console.warn('Save annotation feedback:', e))
+      return
+    }
+
+    editSession(sessionId, { videoAnnotations: updated }).catch((e) => {
+      console.warn('Save session annotation:', e)
+    })
+  }, [routeJourneyEventId, sessionId, feedbackKidProfileId, saveSessionFeedback, editSession, editDancerJourneyEvent])
 
   const clearLiveUiHideTimer = useCallback(() => {
     if (liveUiHideTimerRef.current) {
@@ -814,6 +918,15 @@ export default function Choreography() {
         } catch (saveErr) {
           console.warn('Save session sync failed (using local sync backup):', saveErr)
         }
+      } else if (routeJourneyEventId && activeJourneyEvent?.id) {
+        try {
+          await editDancerJourneyEvent(activeJourneyEvent.id, {
+            liveSyncOffsetMs: result.offsetMs,
+            liveSyncConfidence: result.confidence,
+          })
+        } catch (saveErr) {
+          console.warn('Save journey session sync failed (using local sync backup):', saveErr)
+        }
       } else if (routineId && selectedVersion?.id) {
         editChoreographyVersion(routineId, selectedVersion.id, {
           videoSyncOffset: result.offsetMs,
@@ -826,7 +939,7 @@ export default function Choreography() {
     } finally {
       setSyncing(false)
     }
-  }, [sessionId, activeSession?.id, editSession, routineId, selectedVersion?.id, writeSessionSyncBackup])
+  }, [sessionId, activeSession?.id, routeJourneyEventId, activeJourneyEvent?.id, editSession, editDancerJourneyEvent, routineId, selectedVersion?.id, writeSessionSyncBackup])
 
   const resetVideoSyncState = useCallback(() => {
     setSyncResult(null)
@@ -836,13 +949,18 @@ export default function Choreography() {
         liveSyncOffsetMs: 0,
         liveSyncConfidence: null,
       }).catch((err) => console.warn('Reset session sync failed:', err))
+    } else if (routeJourneyEventId && activeJourneyEvent?.id) {
+      editDancerJourneyEvent(activeJourneyEvent.id, {
+        liveSyncOffsetMs: 0,
+        liveSyncConfidence: null,
+      }).catch((err) => console.warn('Reset journey session sync failed:', err))
     } else if (routineId && selectedVersion?.id) {
       editChoreographyVersion(routineId, selectedVersion.id, {
         videoSyncOffset: 0,
         videoSyncConfidence: null,
       })
     }
-  }, [sessionId, activeSession?.id, editSession, routineId, selectedVersion?.id, clearSessionSyncBackup])
+  }, [sessionId, activeSession?.id, routeJourneyEventId, activeJourneyEvent?.id, editSession, editDancerJourneyEvent, routineId, selectedVersion?.id, clearSessionSyncBackup])
 
   const closeMediaPicker = useCallback(() => {
     setMediaPickerOpen(false)
@@ -869,17 +987,34 @@ export default function Choreography() {
 
   useEffect(() => {
     if (openMediaType !== 'video') return
-    if (!sessionId) return
+    if (!hasReviewContext) return
     if (isKidMode || isKidLiveView) return
     if (mode !== 'live' && !isLiveOnly) return
     if (hasAutoOpenedVideoPickerRef.current) return
     hasAutoOpenedVideoPickerRef.current = true
     openMediaPicker('video')
-  }, [openMediaType, sessionId, isKidMode, isKidLiveView, mode, isLiveOnly, openMediaPicker])
+  }, [openMediaType, hasReviewContext, isKidMode, isKidLiveView, mode, isLiveOnly, openMediaPicker])
 
   // Beat detection
   const [beatData, setBeatData] = useState(null) // { bpm, firstBeat, beats[], eightCounts[] }
   const [showBeats, setShowBeats] = useState(true)
+  const resolvedDisciplineName = useMemo(() => {
+    if (activeJourneyDiscipline?.name) return activeJourneyDiscipline.name
+    if (activeSession?.disciplineId) {
+      const sessionDiscipline = (disciplines || []).find((disciplineItem) => disciplineItem.id === activeSession.disciplineId)
+      if (sessionDiscipline?.name) return sessionDiscipline.name
+    }
+    if (routine?.disciplineId) {
+      const routineDiscipline = (disciplines || []).find((disciplineItem) => disciplineItem.id === routine.disciplineId)
+      if (routineDiscipline?.name) return routineDiscipline.name
+    }
+    return ''
+  }, [activeJourneyDiscipline?.name, activeSession?.disciplineId, routine?.disciplineId, disciplines])
+  const shouldShowBeatsByDefault = !/\bballet\b/i.test(String(resolvedDisciplineName || '').trim())
+
+  useEffect(() => {
+    setShowBeats(shouldShowBeatsByDefault)
+  }, [routeRoutineId, routeSessionId, routeJourneyEventId, shouldShowBeatsByDefault])
   const liveAnimRef = useRef(null)
   const lastLiveClockTimeRef = useRef(-1)
 
@@ -926,7 +1061,9 @@ export default function Choreography() {
         }
 
         let resolvedMusic = false
-        const musicKeys = Array.from(new Set([routineMusicStorageKey, 'choreo-music']))
+        const musicKeys = routineId
+          ? Array.from(new Set([routineMusicStorageKey, 'choreo-music']))
+          : [routineMusicStorageKey]
 
         for (const musicKey of musicKeys) {
           if (resolvedMusic || cancelled) break
@@ -966,11 +1103,11 @@ export default function Choreography() {
         const localVideo = await loadLocalFile(liveVideoStorageKey)
         if (localVideo?.blob && !cancelled) {
           setLiveVideoUrl(URL.createObjectURL(localVideo.blob))
-          setVideoFileName(localVideo.meta?.fileName || activeSession?.rehearsalVideoName || '')
+          setVideoFileName(localVideo.meta?.fileName || activeReviewEntry?.rehearsalVideoName || '')
           resolvedVideo = true
         } else {
           // For rehearsal-linked playback, only use the rehearsal video key.
-          if (sessionId) {
+          if (hasReviewContext) {
             const sessionVideo = await loadFile(liveVideoStorageKey)
             if (sessionVideo?.blob && !cancelled) {
               try {
@@ -979,7 +1116,7 @@ export default function Choreography() {
                 console.warn('Could not cache rehearsal video locally:', cacheErr)
               }
               setLiveVideoUrl(URL.createObjectURL(sessionVideo.blob))
-              setVideoFileName(sessionVideo.meta?.fileName || activeSession?.rehearsalVideoName || '')
+              setVideoFileName(sessionVideo.meta?.fileName || activeReviewEntry?.rehearsalVideoName || '')
               resolvedVideo = true
             }
           } else {
@@ -1022,10 +1159,12 @@ export default function Choreography() {
     routineId,
     routineMusicStorageKey,
     sessionId,
+    routeJourneyEventId,
     selectedVersion?.id,
     choreography.musicFileName,
     liveVideoStorageKey,
-    activeSession?.rehearsalVideoName,
+    activeReviewEntry?.rehearsalVideoName,
+    hasReviewContext,
   ])
 
   const applyMusicFile = useCallback(async (file) => {
@@ -1058,7 +1197,9 @@ export default function Choreography() {
 
       localStorage.setItem('choreo-waveform', JSON.stringify(peaks))
 
-      editChoreographyVersion(routineId, selectedVersion?.id, { musicUrl: '', musicFileName: file.name, duration: audioBuffer.duration })
+      if (routineId && selectedVersion?.id) {
+        editChoreographyVersion(routineId, selectedVersion.id, { musicUrl: '', musicFileName: file.name, duration: audioBuffer.duration })
+      }
 
       if (liveVideoUrl) {
         try {
@@ -1245,13 +1386,8 @@ export default function Choreography() {
   }
 
   const handleSavePracticeSummary = async () => {
-    if (!sessionId) {
+    if (!hasReviewContext) {
       closeStageThen()
-      return
-    }
-
-    if (!feedbackKidProfileId) {
-      setSummaryError('Choose which child this feedback is for first.')
       return
     }
 
@@ -1272,20 +1408,22 @@ export default function Choreography() {
         .filter(([, rating]) => [1, 2, 3].includes(rating))
         .map(([goalId, rating]) => ({ goalId, rating }))
 
-      await saveSessionPracticeReflection(sessionId, {
-        kidProfileId: feedbackKidProfileId,
-        routineId: routineId || null,
-        reflectionNote,
-        newGoals,
-        currentVideoGoals,
-        removeCurrentVideoGoalIds: removedCurrentVideoGoalIds,
-        goalReactions: reactions,
-      })
+      if (feedbackKidProfileId) {
+        await saveSessionPracticeReflection(sessionId, {
+          kidProfileId: feedbackKidProfileId,
+          routineId: routineId || null,
+          reflectionNote,
+          newGoals,
+          currentVideoGoals,
+          removeCurrentVideoGoalIds: removedCurrentVideoGoalIds,
+          goalReactions: reactions,
+        })
+      }
 
       const allGoalTexts = livingGoals
         .filter((g) => goalReactions[g.id] !== 3)
         .map((g) => g.text)
-      const fallbackReflection = sessionFeedback?.dancerReflection || activeSession?.dancerReflection || { feeling: '', note: '', goals: [] }
+      const fallbackReflection = sessionFeedback?.dancerReflection || activeReviewEntry?.dancerReflection || { feeling: '', note: '', goals: [] }
       if (feedbackKidProfileId) {
         const savedFeedback = await saveSessionFeedback(sessionId, feedbackKidProfileId, {
           dancerReflection: {
@@ -1295,6 +1433,14 @@ export default function Choreography() {
           },
         })
         if (savedFeedback) setSessionFeedback(savedFeedback)
+      } else if (routeJourneyEventId) {
+        await editDancerJourneyEvent(routeJourneyEventId, {
+          dancerReflection: {
+            ...fallbackReflection,
+            note: reflectionNote,
+            goals: allGoalTexts,
+          },
+        })
       } else {
         await editSession(sessionId, {
           dancerReflection: {
@@ -1402,6 +1548,7 @@ export default function Choreography() {
         size: compressedFile.size,
         routineId,
         sessionId: sessionId || null,
+        journeyEventId: routeJourneyEventId || null,
       })
       setVideoDownloadProgress(90)
 
@@ -1422,6 +1569,13 @@ export default function Choreography() {
 
       if (sessionId) {
         attachRehearsalVideo(sessionId, liveVideoStorageKey, compressedFile.name)
+      } else if (routeJourneyEventId) {
+        await editDancerJourneyEvent(routeJourneyEventId, {
+          rehearsalVideoKey: liveVideoStorageKey,
+          rehearsalVideoName: compressedFile.name,
+          noVideoTaken: false,
+          noVideoTakenAt: null,
+        })
       } else {
         editChoreographyVersion(routineId, selectedVersion?.id, { videoFileName: compressedFile.name })
       }
@@ -1453,7 +1607,7 @@ export default function Choreography() {
       setIsVideoDownloading(false)
       setVideoDownloadProgress(null)
     }
-  }, [audioUrl, liveVideoStorageKey, resetVideoSyncState, routineId, runSyncAnalysis, selectedVersion?.id, sessionId])
+  }, [audioUrl, liveVideoStorageKey, resetVideoSyncState, routineId, runSyncAnalysis, selectedVersion?.id, sessionId, routeJourneyEventId, editDancerJourneyEvent])
 
   // ========== LIVE MODE VIDEO ==========
   const handleVideoUpload = async (e) => {
@@ -1757,7 +1911,7 @@ export default function Choreography() {
     try {
       const localFileKeys = Array.from(new Set([
         routineMusicStorageKey,
-        'choreo-music',
+        ...(routineId ? ['choreo-music'] : []),
         liveVideoStorageKey,
         'choreo-video',
       ]))
@@ -1770,6 +1924,7 @@ export default function Choreography() {
           ...(localFile.meta || {}),
           routineId: localFile.meta?.routineId || routineId,
           sessionId: localFile.meta?.sessionId || sessionId || null,
+          journeyEventId: localFile.meta?.journeyEventId || routeJourneyEventId || null,
         })
         uploadedCount += 1
       }
@@ -2282,6 +2437,18 @@ export default function Choreography() {
         liveSyncOffsetMs: newOffset,
         liveSyncConfidence: null,
       }).catch((err) => console.warn('Save nudged session sync failed:', err))
+    } else if (routeJourneyEventId && activeJourneyEvent?.id) {
+      setSyncResult({
+        offsetMs: newOffset,
+        confidence: Number.isFinite(syncResult?.confidence)
+          ? syncResult.confidence
+          : (Number.isFinite(storedSyncConfidence) ? storedSyncConfidence : 0),
+      })
+      writeSessionSyncBackup(newOffset, null)
+      editDancerJourneyEvent(activeJourneyEvent.id, {
+        liveSyncOffsetMs: newOffset,
+        liveSyncConfidence: null,
+      }).catch((err) => console.warn('Save nudged journey sync failed:', err))
     } else if (routineId && selectedVersion?.id) {
       editChoreographyVersion(routineId, selectedVersion.id, {
         videoSyncOffset: newOffset,
@@ -2360,6 +2527,8 @@ export default function Choreography() {
   const compressionPctLabel = typeof videoCompressionProgress === 'number'
     ? `${Math.max(0, Math.min(100, Math.round(videoCompressionProgress)))}%`
     : ''
+  const liveScreenTitle = (routine?.name || activeJourneyEvent?.title || activeSession?.title || '').trim() || 'Practice session'
+  const videoLabel = hasReviewContext ? 'review video' : 'practice video'
   const compressingLabel = videoProcessStage === 'compressing'
     ? `Compressing video...${compressionPctLabel ? ` ${compressionPctLabel}` : ''}`
     : videoProcessStage === 'preparing'
@@ -2371,11 +2540,12 @@ export default function Choreography() {
           : `Compressing video...${videoProgressLabel ? ` ${videoProgressLabel}` : ''}`
   const videoUploadButtonLabel = videoProcessing
     ? compressingLabel
-    : (liveVideoUrl ? '🎥 Change video' : '📹 Upload practice video')
+      : (liveVideoUrl ? '🎥 Change video' : `📹 Upload ${videoLabel}`)
   const canManageLiveControls = !isKidMode && !isKidLiveView
+    const canEditChoreography = Boolean(routineId && selectedVersion?.id)
   const showLiveFeedbackToggle = !isKidMode
     && !isKidLiveView
-    && Boolean(sessionId)
+    && hasScopedFeedback
     && routineFeedbackKids.length > 1
   const priorLivingGoals = livingGoals.filter((g) => !g.isNew)
   const newLivingGoals = livingGoals.filter((g) => g.isNew)
@@ -2397,13 +2567,13 @@ export default function Choreography() {
         />
       )}
 
-      {!isKidLiveView && !isLiveOnly && (
+      {!isKidLiveView && !isLiveOnly && !isSessionOnlyRoute && (
         <>
           {/* Header */}
           <div className={styles['choreo-header']}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', fontSize: '1.3rem', cursor: 'pointer', padding: 0 }}>←</button>
-              <h1>🎶 {routine?.name || 'Choreography'}</h1>
+              <h1>🎶 {liveScreenTitle}</h1>
               {versions.length > 0 && (
                 <>
                   <select
@@ -2569,11 +2739,11 @@ export default function Choreography() {
       )}
 
       {/* ===== EDIT MODE ===== */}
-      {!isKidLiveView && mode === 'edit' && (
+      {!isKidLiveView && !isSessionOnlyRoute && mode === 'edit' && (
         <>
           {/* Video & Sync section */}
           <div className={styles['sync-section']}>
-            <h3>🔗 Practice Video</h3>
+            <h3>🔗 {hasReviewContext ? 'Review Video' : 'Practice Video'}</h3>
             {videoProcessingMessage && videoProcessing && (
               <p style={{ margin: '4px 0 8px', fontSize: '0.85rem', color: '#7c3aed' }}>{videoProcessingMessage}</p>
             )}
@@ -2666,7 +2836,7 @@ export default function Choreography() {
                     <>
                       <span className={styles['live-state-icon']} style={{ marginBottom: 8 }}>🎬</span>
                       <p className={styles['live-no-video-title']}>No video loaded</p>
-                      <p className={styles['live-no-video-subtitle']}>Add video or music to get started</p>
+                      <p className={styles['live-no-video-subtitle']}>Add a {videoLabel} or music to get started</p>
                       {canManageLiveControls && (
                         <div className={styles['live-no-video-actions']}>
                           <button
@@ -2674,7 +2844,7 @@ export default function Choreography() {
                             className={styles['live-no-video-action-btn']}
                             onClick={() => videoPickerInputRef.current?.click()}
                           >
-                            📹 Add Video
+                            {hasReviewContext ? '📹 Add Review Video' : '📹 Add Video'}
                           </button>
                           {!audioUrl && (
                             <button
@@ -2720,11 +2890,7 @@ export default function Choreography() {
                 }
                 const updated = [...videoAnnotations, annotationWithVideoScope]
                 if (sessionId) {
-                  if (!feedbackKidProfileId) return
-                  setSessionFeedback((prev) => ({ ...prev, videoAnnotations: updated }))
-                  saveSessionFeedback(sessionId, feedbackKidProfileId, { videoAnnotations: updated })
-                    .then((saved) => { if (saved) setSessionFeedback(saved) })
-                    .catch((e) => console.warn('Save annotation feedback:', e))
+                  persistSessionVideoAnnotations(updated)
                 } else {
                   editChoreographyVersion(routineId, selectedVersion?.id, { videoAnnotations: updated })
                 }
@@ -2732,11 +2898,7 @@ export default function Choreography() {
               onDeleteAnnotation={(annId) => {
                 const updated = videoAnnotations.filter(a => a.id !== annId)
                 if (sessionId) {
-                  if (!feedbackKidProfileId) return
-                  setSessionFeedback((prev) => ({ ...prev, videoAnnotations: updated }))
-                  saveSessionFeedback(sessionId, feedbackKidProfileId, { videoAnnotations: updated })
-                    .then((saved) => { if (saved) setSessionFeedback(saved) })
-                    .catch((e) => console.warn('Delete annotation feedback:', e))
+                  persistSessionVideoAnnotations(updated)
                 } else {
                   editChoreographyVersion(routineId, selectedVersion?.id, { videoAnnotations: updated })
                 }
@@ -2746,11 +2908,7 @@ export default function Choreography() {
                   ann.id === annId ? { ...ann, ...updates } : ann
                 ))
                 if (sessionId) {
-                  if (!feedbackKidProfileId) return
-                  setSessionFeedback((prev) => ({ ...prev, videoAnnotations: updated }))
-                  saveSessionFeedback(sessionId, feedbackKidProfileId, { videoAnnotations: updated })
-                    .then((saved) => { if (saved) setSessionFeedback(saved) })
-                    .catch((e) => console.warn('Update annotation feedback:', e))
+                  persistSessionVideoAnnotations(updated)
                 } else {
                   editChoreographyVersion(routineId, selectedVersion?.id, { videoAnnotations: updated })
                 }
@@ -3152,7 +3310,7 @@ export default function Choreography() {
                     onClick={handleSavePracticeSummary}
                     disabled={summarySaving || summaryClosing}
                   >
-                    {summarySaving ? 'Saving…' : (sessionId ? '✨ Save & Take a Bow' : '🎭 Done')}
+                    {summarySaving ? 'Saving…' : (hasReviewContext ? '✨ Save & Take a Bow' : '🎭 Done')}
                   </button>
                 </div>
 
@@ -3313,7 +3471,7 @@ export default function Choreography() {
                   <span />
                 )}
                 <div className={styles['live-controls-secondary-right']}>
-                  {canManageLiveControls && (
+                  {canManageLiveControls && canEditChoreography && (
                     <button
                       className={`${styles['live-edit-toggle']} ${liveEditOpen ? styles.active : ''}`}
                       onClick={() => setLiveEditOpen(!liveEditOpen)}
@@ -3349,7 +3507,7 @@ export default function Choreography() {
           )}
 
           {/* Live edit panel — full-song beat timeline + instructions */}
-          {!isKidLiveView && liveEditOpen && (
+          {!isKidLiveView && canEditChoreography && liveEditOpen && (
             <div className={styles['live-edit-panel']}>
               <div className={styles['live-edit-header']}>
                 <span>🎵 Choreography</span>

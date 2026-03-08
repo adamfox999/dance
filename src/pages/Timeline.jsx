@@ -2,8 +2,9 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { loadFile } from '../utils/fileStorage'
-import { formatDate as formatUiDate, formatDateWithWeekday } from '../utils/helpers'
+import { formatDate as formatUiDate, formatDateWithWeekday, buildSessionLivePath, buildJourneySessionLivePath } from '../utils/helpers'
 import { getEventTypeIcon, getEventTypeLabel } from '../data/aedEvents'
+import { GRADE_LEVELS } from '../data/defaultState'
 import { fetchStateFromBackend } from '../utils/backendApi'
 import { notify } from '../utils/notify'
 import styles from './Timeline.module.css'
@@ -109,8 +110,6 @@ function hasSessionStarted(session = {}, fallbackDate = '') {
 const JOURNEY_EVENT_META = {
   class: { icon: '🏫', label: 'Class' },
   'private-lesson': { icon: '👩‍🏫', label: 'Private lesson' },
-  'exam-goal': { icon: '🎯', label: 'Exam goal' },
-  'exam-result': { icon: '🎓', label: 'Exam result' },
 }
 
 const posterFileTaskByKey = new Map()
@@ -248,6 +247,15 @@ function SessionVideoPoster({ rehearsalVideoKey, rehearsalVideoName, videoSrc, c
     />
   )
 }
+  const SESSION_LIKE_JOURNEY_TYPES = new Set(['class', 'private-lesson'])
+
+  function isJourneySessionEvent(journeyEvent = {}) {
+    return SESSION_LIKE_JOURNEY_TYPES.has(journeyEvent.eventType)
+  }
+
+function getJourneySessionDate(journeyEvent = {}) {
+  return journeyEvent.scheduledDate || journeyEvent.eventDate || ''
+}
 
 function getVideoPreviewSource(video = {}) {
   const firstValid = (...values) => values.find((value) => typeof value === 'string' && value.trim()) || ''
@@ -258,6 +266,34 @@ function getVideoPreviewSource(video = {}) {
   }
 }
 
+function mapJourneyEventToSessionData(journeyEvent = {}) {
+  const eventType = SESSION_TYPE_LABELS[journeyEvent.eventType] ? journeyEvent.eventType : 'practice'
+  return {
+    id: journeyEvent.id,
+    sourceType: 'journey',
+    sourceId: journeyEvent.id,
+    kidProfileId: journeyEvent.kidProfileId || null,
+    disciplineId: journeyEvent.disciplineId || null,
+    routineId: journeyEvent.routineId || null,
+    type: eventType,
+    title: journeyEvent.title || SESSION_TYPE_LABELS[eventType] || 'Practice',
+    scheduledAt: getJourneySessionDate(journeyEvent),
+    date: getJourneySessionDate(journeyEvent),
+    startTime: journeyEvent.scheduledTime || '',
+    endTime: '',
+    time: journeyEvent.scheduledTime || '',
+    with: '',
+    rehearsalVideoKey: journeyEvent.rehearsalVideoKey || '',
+    rehearsalVideoName: journeyEvent.rehearsalVideoName || '',
+    noVideoTaken: Boolean(journeyEvent.noVideoTaken),
+    noVideoTakenAt: journeyEvent.noVideoTakenAt || null,
+    liveSyncOffsetMs: journeyEvent.liveSyncOffsetMs || 0,
+    liveSyncConfidence: journeyEvent.liveSyncConfidence,
+    dancerReflection: journeyEvent.dancerReflection || { feeling: '', note: '', goals: [] },
+    videoAnnotations: journeyEvent.videoAnnotations || [],
+    details: journeyEvent.details || '',
+  }
+}
 export default function Timeline() {
   const { type, id } = useParams()
   const {
@@ -266,7 +302,7 @@ export default function Timeline() {
     dancerDisciplines,
     dancerJourneyEvents,
     setSessionReflection, setElementStatus, scheduleRehearsal, editSession, removeSession, addEventEntry, editEventEntry, addShow,
-    addDancerDiscipline, addDancerJourneyEvent,
+    addDancerDiscipline, addDancerJourneyEvent, editDancerJourneyEvent, removeDancerJourneyEvent,
     editRoutine,
     isAdmin, isKidMode, isLoading,
     hasSupabaseAuth,
@@ -305,9 +341,20 @@ export default function Timeline() {
   const [addEntryTime, setAddEntryTime] = useState('')
   const [addJourneyDisciplineId, setAddJourneyDisciplineId] = useState('')
   const [addJourneyDisciplineName, setAddJourneyDisciplineName] = useState('')
+  const [addJourneyRoutineId, setAddJourneyRoutineId] = useState('')
   const [addJourneyTitle, setAddJourneyTitle] = useState('')
   const [addJourneyDetails, setAddJourneyDetails] = useState('')
   const [lightbox, setLightbox] = useState(null) // { media: [...], index: N }
+
+  // Exam state
+  const [addExamName, setAddExamName] = useState('')
+  const [addExamGrade, setAddExamGrade] = useState('')
+  const [expandedExamId, setExpandedExamId] = useState(null)
+  const [examResultInput, setExamResultInput] = useState('')
+  const [examScoreInput, setExamScoreInput] = useState('')
+  const [examResultBusy, setExamResultBusy] = useState(false)
+  const [addFee, setAddFee] = useState('')
+  const [examFeeInput, setExamFeeInput] = useState('')
 
   // Share state
   const [shareBusy, setShareBusy] = useState(false)
@@ -348,6 +395,34 @@ export default function Timeline() {
     })
     return index
   }, [visibleDancerDisciplines])
+
+  const availableJourneyRoutines = useMemo(() => {
+    if (!isDancer || !dancer) return []
+
+    const dancerRoutinePool = (routines || []).filter((routineItem) => {
+      const kidIds = Array.isArray(routineItem.kidProfileIds) ? routineItem.kidProfileIds : []
+      return !kidIds.length || kidIds.includes(dancer.id)
+    })
+
+    const selectedDiscipline = dancerDisciplineById[addJourneyDisciplineId]
+    const selectedDisciplineName = String(selectedDiscipline?.name || '').trim().toLowerCase()
+    if (!selectedDisciplineName) return dancerRoutinePool
+
+    const matchingDisciplineRoutines = dancerRoutinePool.filter((routineItem) => {
+      const disciplineName = String((disciplines || []).find((disciplineItem) => disciplineItem.id === routineItem.disciplineId)?.name || '').trim().toLowerCase()
+      return disciplineName === selectedDisciplineName
+    })
+
+    return matchingDisciplineRoutines.length ? matchingDisciplineRoutines : dancerRoutinePool
+  }, [isDancer, dancer, routines, addJourneyDisciplineId, dancerDisciplineById, disciplines])
+
+  // Exam journey events for a specific discipline
+  const disciplineExams = useMemo(() => {
+    if (!isDiscipline) return []
+    return (dancerJourneyEvents || []).filter(
+      (je) => je.disciplineId === id && (je.eventType === 'exam-goal' || je.eventType === 'exam-result')
+    )
+  }, [isDiscipline, dancerJourneyEvents, id])
 
   const title = isDiscipline
     ? `${discipline?.icon || ''} ${discipline?.name || 'Discipline'}`
@@ -416,7 +491,15 @@ export default function Timeline() {
     })
 
     visibleDancerJourneyEvents.forEach((journeyEvent) => {
+      if (isJourneySessionEvent(journeyEvent)) {
+        items.push({ type: 'session', date: getJourneySessionDate(journeyEvent), data: mapJourneyEventToSessionData(journeyEvent) })
+        return
+      }
       items.push({ type: 'journey', date: journeyEvent.eventDate, data: journeyEvent })
+    })
+
+    disciplineExams.forEach((exam) => {
+      items.push({ type: 'exam', date: exam.eventDate, data: exam })
     })
 
     // Sort newest first
@@ -500,24 +583,17 @@ export default function Timeline() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [addDialogOpen])
 
-  const handleSubmitReflection = (sessionId) => {
-    if (!feeling && !note) return
-    setSessionReflection(sessionId, { feeling, note })
-    setReflectingSession(null)
-    setFeeling('')
-    setNote('')
-  }
-
   const handleElementStatus = (elementId, status) => {
     setElementStatus(id, elementId, status)
   }
 
   const openAddDialog = () => {
     if (!isAdmin) return
-    if (!isRoutine && !isDancer) return
+    if (!isRoutine && !isDancer && !isDiscipline) return
     if (isRoutine && !routine) return
     if (isDancer && !dancer) return
-    setAddType(isDancer ? (visibleDancerDisciplines.length > 0 ? 'class' : 'discipline') : 'practice')
+    if (isDiscipline && !discipline) return
+    setAddType(isDiscipline ? 'exam' : isDancer ? 'class' : 'practice')
     setAddDate(new Date(Date.now() + 86400000).toISOString().split('T')[0])
     setAddPracticeStartTime('')
     setAddPracticeEndTime('')
@@ -531,13 +607,32 @@ export default function Timeline() {
     setAddEntryTime('')
     setAddJourneyDisciplineId(visibleDancerDisciplines[0]?.id || '')
     setAddJourneyDisciplineName('')
+    setAddJourneyRoutineId('')
     setAddJourneyTitle('')
     setAddJourneyDetails('')
+    setAddExamName('')
+    setAddExamGrade(discipline?.currentGrade || GRADE_LEVELS[0])
+    setAddFee('')
     setShareMsg(null)
     setShareLink(null)
     setAddDialogOpen(true)
-    // Load partner kids for accepted shares of this routine
-    if (isRoutine) loadPartnerKidsForRoutine()
+  }
+
+  const handleSubmitReflection = (reflectionKey) => {
+    if (!feeling && !note) return
+    const [sourceType, sourceId] = String(reflectionKey || '').split(':')
+    if (sourceType === 'journey') {
+      const target = visibleDancerJourneyEvents.find((item) => item.id === sourceId)
+      const merged = { ...(target?.dancerReflection || { feeling: '', note: '', goals: [] }), feeling, note }
+      editDancerJourneyEvent(sourceId, { dancerReflection: merged }).catch((err) => {
+        notify(err?.message || 'Could not save reflection.')
+      })
+    } else {
+      setSessionReflection(sourceId || reflectionKey, { feeling, note })
+    }
+    setReflectingSession(null)
+    setFeeling('')
+    setNote('')
   }
 
   useEffect(() => {
@@ -546,10 +641,20 @@ export default function Timeline() {
       if (addJourneyDisciplineId) setAddJourneyDisciplineId('')
       return
     }
-    if (!addJourneyDisciplineId || !visibleDancerDisciplines.some((item) => item.id === addJourneyDisciplineId)) {
+    if (!addJourneyDisciplineId || !visibleDancerDisciplines.some((disciplineItem) => disciplineItem.id === addJourneyDisciplineId)) {
       setAddJourneyDisciplineId(visibleDancerDisciplines[0].id)
     }
   }, [addDialogOpen, isDancer, addType, addJourneyDisciplineId, visibleDancerDisciplines])
+
+  useEffect(() => {
+    if (!addDialogOpen || !isDancer || !JOURNEY_EVENT_META[addType]) return
+    if (availableJourneyRoutines.some((routineItem) => routineItem.id === addJourneyRoutineId)) return
+    if (availableJourneyRoutines.length === 1) {
+      setAddJourneyRoutineId(availableJourneyRoutines[0].id)
+      return
+    }
+    if (addJourneyRoutineId) setAddJourneyRoutineId('')
+  }, [addDialogOpen, isDancer, addType, addJourneyRoutineId, availableJourneyRoutines])
 
   // Shares for THIS routine
   const routineShares = useMemo(() => {
@@ -707,10 +812,31 @@ export default function Timeline() {
   }
 
   const handleAddTimelineItem = async () => {
-    if (!isRoutine && !isDancer) return
+    if (!isRoutine && !isDancer && !isDiscipline) return
 
     try {
-      if (isRoutine && addType === 'practice') {
+      if ((isDiscipline || isDancer) && addType === 'exam') {
+        const examDiscipline = isDiscipline ? discipline : dancerDisciplineById[addJourneyDisciplineId]
+        if (!examDiscipline) {
+          notify('Please select a discipline first.')
+          return
+        }
+        if (!addDate) {
+          notify('Please select an exam date.')
+          return
+        }
+        const examName = addExamName.trim() || `${examDiscipline.name} ${addExamGrade || examDiscipline.currentGrade || ''} exam`.trim()
+        await addDancerJourneyEvent({
+          kidProfileId: examDiscipline.kidProfileId || dancer?.id,
+          disciplineId: examDiscipline.id,
+          eventType: 'exam-goal',
+          title: examName,
+          details: addJourneyDetails.trim(),
+          eventDate: addDate,
+          examName,
+          examGrade: addExamGrade || examDiscipline.currentGrade || '',
+        })
+      } else if (isRoutine && addType === 'practice') {
         if (!routine) return
         if (!addDate) {
           notify('Please select a practice date.')
@@ -809,6 +935,7 @@ export default function Timeline() {
         await addDancerJourneyEvent({
           kidProfileId: dancer.id,
           disciplineId: addJourneyDisciplineId,
+          routineId: addJourneyRoutineId || null,
           eventType: addType,
           title: nextTitle,
           details: addJourneyDetails.trim(),
@@ -821,6 +948,35 @@ export default function Timeline() {
       setAddDialogOpen(false)
     } catch (err) {
       notify(err?.message || 'Could not save timeline item. Please try again.')
+    }
+  }
+
+  const handleSaveExamResult = async (examId) => {
+    if (!examId || examResultBusy) return
+    setExamResultBusy(true)
+    try {
+      const updates = {}
+      if (examResultInput) updates.examResult = examResultInput
+      if (examScoreInput) updates.details = examScoreInput.trim()
+      if (examResultInput) updates.status = 'completed'
+      await editDancerJourneyEvent(examId, updates)
+      setExpandedExamId(null)
+      setExamResultInput('')
+      setExamScoreInput('')
+    } catch (err) {
+      notify(err?.message || 'Could not save exam result.')
+    } finally {
+      setExamResultBusy(false)
+    }
+  }
+
+  const handleDeleteExam = async (examId) => {
+    if (!examId) return
+    try {
+      await removeDancerJourneyEvent(examId)
+      if (expandedExamId === examId) setExpandedExamId(null)
+    } catch (err) {
+      notify(err?.message || 'Could not delete exam.')
     }
   }
 
@@ -921,7 +1077,7 @@ export default function Timeline() {
             <p className={styles.subtitle}>Personal journey timeline</p>
           )}
         </div>
-        {isAdmin && ((isRoutine && routine) || (isDancer && dancer)) && (
+        {isAdmin && ((isRoutine && routine) || (isDancer && dancer) || (isDiscipline && discipline)) && (
           <button
             className={styles.addBtn}
             onClick={openAddDialog}
@@ -1016,7 +1172,7 @@ export default function Timeline() {
         </div>
       )}
 
-      {isAdmin && addDialogOpen && ((isRoutine && routine) || (isDancer && dancer)) && (
+      {isAdmin && addDialogOpen && ((isRoutine && routine) || (isDancer && dancer) || (isDiscipline && discipline)) && (
         <div className={styles.addDialogBackdrop} onClick={() => setAddDialogOpen(false)}>
           <div
             className={styles.addDialog}
@@ -1070,12 +1226,6 @@ export default function Timeline() {
               {isDancer && (
                 <>
                   <button
-                    className={`${styles.addTypeBtn} ${addType === 'discipline' ? styles.activeAddTypeBtn : ''}`}
-                    onClick={() => setAddType('discipline')}
-                  >
-                    Discipline
-                  </button>
-                  <button
                     className={`${styles.addTypeBtn} ${addType === 'class' ? styles.activeAddTypeBtn : ''}`}
                     onClick={() => setAddType('class')}
                   >
@@ -1088,22 +1238,84 @@ export default function Timeline() {
                     Private lesson
                   </button>
                   <button
-                    className={`${styles.addTypeBtn} ${addType === 'exam-goal' ? styles.activeAddTypeBtn : ''}`}
-                    onClick={() => setAddType('exam-goal')}
+                    className={`${styles.addTypeBtn} ${addType === 'exam' ? styles.activeAddTypeBtn : ''}`}
+                    onClick={() => setAddType('exam')}
                   >
-                    Exam goal
-                  </button>
-                  <button
-                    className={`${styles.addTypeBtn} ${addType === 'exam-result' ? styles.activeAddTypeBtn : ''}`}
-                    onClick={() => setAddType('exam-result')}
-                  >
-                    Exam result
+                    Exam
                   </button>
                 </>
               )}
+              {isDiscipline && (
+                <button
+                  className={`${styles.addTypeBtn} ${addType === 'exam' ? styles.activeAddTypeBtn : ''}`}
+                  onClick={() => setAddType('exam')}
+                >
+                  Exam
+                </button>
+              )}
             </div>
 
-            {addType === 'practice' ? (
+            {addType === 'exam' ? (
+              <>
+                {isDancer && (
+                  <div className={styles.addField}>
+                    <label>Discipline</label>
+                    {visibleDancerDisciplines.length === 0 ? (
+                      <p className={styles.addFieldHint}>Add a discipline first.</p>
+                    ) : (
+                      <select
+                        value={addJourneyDisciplineId}
+                        onChange={(event) => setAddJourneyDisciplineId(event.target.value)}
+                      >
+                        {visibleDancerDisciplines.map((disciplineItem) => (
+                          <option key={disciplineItem.id} value={disciplineItem.id}>
+                            {disciplineItem.icon} {disciplineItem.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
+                <div className={styles.addField}>
+                  <label>Exam name</label>
+                  <input
+                    type="text"
+                    value={addExamName}
+                    onChange={(event) => setAddExamName(event.target.value)}
+                    placeholder={(() => {
+                      const d = isDiscipline ? discipline : dancerDisciplineById[addJourneyDisciplineId]
+                      return `e.g. ${d?.name || 'Ballet'} ${d?.currentGrade || 'Grade 1'}`
+                    })()}
+                  />
+                </div>
+                <div className={styles.addField}>
+                  <label>Grade</label>
+                  <select
+                    value={addExamGrade}
+                    onChange={(event) => setAddExamGrade(event.target.value)}
+                  >
+                    {GRADE_LEVELS.map((g) => <option key={g} value={g}>{g}</option>)}
+                  </select>
+                </div>
+                <div className={styles.addField}>
+                  <label>Exam date</label>
+                  <input
+                    type="date"
+                    value={addDate}
+                    onChange={(event) => setAddDate(event.target.value)}
+                  />
+                </div>
+                <div className={styles.addField}>
+                  <label>Details (optional)</label>
+                  <input
+                    type="text"
+                    value={addJourneyDetails}
+                    onChange={(event) => setAddJourneyDetails(event.target.value)}
+                    placeholder="e.g. venue, time, notes"
+                  />
+                </div>
+              </>
+            ) : addType === 'practice' ? (
               <>
                 <div className={styles.addField}>
                   <label>Date</label>
@@ -1454,6 +1666,24 @@ export default function Timeline() {
                   )}
                 </div>
                 <div className={styles.addField}>
+                  <label>Choreography (optional)</label>
+                  {availableJourneyRoutines.length === 0 ? (
+                    <p className={styles.addFieldHint}>No routine choreography available for this dancer yet.</p>
+                  ) : (
+                    <select
+                      value={addJourneyRoutineId}
+                      onChange={(event) => setAddJourneyRoutineId(event.target.value)}
+                    >
+                      <option value="">No choreography linked</option>
+                      {availableJourneyRoutines.map((routineItem) => (
+                        <option key={routineItem.id} value={routineItem.id}>
+                          {routineItem.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+                <div className={styles.addField}>
                   <label>Date</label>
                   <input
                     type="date"
@@ -1525,7 +1755,7 @@ export default function Timeline() {
       <div className={styles.timeline}>
         {timelineItems.length === 0 && (
           <div className={styles.empty}>
-            <p>{isDancer ? 'No journey events yet — add the first milestone! ✨' : 'No events yet — start practising! 💃'}</p>
+            <p>{isDancer ? 'No journey events yet — add the first milestone! ✨' : isDiscipline ? 'No sessions or exams yet — add your first exam! 🎓' : 'No events yet — start practising! 💃'}</p>
           </div>
         )}
 
@@ -1549,14 +1779,19 @@ export default function Timeline() {
                 <div className={styles.cardDate}>{formatDate(item.date)}</div>
 
                 {item.type === 'session' && (() => {
+                  const isJourneyBackedSession = item.data.sourceType === 'journey'
+                  const sessionSourceId = item.data.sourceId || item.data.id
+                  const reflectionKey = isJourneyBackedSession ? `journey:${sessionSourceId}` : item.data.id
                   const sessionStarted = hasSessionStarted(item.data, item.date)
                   const sessionHasVideo = Boolean(item.data.rehearsalVideoKey)
                   const sessionMarkedNoVideo = Boolean(item.data.noVideoTaken)
                   const timeRange = [item.data.startTime || item.data.time || '', item.data.endTime || ''].filter(Boolean).join(' - ')
                   const sessionTitle = (item.data.title || '').trim() || formatRehearsalTitle(item.date)
-                  const sessionLink = item.data.routineId
-                    ? `/choreography/${item.data.routineId}?live=true&sessionId=${item.data.id}${sessionStarted && !sessionHasVideo ? '&openMedia=video' : ''}`
-                    : ''
+                  const sessionLink = (isJourneyBackedSession ? buildJourneySessionLivePath({ id: sessionSourceId }, {
+                    openMedia: sessionStarted && !sessionHasVideo ? 'video' : undefined,
+                  }) : buildSessionLivePath(item.data, {
+                    openMedia: sessionStarted && !sessionHasVideo ? 'video' : undefined,
+                  }))
 
                   const renderOriginalSessionCard = (detailsSuffix = '', onOpen = null) => (
                     <div
@@ -1566,9 +1801,13 @@ export default function Timeline() {
                           onOpen()
                           return
                         }
+                        if (isJourneyBackedSession && sessionLink) {
+                          navigate(sessionLink)
+                          return
+                        }
                         if (isAdmin) openSessionEditor(item.data)
                       }}
-                      style={(isAdmin || onOpen) ? { cursor: 'pointer' } : undefined}
+                      style={(isAdmin || onOpen || (isJourneyBackedSession && sessionLink)) ? { cursor: 'pointer' } : undefined}
                     >
                       <span className={styles.cardIcon}>{SESSION_ICONS[item.data.type] || '📝'}</span>
                       <div className={styles.cardInfo}>
@@ -1633,8 +1872,14 @@ export default function Timeline() {
                       ) : (
                         <div className={styles.sessionMediaFallback}>
                           <div className={styles.sessionMediaPrompt}>
-                            <span className={styles.sessionMediaPromptTitle}>Practice complete</span>
-                            <span className={styles.sessionMediaPromptText}>Add video or choose “No video taken”.</span>
+                            <span className={styles.sessionMediaPromptTitle}>
+                              {sessionMarkedNoVideo ? 'No video added yet' : 'Practice complete'}
+                            </span>
+                            <span className={styles.sessionMediaPromptText}>
+                              {sessionMarkedNoVideo
+                                ? 'Add a review video whenever you are ready.'
+                                : 'Add video or choose “No video taken”.'}
+                            </span>
                             <div className={`${styles.sessionMediaChoiceRow} ${styles.sessionMediaChoiceRowCenter}`}>
                               {sessionLink && (
                                 <button
@@ -1644,30 +1889,38 @@ export default function Timeline() {
                                     navigate(sessionLink)
                                   }}
                                 >
-                                  Add video
+                                  Add review video
                                 </button>
                               )}
-                              <button
-                                className={`${styles.sessionMediaChoiceBtn} ${styles.sessionMediaChoiceBtnSecondary}`}
-                                disabled={noVideoSavingSessionId === item.data.id}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  if (noVideoSavingSessionId === item.data.id) return
-                                  setNoVideoSavingSessionId(item.data.id)
-                                  editSession(item.data.id, {
-                                    noVideoTaken: true,
-                                    noVideoTakenAt: new Date().toISOString(),
-                                  })
-                                    .catch((err) => {
-                                      notify(err?.message || 'Could not save no-video status.')
-                                    })
-                                    .finally(() => {
-                                      setNoVideoSavingSessionId((prev) => (prev === item.data.id ? null : prev))
-                                    })
-                                }}
-                              >
-                                {noVideoSavingSessionId === item.data.id ? 'Saving…' : 'No video taken'}
-                              </button>
+                              {!sessionMarkedNoVideo && (
+                                <button
+                                  className={`${styles.sessionMediaChoiceBtn} ${styles.sessionMediaChoiceBtnSecondary}`}
+                                  disabled={noVideoSavingSessionId === item.data.id}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    if (noVideoSavingSessionId === item.data.id) return
+                                    setNoVideoSavingSessionId(item.data.id)
+                                    const saveNoVideo = isJourneyBackedSession
+                                      ? editDancerJourneyEvent(sessionSourceId, {
+                                        noVideoTaken: true,
+                                        noVideoTakenAt: new Date().toISOString(),
+                                      })
+                                      : editSession(item.data.id, {
+                                        noVideoTaken: true,
+                                        noVideoTakenAt: new Date().toISOString(),
+                                      })
+                                    saveNoVideo
+                                      .catch((err) => {
+                                        notify(err?.message || 'Could not save no-video status.')
+                                      })
+                                      .finally(() => {
+                                        setNoVideoSavingSessionId((prev) => (prev === item.data.id ? null : prev))
+                                      })
+                                  }}
+                                >
+                                  {noVideoSavingSessionId === item.data.id ? 'Saving…' : 'No video taken'}
+                                </button>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -1718,19 +1971,27 @@ export default function Timeline() {
                         <div className={styles.sessionMediaActions}>
                           {isAdmin && (
                             <div className={styles.sessionQuickActions}>
-                              <button
-                                className={styles.sessionQuickBtn}
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  openSessionEditor(item.data)
-                                }}
-                              >
-                                Edit
-                              </button>
+                              {!isJourneyBackedSession && (
+                                <button
+                                  className={styles.sessionQuickBtn}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    openSessionEditor(item.data)
+                                  }}
+                                >
+                                  Edit
+                                </button>
+                              )}
                               <button
                                 className={`${styles.sessionQuickBtn} ${styles.sessionQuickDeleteBtn}`}
                                 onClick={(e) => {
                                   e.stopPropagation()
+                                  if (isJourneyBackedSession) {
+                                    removeDancerJourneyEvent(sessionSourceId).catch((err) => {
+                                      notify(err?.message || 'Could not delete lesson.')
+                                    })
+                                    return
+                                  }
                                   handleDeleteSession(item.data.id)
                                 }}
                               >
@@ -1750,7 +2011,7 @@ export default function Timeline() {
                               className={`${styles.reflectBtn} ${styles.reflectBtnOverlay}`}
                               onClick={(e) => {
                                 e.stopPropagation()
-                                setReflectingSession(item.data.id)
+                                setReflectingSession(reflectionKey)
                               }}
                             >
                               How was it?
@@ -1823,6 +2084,96 @@ export default function Timeline() {
                   </div>
                 )}
 
+                {item.type === 'exam' && (
+                  <>
+                    <div
+                      className={styles.cardBody}
+                      onClick={() => {
+                        if (isKidMode) return
+                        setExpandedExamId(expandedExamId === item.data.id ? null : item.data.id)
+                        setExamResultInput(item.data.examResult || '')
+                        setExamScoreInput(item.data.details || '')
+                      }}
+                      style={{ cursor: isKidMode ? 'default' : 'pointer' }}
+                    >
+                      <span className={styles.cardIcon}>🎓</span>
+                      <div className={styles.cardInfo}>
+                        <div className={styles.cardTitle}>
+                          {item.data.title || item.data.examName || 'Exam'}
+                          {item.data.examGrade && (
+                            <span className={styles.examGradeTag}>{item.data.examGrade}</span>
+                          )}
+                        </div>
+                        <div className={styles.entryDetails}>
+                          <span>📅 {formatDateWithWeekday(item.data.eventDate)}</span>
+                        </div>
+                        {item.data.details && !item.data.examResult && (
+                          <div className={styles.cardNote}>{item.data.details}</div>
+                        )}
+                      </div>
+                      {item.data.examResult ? (
+                        <span className={styles.examResultBadge} data-result={item.data.examResult}>
+                          {item.data.examResult === 'distinction' ? '⭐' :
+                           item.data.examResult === 'merit' ? '🌟' :
+                           item.data.examResult === 'pass' ? '✅' :
+                           item.data.examResult === 'fail' ? '❌' : ''}
+                          {' '}{item.data.examResult.charAt(0).toUpperCase() + item.data.examResult.slice(1)}
+                        </span>
+                      ) : (
+                        <span className={styles.examPendingBadge}>Awaiting result</span>
+                      )}
+                      <span className={styles.cardArrow}>{expandedExamId === item.data.id ? '▾' : '→'}</span>
+                    </div>
+
+                    {expandedExamId === item.data.id && !isKidMode && (
+                      <div className={styles.examResultPanel}>
+                        <div className={styles.examResultRow}>
+                          <label className={styles.examResultLabel}>Result</label>
+                          <div className={styles.examResultChips}>
+                            {['distinction', 'merit', 'pass', 'fail'].map((result) => (
+                              <button
+                                key={result}
+                                type="button"
+                                className={`${styles.examResultChip} ${examResultInput === result ? styles.examResultChipActive : ''}`}
+                                data-result={result}
+                                onClick={() => setExamResultInput(examResultInput === result ? '' : result)}
+                              >
+                                {result === 'distinction' ? '⭐' : result === 'merit' ? '🌟' : result === 'pass' ? '✅' : '❌'}
+                                {' '}{result.charAt(0).toUpperCase() + result.slice(1)}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div className={styles.examResultRow}>
+                          <label className={styles.examResultLabel}>Notes / score (optional)</label>
+                          <input
+                            type="text"
+                            className={styles.examScoreInput}
+                            value={examScoreInput}
+                            onChange={(e) => setExamScoreInput(e.target.value)}
+                            placeholder="e.g. 78/100, great performance"
+                          />
+                        </div>
+                        <div className={styles.examResultActions}>
+                          <button
+                            className={styles.examDeleteBtn}
+                            onClick={() => handleDeleteExam(item.data.id)}
+                          >
+                            Delete exam
+                          </button>
+                          <button
+                            className={styles.examSaveBtn}
+                            onClick={() => handleSaveExamResult(item.data.id)}
+                            disabled={examResultBusy}
+                          >
+                            {examResultBusy ? 'Saving…' : 'Save result'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
                 {item.type === 'show' && (
                   <div
                     className={styles.cardBody}
@@ -1859,21 +2210,31 @@ export default function Timeline() {
                       </div>
                       {(() => {
                         const entry = (item.data.entries || []).find(e => e.routineId === id)
-                        if (!entry) return null
-                        const hasDate = Boolean(entry.scheduledDate)
-                        const hasTime = Boolean(entry.scheduledTime)
-                        const dateLabel = hasDate
-                          ? formatDateWithWeekday(entry.scheduledDate)
-                          : ''
-                        return (
-                          <div className={styles.entryDetails}>
-                            {(hasDate || hasTime) && (
+                        const hasDate = Boolean(entry?.scheduledDate)
+                        const hasTime = Boolean(entry?.scheduledTime)
+                        if (hasDate || hasTime) {
+                          const dateLabel = hasDate ? formatDateWithWeekday(entry.scheduledDate) : ''
+                          return (
+                            <div className={styles.entryDetails}>
                               <span>
                                 ⏰ {hasDate ? dateLabel : ''}{hasDate && hasTime ? ' · ' : ''}{hasTime ? entry.scheduledTime : ''}
                               </span>
-                            )}
-                          </div>
-                        )
+                            </div>
+                          )
+                        }
+                        // No entry schedule — fall back to the event date range
+                        const evStart = item.data.startDate || item.data.date
+                        const evEnd = item.data.endDate
+                        if (evStart) {
+                          const startLabel = formatDateWithWeekday(evStart)
+                          const endLabel = evEnd && evEnd !== evStart ? formatDate(evEnd) : ''
+                          return (
+                            <div className={styles.entryDetails}>
+                              <span>📅 {startLabel}{endLabel ? ` – ${endLabel}` : ''}</span>
+                            </div>
+                          )
+                        }
+                        return null
                       })()}
                     </div>
                     {(() => {
@@ -1947,7 +2308,7 @@ export default function Timeline() {
               </div>
 
               {/* Reflection inline modal */}
-              {reflectingSession === item.data.id && item.type === 'session' && (
+              {reflectingSession === (item.data.sourceType === 'journey' ? `journey:${item.data.sourceId || item.data.id}` : item.data.id) && item.type === 'session' && (
                 <div className={styles.reflectionPanel}>
                   <div className={styles.reflectionTitle}>How did that feel?</div>
                   <div className={styles.feelingPicker}>
@@ -1977,7 +2338,7 @@ export default function Timeline() {
                     </button>
                     <button
                       className={styles.reflectionSave}
-                      onClick={() => handleSubmitReflection(item.data.id)}
+                      onClick={() => handleSubmitReflection(item.data.sourceType === 'journey' ? `journey:${item.data.sourceId || item.data.id}` : item.data.id)}
                     >
                       Save ✓
                     </button>

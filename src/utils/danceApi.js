@@ -188,6 +188,9 @@ function mapEventEntry(r) {
     qualified: r.qualified,
     qualifiedForEventId: r.qualified_for_event_id,
     notes: r.notes,
+    documents: Array.isArray(r.documents) ? r.documents : [],
+    feeAmount: r.fee_amount != null ? Number(r.fee_amount) : null,
+    feeCurrency: r.fee_currency || 'GBP',
   }
 }
 
@@ -291,14 +294,28 @@ function mapDancerJourneyEvent(r) {
     id: r.id,
     kidProfileId: r.kid_profile_id,
     disciplineId: r.dancer_discipline_id,
+    routineId: r.routine_id || null,
     eventType: r.event_type,
     title: r.title,
     details: r.details || '',
     eventDate: r.event_date,
+    eventEndDate: r.event_end_date || '',
+    scheduledDate: r.scheduled_date || '',
+    scheduledTime: r.scheduled_time || '',
     examName: r.exam_name || '',
     examGrade: r.exam_grade || '',
     examResult: r.exam_result || '',
     status: r.status || '',
+    feeAmount: r.fee_amount != null ? Number(r.fee_amount) : null,
+    feeCurrency: r.fee_currency || 'GBP',
+    rehearsalVideoKey: r.rehearsal_video_key || '',
+    rehearsalVideoName: r.rehearsal_video_name || '',
+    noVideoTaken: Boolean(r.no_video_taken),
+    noVideoTakenAt: r.no_video_taken_at || null,
+    liveSyncOffsetMs: r.live_sync_offset_ms || 0,
+    liveSyncConfidence: Number.isFinite(r.live_sync_confidence) ? r.live_sync_confidence : null,
+    dancerReflection: r.dancer_reflection || { feeling: '', note: '', goals: [] },
+    videoAnnotations: r.video_annotations || [],
   }
 }
 
@@ -1288,6 +1305,8 @@ export async function createEventEntry(eventId, fields) {
     qualified: Boolean(fields.qualified),
     qualified_for_event_id: fields.qualifiedForEventId || null,
     notes: fields.notes || '',
+    fee_amount: fields.feeAmount != null ? fields.feeAmount : null,
+    fee_currency: fields.feeCurrency || 'GBP',
   }).select().single()
   if (error) throw new Error(error.message)
   return mapEventEntry(data)
@@ -1304,10 +1323,54 @@ export async function updateEventEntry(id, updates) {
   if (updates.qualified !== undefined) payload.qualified = Boolean(updates.qualified)
   if (updates.qualifiedForEventId !== undefined) payload.qualified_for_event_id = updates.qualifiedForEventId || null
   if (updates.notes !== undefined) payload.notes = updates.notes
+  if (updates.documents !== undefined) payload.documents = updates.documents
+  if (updates.feeAmount !== undefined) payload.fee_amount = updates.feeAmount
+  if (updates.feeCurrency !== undefined) payload.fee_currency = updates.feeCurrency
   const { data, error } = await client.from('event_entry')
     .update(payload).eq('id', id).select().single()
   if (error) throw new Error(error.message)
   return mapEventEntry(data)
+}
+
+/**
+ * Upload a document file for an event entry.
+ * Stores the blob in Supabase Storage and returns document metadata.
+ */
+export async function uploadEntryDocument(entryId, file) {
+  const client = ensureClient()
+  await requireUser()
+  const owner = ownerId()
+  const safeFileName = String(file.name || 'document').replace(/[^a-zA-Z0-9._-]/g, '_')
+  const docId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const storagePath = `users/${owner}/entry-docs/${entryId}/${docId}_${safeFileName}`
+  const contentType = file.type || 'application/octet-stream'
+
+  const { error: uploadError } = await client.storage
+    .from('dance-files')
+    .upload(storagePath, file, { upsert: false, contentType })
+  if (uploadError) throw new Error(uploadError.message)
+
+  const { data: urlData } = client.storage.from('dance-files').getPublicUrl(storagePath)
+
+  return {
+    id: docId,
+    name: file.name || 'document',
+    storagePath,
+    contentType,
+    size: file.size || 0,
+    url: urlData?.publicUrl || '',
+    uploadedAt: new Date().toISOString(),
+  }
+}
+
+/**
+ * Delete a document file from Supabase Storage.
+ */
+export async function deleteEntryDocument(storagePath) {
+  const client = ensureClient()
+  await requireUser()
+  const { error } = await client.storage.from('dance-files').remove([storagePath])
+  if (error) throw new Error(error.message)
 }
 
 export async function deleteEventEntry(id) {
@@ -1575,14 +1638,28 @@ export async function createDancerJourneyEvent(fields) {
     owner_id: ownerId(),
     kid_profile_id: fields.kidProfileId,
     dancer_discipline_id: fields.disciplineId || null,
+    routine_id: fields.routineId || null,
     event_type: fields.eventType || 'class',
     title: fields.title || '',
     details: fields.details || '',
     event_date: fields.eventDate || new Date().toISOString().split('T')[0],
+    event_end_date: fields.eventEndDate || null,
+    scheduled_date: fields.scheduledDate || null,
+    scheduled_time: fields.scheduledTime || '',
     exam_name: fields.examName || null,
     exam_grade: fields.examGrade || null,
     exam_result: fields.examResult || null,
     status: fields.status || null,
+    fee_amount: fields.feeAmount != null ? fields.feeAmount : null,
+    fee_currency: fields.feeCurrency || 'GBP',
+    rehearsal_video_key: fields.rehearsalVideoKey || '',
+    rehearsal_video_name: fields.rehearsalVideoName || '',
+    no_video_taken: Boolean(fields.noVideoTaken),
+    no_video_taken_at: fields.noVideoTakenAt || null,
+    live_sync_offset_ms: fields.liveSyncOffsetMs || 0,
+    live_sync_confidence: Number.isFinite(fields.liveSyncConfidence) ? fields.liveSyncConfidence : null,
+    dancer_reflection: fields.dancerReflection || { feeling: '', note: '', goals: [] },
+    video_annotations: fields.videoAnnotations || [],
   }
   const { data, error } = await client
     .from('dancer_journey_event')
@@ -1598,14 +1675,32 @@ export async function updateDancerJourneyEvent(id, updates) {
   await requireUser()
   const payload = {}
   if (updates.disciplineId !== undefined) payload.dancer_discipline_id = updates.disciplineId || null
+  if (updates.routineId !== undefined) payload.routine_id = updates.routineId || null
   if (updates.eventType !== undefined) payload.event_type = updates.eventType
   if (updates.title !== undefined) payload.title = updates.title
   if (updates.details !== undefined) payload.details = updates.details
   if (updates.eventDate !== undefined) payload.event_date = updates.eventDate
+  if (updates.eventEndDate !== undefined) payload.event_end_date = updates.eventEndDate || null
+  if (updates.scheduledDate !== undefined) payload.scheduled_date = updates.scheduledDate || null
+  if (updates.scheduledTime !== undefined) payload.scheduled_time = updates.scheduledTime || ''
   if (updates.examName !== undefined) payload.exam_name = updates.examName || null
   if (updates.examGrade !== undefined) payload.exam_grade = updates.examGrade || null
   if (updates.examResult !== undefined) payload.exam_result = updates.examResult || null
   if (updates.status !== undefined) payload.status = updates.status || null
+  if (updates.feeAmount !== undefined) payload.fee_amount = updates.feeAmount
+  if (updates.feeCurrency !== undefined) payload.fee_currency = updates.feeCurrency
+  if (updates.rehearsalVideoKey !== undefined) payload.rehearsal_video_key = updates.rehearsalVideoKey || ''
+  if (updates.rehearsalVideoName !== undefined) payload.rehearsal_video_name = updates.rehearsalVideoName || ''
+  if (updates.noVideoTaken !== undefined) payload.no_video_taken = Boolean(updates.noVideoTaken)
+  if (updates.noVideoTakenAt !== undefined) payload.no_video_taken_at = updates.noVideoTakenAt || null
+  if (updates.liveSyncOffsetMs !== undefined) payload.live_sync_offset_ms = updates.liveSyncOffsetMs || 0
+  if (updates.liveSyncConfidence !== undefined) {
+    payload.live_sync_confidence = Number.isFinite(updates.liveSyncConfidence)
+      ? updates.liveSyncConfidence
+      : null
+  }
+  if (updates.dancerReflection !== undefined) payload.dancer_reflection = updates.dancerReflection
+  if (updates.videoAnnotations !== undefined) payload.video_annotations = updates.videoAnnotations
   const { data, error } = await client
     .from('dancer_journey_event')
     .update(payload)

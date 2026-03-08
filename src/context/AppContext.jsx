@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { defaultState } from '../data/defaultState'
+import { buildSessionLivePath } from '../utils/helpers'
 import { checkForNewStickers } from '../utils/milestones'
 import { setFileStorageUserScope } from '../utils/fileStorage'
 import { hasSupabaseConfig, supabase } from '../utils/supabaseClient'
@@ -450,7 +451,7 @@ export function AppProvider({ children }) {
     if (!Array.isArray(sessions) || !sessions.length) return
 
     const routineNameById = new Map((routines || []).map((routine) => [routine.id, routine.name || 'Routine']))
-    const dueSessions = sessions.filter((session) => hasSessionCompletedWithoutVideo(session) && session.routineId)
+    const dueSessions = sessions.filter((session) => hasSessionCompletedWithoutVideo(session))
     if (!dueSessions.length) return
 
     const canNotify = typeof Notification !== 'undefined'
@@ -475,7 +476,7 @@ export function AppProvider({ children }) {
       }
 
       const title = (session.title || '').trim() || routineNameById.get(session.routineId) || 'Practice session'
-      const deepLink = `/choreography/${session.routineId}?live=true&sessionId=${session.id}&openMedia=video`
+      const deepLink = buildSessionLivePath(session, { openMedia: 'video' })
       const fullUrl = `${window.location.origin}${deepLink}`
 
       const markSeen = () => {
@@ -604,7 +605,7 @@ export function AppProvider({ children }) {
       throw new Error('Code is invalid or expired. Tap resend and enter the newest code.')
     }
     throw lastError || new Error('Could not verify re-authentication code.')
-  }, [authUser?.email, authUser?.id])
+  }, [authUser])
 
   // ============ PROFILE MANAGEMENT ============
   const loadProfiles = useCallback(async () => {
@@ -1068,6 +1069,14 @@ export function AppProvider({ children }) {
   }, [])
 
   const editEventEntry = useCallback(async (showId, entryId, updates) => {
+    // Find the current entry so we can detect qualifiedForEventId changes
+    let currentEntry = null
+    setEvents(prev => {
+      const ev = prev.find(e => e.id === showId)
+      currentEntry = (ev?.entries || []).find(e => e.id === entryId) || null
+      return prev // no-op, just reading
+    })
+
     const updated = await apiUpdateEventEntry(entryId, updates)
     setEvents(prev => sortEventsChronological(prev.map(ev =>
       ev.id === showId
@@ -1081,6 +1090,52 @@ export function AppProvider({ children }) {
           })()
         : ev
     )))
+
+    // Auto-create an entry in the target competition when qualifiedForEventId is set
+    if (
+      updates.qualifiedForEventId !== undefined &&
+      updates.qualifiedForEventId &&
+      updates.qualifiedForEventId !== (currentEntry?.qualifiedForEventId || '')
+    ) {
+      const routineId = updated.routineId || currentEntry?.routineId
+      if (routineId) {
+        // Check if the routine already has an entry in the target event
+        let alreadyExists = false
+        setEvents(prev => {
+          const targetEvent = prev.find(e => e.id === updates.qualifiedForEventId)
+          alreadyExists = (targetEvent?.entries || []).some(e => e.routineId === routineId)
+          return prev // no-op, just reading
+        })
+        if (!alreadyExists) {
+          try {
+            const newEntry = await apiCreateEventEntry(updates.qualifiedForEventId, {
+              routineId,
+              scheduledDate: '',
+              scheduledTime: '',
+              place: null,
+              qualified: false,
+              qualifiedForEventId: '',
+              notes: '',
+            })
+            setEvents(prev => sortEventsChronological(prev.map(ev =>
+              ev.id === updates.qualifiedForEventId
+                ? (() => {
+                    const nextEntries = sortEventEntriesChronological([...(ev.entries || []), newEntry])
+                    return {
+                      ...ev,
+                      entries: nextEntries,
+                      routineIds: [...new Set(nextEntries.map((item) => item.routineId).filter(Boolean))],
+                    }
+                  })()
+                : ev
+            )))
+          } catch (err) {
+            console.error('Auto-add entry to qualified event failed:', err)
+          }
+        }
+      }
+    }
+
     return updated
   }, [])
 

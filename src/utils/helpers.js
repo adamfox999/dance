@@ -122,6 +122,36 @@ export function generateId(prefix = "item") {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
 }
 
+export function buildSessionLivePath(session, options = {}) {
+  const sessionId = String(session?.id || options.sessionId || '').trim()
+  if (!sessionId) return '/'
+
+  const query = new URLSearchParams()
+  if (options.live !== false) query.set('live', 'true')
+  if (options.openMedia) query.set('openMedia', options.openMedia)
+  if (options.view) query.set('view', options.view)
+
+  const routineId = String(session?.routineId || options.routineId || '').trim()
+  if (routineId) {
+    query.set('sessionId', sessionId)
+    return `/choreography/${routineId}?${query.toString()}`
+  }
+
+  return `/session/${sessionId}?${query.toString()}`
+}
+
+export function buildJourneySessionLivePath(journeyEvent, options = {}) {
+  const journeyEventId = String(journeyEvent?.id || options.journeyEventId || '').trim()
+  if (!journeyEventId) return '/'
+
+  const query = new URLSearchParams()
+  if (options.live !== false) query.set('live', 'true')
+  if (options.openMedia) query.set('openMedia', options.openMedia)
+  if (options.view) query.set('view', options.view)
+
+  return `/journey-session/${journeyEventId}?${query.toString()}`
+}
+
 export function getDaysInMonth(year, month) {
   return new Date(year, month + 1, 0).getDate()
 }

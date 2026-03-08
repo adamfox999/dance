@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { getCurrentStreak } from '../utils/milestones'
-import { getDaysInMonth, getFirstDayOfMonth, formatDate, daysUntil, isFuture, getSessionIcon } from '../utils/helpers'
+import { getDaysInMonth, getFirstDayOfMonth, formatDate, daysUntil, isFuture, getSessionIcon, buildSessionLivePath } from '../utils/helpers'
 import { AED_TEMPLATES, EVENT_TYPES, getEventTypeIcon } from '../data/aedEvents'
 import styles from './Calendar.module.css'
 
@@ -501,14 +501,12 @@ export default function Calendar() {
                       </div>
                     )}
                   </div>
-                  {s.routineId && (
-                    <button
-                      className={styles['upcoming-live-btn']}
-                      onClick={() => navigate(`/choreography/${s.routineId}?live=true&sessionId=${s.id}`)}
-                    >
-                      ▶ Live
-                    </button>
-                  )}
+                  <button
+                    className={styles['upcoming-live-btn']}
+                    onClick={() => navigate(buildSessionLivePath(s))}
+                  >
+                    ▶ Live
+                  </button>
                   <span
                     className={`${styles['upcoming-countdown']} ${days <= 14 ? styles.soon : ''}`}
                   >

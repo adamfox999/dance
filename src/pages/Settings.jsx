@@ -6,7 +6,7 @@ import { saveFile, getLocalFileStorageUsage } from '../utils/fileStorage'
 import { notify } from '../utils/notify'
 import MediaPickerDialog from '../components/MediaPickerDialog'
 import { GRADE_LEVELS } from '../data/defaultState'
-import { EVENT_TYPES } from '../data/aedEvents'
+import { EVENT_TYPES, AED_TEMPLATES } from '../data/aedEvents'
 import styles from './Settings.module.css'
 
 const DISCIPLINE_ICONS = ['🩰', '👞', '💃', '🎭', '🤸', '🕺', '✨', '🌟']
@@ -93,6 +93,15 @@ export default function Settings() {
   const coverPreviewUrlsRef = useRef({})
   const coverAutoCloseTimerRef = useRef(null)
   const [localCacheUsage, setLocalCacheUsage] = useState({ bytes: 0, fileCount: 0, loading: true })
+
+  // Add-competition dialog state
+  const [compDialogOpen, setCompDialogOpen] = useState(false)
+  const [compEventType, setCompEventType] = useState('qualifier')
+  const [compName, setCompName] = useState('')
+  const [compStartDate, setCompStartDate] = useState('')
+  const [compEndDate, setCompEndDate] = useState('')
+  const [compVenue, setCompVenue] = useState('')
+  const [compBusy, setCompBusy] = useState(false)
 
   const formatBytes = (value) => {
     const bytes = Number(value || 0)
@@ -785,13 +794,45 @@ export default function Settings() {
   }
 
   // ---- Competitions / Events ----
-  const handleAddShow = () => {
-    addShow({
-      name: 'New Competition',
-      date: new Date().toISOString().split('T')[0],
-      eventType: 'qualifier',
-      venue: '',
-    })
+  const openCompDialog = () => {
+    setCompEventType('qualifier')
+    setCompName('')
+    setCompStartDate('')
+    setCompEndDate('')
+    setCompVenue('')
+    setCompBusy(false)
+    setCompDialogOpen(true)
+  }
+
+  const applyCompTemplate = (tpl) => {
+    setCompEventType(tpl.eventType || 'qualifier')
+    setCompName(tpl.name || '')
+    setCompStartDate(tpl.startDate || '')
+    setCompEndDate(tpl.endDate || '')
+    setCompVenue(tpl.venue || '')
+  }
+
+  const handleSaveComp = async () => {
+    const trimmedName = compName.trim()
+    if (!trimmedName) { notify('Please enter a competition name.'); return }
+    if (!compStartDate) { notify('Please pick a start date.'); return }
+    setCompBusy(true)
+    try {
+      await addShow({
+        name: trimmedName,
+        date: compStartDate,
+        startDate: compStartDate,
+        endDate: compEndDate || undefined,
+        eventType: compEventType,
+        venue: compVenue.trim(),
+      })
+      setCompDialogOpen(false)
+    } catch (err) {
+      console.error('Failed to add competition:', err)
+      notify('Failed to add competition. Please try again.')
+    } finally {
+      setCompBusy(false)
+    }
   }
 
   const handleDeleteShow = (id) => {
@@ -1686,7 +1727,72 @@ export default function Settings() {
                 No competitions yet.
               </div>
             )}
-            <button className={styles['add-btn']} onClick={handleAddShow}>+ Add Competition</button>
+            <button className={styles['add-btn']} onClick={openCompDialog}>+ Add Competition</button>
+          </div>
+        </div>
+      )}
+
+      {/* Add Competition Dialog */}
+      {compDialogOpen && (
+        <div className={styles['comp-dialog-overlay']} role="presentation" onClick={() => !compBusy && setCompDialogOpen(false)}>
+          <div
+            className={styles['comp-dialog']}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Add Competition"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className={styles['comp-dialog-title']}>Add Competition</h3>
+
+            {/* Quick-pick templates */}
+            <div className={styles['comp-dialog-templates']}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#6b7280' }}>Quick-fill:</span>
+              {AED_TEMPLATES.map((tpl) => (
+                <button
+                  key={tpl.name}
+                  type="button"
+                  className={styles['comp-template-chip']}
+                  onClick={() => applyCompTemplate(tpl)}
+                >{tpl.name.replace('AED ', '')}</button>
+              ))}
+            </div>
+
+            <label className={styles['comp-field']}>
+              <span>Type</span>
+              <select value={compEventType} onChange={(e) => setCompEventType(e.target.value)}>
+                {EVENT_TYPES.filter((o) => o.value !== 'show').map((o) => (
+                  <option key={o.value} value={o.value}>{o.icon} {o.label}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className={styles['comp-field']}>
+              <span>Name</span>
+              <input type="text" value={compName} onChange={(e) => setCompName(e.target.value)} placeholder="e.g. Spring Qualifier" autoFocus />
+            </label>
+
+            <div className={styles['comp-date-row']}>
+              <label className={styles['comp-field']}>
+                <span>Start date</span>
+                <input type="date" value={compStartDate} onChange={(e) => setCompStartDate(e.target.value)} />
+              </label>
+              <label className={styles['comp-field']}>
+                <span>End date <span style={{ fontWeight: 400, color: '#9ca3af' }}>(optional)</span></span>
+                <input type="date" value={compEndDate} onChange={(e) => setCompEndDate(e.target.value)} />
+              </label>
+            </div>
+
+            <label className={styles['comp-field']}>
+              <span>Venue</span>
+              <input type="text" value={compVenue} onChange={(e) => setCompVenue(e.target.value)} placeholder="e.g. Town Hall, London" />
+            </label>
+
+            <div className={styles['comp-dialog-actions']}>
+              <button type="button" className={styles['comp-dialog-cancel']} onClick={() => setCompDialogOpen(false)} disabled={compBusy}>Cancel</button>
+              <button type="button" className={styles['comp-dialog-save']} onClick={handleSaveComp} disabled={compBusy}>
+                {compBusy ? 'Saving…' : 'Save Competition'}
+              </button>
+            </div>
           </div>
         </div>
       )}

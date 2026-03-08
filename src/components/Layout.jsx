@@ -9,7 +9,8 @@ export default function Layout({ children }) {
   const { practiceLog, settings, hasSupabaseAuth, isAuthenticated, isOnline, isUsingCachedData, lastSyncedAt } = useApp()
   const location = useLocation()
   const streak = getCurrentStreak(practiceLog)
-  const isLiveView = location.pathname.startsWith('/choreography/') && new URLSearchParams(location.search).get('live') === 'true'
+  const isLivePath = location.pathname.startsWith('/choreography/') || location.pathname.startsWith('/session/') || location.pathname.startsWith('/journey-session/')
+  const isLiveView = isLivePath && new URLSearchParams(location.search).get('live') === 'true'
   const isTimelineView = location.pathname.startsWith('/timeline/')
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const showProfiles = hasSupabaseAuth && isAuthenticated

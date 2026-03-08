@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { getEventTypeIcon } from '../data/aedEvents'
-import { getSessionIcon, formatDateWithWeekday } from '../utils/helpers'
+import { getSessionIcon, formatDateWithWeekday, buildSessionLivePath } from '../utils/helpers'
 import { notify } from '../utils/notify'
 import styles from './Dashboard.module.css'
 
@@ -330,13 +330,7 @@ export default function Dashboard() {
                   key={sessionItem.id}
                   type="button"
                   className={styles.todayItem}
-                  onClick={() => {
-                    if (sessionItem.routineId) {
-                      navigate(`/choreography/${sessionItem.routineId}?live=true&sessionId=${sessionItem.id}`)
-                      return
-                    }
-                    navigate('/calendar')
-                  }}
+                  onClick={() => navigate(buildSessionLivePath(sessionItem))}
                 >
                   <span className={styles.todayItemIcon}>{getSessionIcon(sessionItem.type)}</span>
                   <span className={styles.todayItemBody}>

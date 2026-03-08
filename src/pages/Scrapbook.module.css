@@ -266,11 +266,21 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  .entryCard { background: #1f2937; }
+  .entryCard {
+    background: #ffffff;
+    color: #111827;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  .entryAuthor { color: #6b7280; }
+  .entryContent { color: #111827; }
   .addNoteBtn { background: #1f2937; border-color: #374151; color: #9ca3af; }
   .addPhotoBtn { background: #1f2937; border-color: #374151; color: #9ca3af; }
   .addVideoBtn { background: #1f2937; border-color: #374151; color: #9ca3af; }
-  .reactionBtn { background: #374151; }
+  .reactionBtn {
+    background: #f3f4f6;
+    border: 1px solid #d1d5db;
+  }
   .eventEntryRow { background: #1f2937; }
   .entryResultPanel { background: #1e1b2e; border-color: #3b2f63; }
   .resultLabel { color: #c4b5fd; }

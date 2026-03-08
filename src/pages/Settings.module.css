@@ -359,3 +359,138 @@
   border-radius: var(--radius-sm);
   padding: 10px 12px;
 }
+
+/* ===== ADD COMPETITION DIALOG ===== */
+
+.comp-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.comp-dialog {
+  width: min(520px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.comp-dialog-title {
+  margin: 0;
+  font-size: 1.08rem;
+  color: #3b1d58;
+}
+
+.comp-dialog-templates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.comp-template-chip {
+  border: 1px solid var(--gray-300);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--gray-50);
+  color: var(--gray-700);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.comp-template-chip:hover {
+  border-color: var(--purple-400);
+  color: var(--purple-600);
+  background: #faf5ff;
+}
+
+.comp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.comp-field > span {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--gray-600);
+}
+
+.comp-field > input,
+.comp-field > select {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--gray-300);
+  font-size: 0.9rem;
+  font-family: inherit;
+}
+
+.comp-field > input:focus,
+.comp-field > select:focus {
+  outline: none;
+  border-color: var(--purple-400);
+  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.15);
+}
+
+.comp-date-row {
+  display: flex;
+  gap: 12px;
+}
+
+.comp-date-row > .comp-field {
+  flex: 1;
+}
+
+.comp-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.comp-dialog-cancel,
+.comp-dialog-save {
+  border: none;
+  border-radius: 999px;
+  padding: 9px 18px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.comp-dialog-cancel {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.comp-dialog-cancel:hover {
+  background: #e5e7eb;
+}
+
+.comp-dialog-save {
+  background: #a855f7;
+  color: #fff;
+}
+
+.comp-dialog-save:hover {
+  background: #9333ea;
+}
+
+.comp-dialog-save:disabled,
+.comp-dialog-cancel:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
